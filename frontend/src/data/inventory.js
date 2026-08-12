@@ -1,0 +1,153 @@
+/**
+ * section: 'countable' — Bar & Packaging (units: boxes, bags, packs, bottles)
+ * section: 'uncountable' — Kitchen & Fresh (weight in kg)
+ *
+ * stock / maxStock are absolute counts (not percentages).
+ * criticalThreshold — triggers "Very Low Stock" (e.g. milk ≤ 5 boxes)
+ * lowThreshold — triggers "Low Stock" when above critical but still low
+ */
+export const inventoryItems = [
+  // Bar & Packaging Supplies (Countable)
+  {
+    id: 1,
+    name: 'Whole Milk',
+    category: 'Dairy',
+    section: 'countable',
+    stock: 4,
+    maxStock: 25,
+    unitLabel: 'boxes',
+    unitSingular: 'box',
+    criticalThreshold: 5,
+    lowThreshold: 10,
+  },
+  {
+    id: 2,
+    name: 'Oat Milk',
+    category: 'Dairy',
+    section: 'countable',
+    stock: 18,
+    maxStock: 25,
+    unitLabel: 'bottles',
+    unitSingular: 'bottle',
+    criticalThreshold: 5,
+    lowThreshold: 10,
+  },
+  {
+    id: 3,
+    name: 'Coffee Beans',
+    category: 'Coffee',
+    section: 'countable',
+    stock: 6,
+    maxStock: 10,
+    unitLabel: 'bags',
+    unitSingular: 'bag',
+    lowThreshold: 3,
+  },
+  {
+    id: 4,
+    name: 'Paper Cups (12oz)',
+    category: 'Packaging',
+    section: 'countable',
+    stock: 0,
+    maxStock: 50,
+    unitLabel: 'packs',
+    unitSingular: 'pack',
+    lowThreshold: 12,
+  },
+  {
+    id: 5,
+    name: 'Pastry Boxes',
+    category: 'Packaging',
+    section: 'countable',
+    stock: 8,
+    maxStock: 40,
+    unitLabel: 'boxes',
+    unitSingular: 'box',
+    lowThreshold: 10,
+  },
+  {
+    id: 6,
+    name: 'Vanilla Syrup',
+    category: 'Bar Supplies',
+    section: 'countable',
+    stock: 3,
+    maxStock: 12,
+    unitLabel: 'bottles',
+    unitSingular: 'bottle',
+    lowThreshold: 4,
+  },
+  {
+    id: 7,
+    name: 'Sugar',
+    category: 'Bar Supplies',
+    section: 'countable',
+    stock: 5,
+    maxStock: 20,
+    unitLabel: 'bags',
+    unitSingular: 'bag',
+    lowThreshold: 5,
+  },
+
+  // Kitchen & Fresh Ingredients (Uncountable — kg)
+  {
+    id: 8,
+    name: 'Beef (Fresh)',
+    category: 'Meat',
+    section: 'uncountable',
+    stock: 2.5,
+    maxStock: 10,
+    unitLabel: 'kg',
+    unitSingular: 'kg',
+    isWeight: true,
+    lowThreshold: 2,
+  },
+  {
+    id: 9,
+    name: 'Chicken Breast',
+    category: 'Meat',
+    section: 'uncountable',
+    stock: 4,
+    maxStock: 10,
+    unitLabel: 'kg',
+    unitSingular: 'kg',
+    isWeight: true,
+    lowThreshold: 2,
+  },
+  {
+    id: 10,
+    name: 'Salmon Fillet',
+    category: 'Fish',
+    section: 'uncountable',
+    stock: 1.2,
+    maxStock: 10,
+    unitLabel: 'kg',
+    unitSingular: 'kg',
+    isWeight: true,
+    lowThreshold: 2,
+  },
+  {
+    id: 11,
+    name: 'Croissant Dough',
+    category: 'Bakery Prep',
+    section: 'uncountable',
+    stock: 3,
+    maxStock: 8,
+    unitLabel: 'kg',
+    unitSingular: 'kg',
+    isWeight: true,
+    lowThreshold: 2,
+  },
+]
+
+export const INVENTORY_SECTIONS = {
+  countable: {
+    id: 'countable',
+    title: 'Bar & Packaging Supplies (Countable)',
+    description: 'Tracked by individual units — bottles, boxes, bags, and packs.',
+  },
+  uncountable: {
+    id: 'uncountable',
+    title: 'Kitchen & Fresh Ingredients (Uncountable)',
+    description: 'Tracked by raw weight in kilograms (kg).',
+  },
+}

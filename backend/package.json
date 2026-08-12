@@ -1,0 +1,35 @@
+{
+  "name": "romduol-cafe-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Romdoul Restaurant / Cafe Management System",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "seed:admin": "node scripts/seed-admin.js",
+    "seed:menu": "node scripts/seed-menu-photos.js",
+    "seed:sales": "node scripts/seed-sales-history.js",
+    "seed:sales:year": "node src/scripts/seedSalesHistory.js",
+    "seed:12months": "node src/scripts/seed12MonthsSales.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.2.0",
+    "mysql2": "^3.22.5",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

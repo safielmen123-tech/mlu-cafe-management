@@ -1,0 +1,113 @@
+const fs = require('fs')
+const path = require('path')
+const { spawn } = require('child_process')
+const { env } = require('../config/env')
+const { resolveDbHost } = require('../../db')
+
+function findLaragonMysqlBin() {
+  const laragonRoot = process.env.LARAGON_ROOT || 'C:\\laragon'
+  const mysqlRoot = path.join(laragonRoot, 'bin', 'mysql')
+
+  if (!fs.existsSync(mysqlRoot)) return null
+
+  const versions = fs.readdirSync(mysqlRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse()
+
+  for (const version of versions) {
+    const binDir = path.join(mysqlRoot, version, 'bin')
+    const mysqldumpPath = path.join(binDir, process.platform === 'win32' ? 'mysqldump.exe' : 'mysqldump')
+    if (fs.existsSync(mysqldumpPath)) {
+      return binDir
+    }
+  }
+
+  return null
+}
+
+function resolveMysqlBinDir() {
+  if (process.env.MYSQL_BIN && fs.existsSync(process.env.MYSQL_BIN)) {
+    return process.env.MYSQL_BIN
+  }
+
+  const laragonBin = findLaragonMysqlBin()
+  if (laragonBin) return laragonBin
+
+  return null
+}
+
+function resolveCliTool(toolName) {
+  const binDir = resolveMysqlBinDir()
+  const executable = process.platform === 'win32' ? `${toolName}.exe` : toolName
+
+  if (binDir) {
+    const fullPath = path.join(binDir, executable)
+    if (fs.existsSync(fullPath)) return fullPath
+  }
+
+  return executable
+}
+
+function buildMysqlArgs() {
+  const host = resolveDbHost(env.db.host)
+  const args = ['-h', host, '-u', env.db.user]
+
+  if (env.db.password) {
+    args.push(`-p${env.db.password}`)
+  }
+
+  return args
+}
+
+function runCliProcess(executable, args, input = null) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+
+    const stdoutChunks = []
+    const stderrChunks = []
+
+    child.stdout.on('data', (chunk) => stdoutChunks.push(chunk))
+    child.stderr.on('data', (chunk) => stderrChunks.push(chunk))
+
+    child.on('error', (error) => {
+      reject(new Error(`Failed to start ${path.basename(executable)}: ${error.message}`))
+    })
+
+    child.on('close', (code) => {
+      const stdout = Buffer.concat(stdoutChunks)
+      const stderr = Buffer.concat(stderrChunks).toString('utf8')
+
+      if (code !== 0) {
+        const detail = stderr.trim() || `Process exited with code ${code}`
+        reject(new Error(detail))
+        return
+      }
+
+      resolve({ stdout, stderr })
+    })
+
+    if (input) {
+      child.stdin.write(input)
+    }
+    child.stdin.end()
+  })
+}
+
+function formatBackupTimestamp() {
+  const now = new Date()
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+}
+
+module.exports = {
+  resolveCliTool,
+  buildMysqlArgs,
+  runCliProcess,
+  formatBackupTimestamp,
+  getDatabaseName: () => env.db.database,
+}

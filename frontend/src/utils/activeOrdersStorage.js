@@ -1,0 +1,142 @@
+import { floorTables, TAKEOUT_BILL } from '../data/tables'
+import { applyItemsToBill, normalizeBillItem } from './posHelpers'
+
+const STORAGE_KEY = 'romduol.activeOrders'
+
+function statusForItems(items) {
+  return items?.length > 0 ? 'occupied' : 'empty'
+}
+
+function serializeBill(bill) {
+  return {
+    id: bill.id,
+    name: bill.name,
+    isTakeOut: Boolean(bill.isTakeOut),
+    status: bill.status,
+    orderTotal: bill.orderTotal,
+    orderSummary: bill.orderSummary,
+    items: (bill.items || []).map((item) => normalizeBillItem({ ...item })),
+  }
+}
+
+export function readActiveOrdersSnapshot() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw)
+    if (!parsed || !Array.isArray(parsed.tables)) return null
+
+    return {
+      tables: parsed.tables,
+      takeOut: parsed.takeOut ?? TAKEOUT_BILL,
+      invoiceCounter: Number.parseInt(parsed.invoiceCounter, 10) || 1043,
+      savedAt: parsed.savedAt ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function writeActiveOrdersSnapshot({ tables, takeOut, invoiceCounter }) {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        tables: tables.map(serializeBill),
+        takeOut: serializeBill(takeOut),
+        invoiceCounter,
+        savedAt: new Date().toISOString(),
+      }),
+    )
+  } catch (err) {
+    console.error('Failed to persist active orders to localStorage:', err)
+  }
+}
+
+export function hydrateFromSnapshot(snapshot) {
+  if (!snapshot) {
+    return {
+      tables: floorTables,
+      takeOut: TAKEOUT_BILL,
+      invoiceCounter: 1043,
+    }
+  }
+
+  const tables = floorTables.map((table) => {
+    const cached = snapshot.tables.find((entry) => entry.id === table.id)
+    if (!cached || !cached.items?.length) {
+      return { ...table, status: 'empty', items: [], orderSummary: null, orderTotal: null }
+    }
+    return applyItemsToBill(table, cached.items, statusForItems(cached.items))
+  })
+
+  const takeOut =
+    snapshot.takeOut?.items?.length > 0
+      ? applyItemsToBill(TAKEOUT_BILL, snapshot.takeOut.items, statusForItems(snapshot.takeOut.items))
+      : TAKEOUT_BILL
+
+  return {
+    tables,
+    takeOut,
+    invoiceCounter: snapshot.invoiceCounter ?? 1043,
+  }
+}
+
+export function groupActiveRows(activeOrderRows) {
+  if (!activeOrderRows?.length) return {}
+
+  return activeOrderRows.reduce((acc, row) => {
+    const targetKey = row.target_id != null ? String(row.target_id).trim() : 'takeout'
+    if (!acc[targetKey]) acc[targetKey] = []
+
+    acc[targetKey].push(
+      normalizeBillItem({
+        id: row.menu_item_id,
+        name: row.name,
+        qty: parseInt(row.quantity || 0, 10),
+        unitPrice: parseFloat(row.price || 0),
+      }),
+    )
+    return acc
+  }, {})
+}
+
+export function reconcileActiveOrders(prevTables, prevTakeOut, groupedOrders) {
+  const hasServerData = groupedOrders && Object.keys(groupedOrders).length > 0
+
+  const tables = prevTables.map((table) => {
+    const stringId = table.id.toString()
+    const serverItems = groupedOrders?.[stringId]
+
+    if (serverItems?.length) {
+      return applyItemsToBill(table, serverItems, statusForItems(serverItems))
+    }
+
+    if (hasServerData) {
+      if (table.items?.length > 0) {
+        return table
+      }
+      return {
+        ...table,
+        status: 'empty',
+        orderSummary: null,
+        orderTotal: null,
+        items: [],
+      }
+    }
+
+    return table
+  })
+
+  const serverTakeout = groupedOrders?.takeout
+  let takeOut = prevTakeOut
+
+  if (serverTakeout?.length) {
+    takeOut = applyItemsToBill(TAKEOUT_BILL, serverTakeout, statusForItems(serverTakeout))
+  } else if (hasServerData) {
+    takeOut = prevTakeOut.items?.length > 0 ? prevTakeOut : TAKEOUT_BILL
+  }
+
+  return { tables, takeOut }
+}
