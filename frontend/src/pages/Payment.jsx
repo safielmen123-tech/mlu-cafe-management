@@ -71,7 +71,7 @@ function BillManager({
   // Drafts hold only in-progress edits; anything untouched reads straight from the bill.
   const [priceDrafts, setPriceDrafts] = useState({})
   const [draftBillId, setDraftBillId] = useState(bill.id)
-  const { subtotal, tax, total } = calculateTotals(bill.items)
+  const { subtotal, total } = calculateTotals(bill.items)
 
   if (draftBillId !== bill.id) {
     setDraftBillId(bill.id)
@@ -114,6 +114,9 @@ function BillManager({
           >
             <div className="min-w-0 flex-1">
               <p className="text-heading font-medium">{item.name}</p>
+              {item.notes && !String(item.name || '').includes(item.notes) ? (
+                <p className="text-muted mt-0.5 text-xs">{item.notes}</p>
+              ) : null}
               <p className="text-muted text-xs">
                 Qty: {item.qty || item.quantity || 1}
               </p>
@@ -162,15 +165,11 @@ function BillManager({
         <div className="space-y-2 text-sm">
           <div className="text-muted flex justify-between">
             <span>Subtotal</span>
-            <span>${subtotal.toFixed(2)}</span>
-          </div>
-          <div className="text-muted flex justify-between">
-            <span>Tax (10%)</span>
-            <span>${tax.toFixed(2)}</span>
+            <span className="tabular-nums">${subtotal.toFixed(2)}</span>
           </div>
           <div className="text-heading flex justify-between border-t border-slate-200 pt-2 text-xl font-bold dark:border-zinc-800">
             <span>Total Due</span>
-            <span className="text-forest-600 dark:text-forest-400">${total.toFixed(2)}</span>
+            <span className="tabular-nums text-forest-600 dark:text-forest-400">${total.toFixed(2)}</span>
           </div>
         </div>
 

@@ -1,28 +1,30 @@
-const SESSION_VIEW_KEY = 'romdoul_active_view'
-const LEGACY_LOCAL_KEY = 'romdoul_active_view'
+const SESSION_VIEW_KEY = 'mlu_kitchen_cafe_active_view'
+// Mirrored in localStorage so a brand-new tab still lands on the last view.
+const LOCAL_VIEW_KEY = 'mlu_kitchen_cafe_active_view'
 
 export const VALID_VIEWS = new Set([
   'dashboard',
   'users',
   'order',
   'table',
+  'reservations',
   'payment',
   'menu',
   'sales_history',
   'inventory',
   'reports_analysis',
-  'reports_prediction',
   'settings',
   'backup_recovery',
 ])
 
 const LEGACY_VIEW_ALIASES = {
   reports: 'reports_analysis',
+  reports_prediction: 'reports_analysis',
 }
 
 const HASH_SEGMENT_ALIASES = {
   'reports-analysis': 'reports_analysis',
-  'reports-prediction': 'reports_prediction',
+  'reports-prediction': 'reports_analysis',
   'sales-history': 'sales_history',
   'backup-recovery': 'backup_recovery',
 }
@@ -68,14 +70,14 @@ export function readActiveView() {
         return fromHash
       }
 
-      const fromLocal = localStorage.getItem(LEGACY_LOCAL_KEY)
+      const fromLocal = localStorage.getItem(LOCAL_VIEW_KEY)
       const resolvedLocal = resolveViewId(fromLocal)
       if (resolvedLocal) {
         writeActiveView(resolvedLocal)
         return resolvedLocal
       }
 
-      const sessionRaw = localStorage.getItem('romduol.session')
+      const sessionRaw = localStorage.getItem('mlu_kitchen_cafe.session')
       if (sessionRaw) {
         const parsed = JSON.parse(sessionRaw)
         const resolved = resolveViewId(parsed?.activePage)
@@ -97,7 +99,7 @@ export function writeActiveView(view) {
   try {
     if (typeof window !== 'undefined') {
       sessionStorage.setItem(SESSION_VIEW_KEY, resolved)
-      localStorage.setItem(LEGACY_LOCAL_KEY, resolved)
+      localStorage.setItem(LOCAL_VIEW_KEY, resolved)
       writeViewHash(resolved)
     }
   } catch {

@@ -24,31 +24,30 @@ export function formatOrderDate(input) {
 export function formatTime12Hour(input) {
   if (!input) return '—'
 
+  const options = { hour: 'numeric', minute: '2-digit', hour12: true }
+
   if (input instanceof Date) {
     if (Number.isNaN(input.getTime())) return '—'
-    return input.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    })
+    return input.toLocaleTimeString('en-US', options)
   }
 
   const raw = String(input).trim()
   const twelveHourMatch = raw.match(TIME_12H_REGEX)
   if (twelveHourMatch) {
-    const hour = String(Number.parseInt(twelveHourMatch[1], 10)).padStart(2, '0')
-    const minute = twelveHourMatch[2]
+    let hour = Number.parseInt(twelveHourMatch[1], 10)
+    const minute = Number.parseInt(twelveHourMatch[2], 10)
     const period = twelveHourMatch[3].toUpperCase()
-    return `${hour}:${minute} ${period}`
+    if (period === 'PM' && hour < 12) hour += 12
+    if (period === 'AM' && hour === 12) hour = 0
+    return new Date(2000, 0, 1, hour, minute).toLocaleTimeString('en-US', options)
   }
 
   const twentyFourHourMatch = raw.match(TIME_24H_REGEX)
   if (twentyFourHourMatch) {
     const hour24 = Number.parseInt(twentyFourHourMatch[1], 10)
-    const minute = twentyFourHourMatch[2]
-    const period = hour24 >= 12 ? 'PM' : 'AM'
-    const hour12 = hour24 % 12 || 12
-    return `${String(hour12).padStart(2, '0')}:${minute} ${period}`
+    const minute = Number.parseInt(twentyFourHourMatch[2], 10)
+    const date = new Date(2000, 0, 1, hour24, minute)
+    return date.toLocaleTimeString('en-US', options)
   }
 
   const parsed = new Date(raw)
@@ -57,6 +56,43 @@ export function formatTime12Hour(input) {
   }
 
   return raw
+}
+
+export function formatTimeRange12Hour(startInput, endInput) {
+  const start = formatTime12Hour(startInput)
+  const end = formatTime12Hour(endInput)
+  if (start === '—' && end === '—') return '—'
+  if (end === '—') return start
+  if (start === '—') return end
+  return `${start} - ${end}`
+}
+
+export function formatSlotRange12Hour(timeSlot, durationMinutes = 120, fallbackLabel) {
+  const startRaw = String(timeSlot || '').trim()
+  const startMatch = startRaw.match(TIME_24H_REGEX) || startRaw.match(/^(\d{1,2}):(\d{2})/)
+  if (startMatch) {
+    const hour = Number.parseInt(startMatch[1], 10)
+    const minute = Number.parseInt(startMatch[2], 10)
+    const start = new Date(2000, 0, 1, hour, minute)
+    const end = new Date(start.getTime() + Number(durationMinutes || 120) * 60 * 1000)
+    return formatTimeRange12Hour(start, end)
+  }
+
+  if (fallbackLabel) {
+    const parts = String(fallbackLabel).split(/\s*[–—-]\s*/)
+    if (parts.length === 2) {
+      return formatTimeRange12Hour(parts[0], parts[1])
+    }
+  }
+
+  return formatTime12Hour(timeSlot)
+}
+
+export function formatHourRange12(hour24, spanHours = 1) {
+  const hour = Number(hour24)
+  const start = new Date(2000, 0, 1, Number.isFinite(hour) ? hour : 0, 0)
+  const end = new Date(start.getTime() + Number(spanHours || 1) * 60 * 60 * 1000)
+  return formatTimeRange12Hour(start, end)
 }
 
 export function formatDateTimeDisplay(dateInput, timeInput) {

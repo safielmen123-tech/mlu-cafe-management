@@ -11,16 +11,23 @@ import {
   UtensilsCrossed,
 } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
-import { apiFetch } from '../services/apiClient'
+import { apiFetch, getAuthToken } from '../services/apiClient'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 
 import MenuItemImage from '../components/menu/MenuItemImage'
+import SugarLevelModal from '../components/pos/SugarLevelModal'
+import {
+  formatItemDisplayName,
+  formatSugarNote,
+  lineIdentity,
+  needsSugarLevel,
+} from '../utils/sugarLevel'
 
 const CATEGORY_FILTERS = ['All', 'Coffee', 'Bakery', 'Cold Drinks', 'Food']
 
 export default function Order() {
   const { t } = useTranslation()
-  const { assignmentTargets, assignOrder } = usePOS()
+  const { assignmentTargets, assignOrder, orderTargetId, clearOrderTarget } = usePOS()
   const [menuItems, setMenuItems] = useState([])
   const [usingFallbackMenu, setUsingFallbackMenu] = useState(false)
   const [cart, setCart] = useState([])
@@ -28,15 +35,22 @@ export default function Order() {
   const [sentConfirmation, setSentConfirmation] = useState(null)
   const [activeCategory, setActiveCategory] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
+  const [sugarItem, setSugarItem] = useState(null)
 
   useEffect(() => {
-    apiFetch('/menu')
+    const token = getAuthToken()
+    if (!token) return undefined
+
+    let cancelled = false
+    apiFetch('/menu', { token })
       .then(async (res) => {
+        if (cancelled || res.status === 401) return []
         if (!res.ok) throw new Error(`Server status returned ${res.status}`)
         const data = await res.json()
         return Array.isArray(data) ? data : []
       })
       .then((items) => {
+        if (cancelled) return
         if (items.length === 0) {
           setMenuItems(getMenuFallback())
           setUsingFallbackMenu(true)
@@ -47,11 +61,23 @@ export default function Order() {
         setUsingFallbackMenu(false)
       })
       .catch((err) => {
+        if (cancelled) return
         console.error('Error pulling menu for ordering page:', err)
         setMenuItems(getMenuFallback())
         setUsingFallbackMenu(true)
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
+
+  useEffect(() => {
+    if (orderTargetId == null || orderTargetId === '') return undefined
+    setSelectedDestination(String(orderTargetId))
+    clearOrderTarget()
+    return undefined
+  }, [orderTargetId, clearOrderTarget])
 
   const filteredMenuItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -71,19 +97,50 @@ export default function Order() {
     })
   }, [menuItems, activeCategory, searchQuery])
 
-  const addToCart = (item) => {
+  const addToCart = (item, options = {}) => {
+    const notes = options.notes != null ? String(options.notes) : item.notes || ''
+    const originalName = item.originalName || item.name
+    const menuItemId = item.menu_item_id ?? item.id
+    const lineItem = {
+      ...item,
+      originalName,
+      name: formatItemDisplayName(originalName, notes),
+      notes,
+      sugarLevel: options.sugarLevel || item.sugarLevel || null,
+      menu_item_id: menuItemId,
+      id: lineIdentity({ menu_item_id: menuItemId, notes }),
+      quantity: 1,
+    }
+
     setSentConfirmation(null)
     setCart((prev) => {
-      const existing = prev.find((cartItem) => cartItem.id === item.id)
+      const existing = prev.find((cartItem) => lineIdentity(cartItem) === lineItem.id)
       if (existing) {
         return prev.map((cartItem) =>
-          cartItem.id === item.id
+          lineIdentity(cartItem) === lineItem.id
             ? { ...cartItem, quantity: cartItem.quantity + 1 }
             : cartItem,
         )
       }
-      return [...prev, { ...item, quantity: 1 }]
+      return [...prev, lineItem]
     })
+  }
+
+  const handleMenuItemClick = (item) => {
+    if (needsSugarLevel(item)) {
+      setSugarItem(item)
+      return
+    }
+    addToCart(item)
+  }
+
+  const handleSugarConfirm = ({ sugarLevel, extraNotes }) => {
+    if (!sugarItem) return
+    addToCart(sugarItem, {
+      sugarLevel,
+      notes: formatSugarNote(sugarLevel, extraNotes),
+    })
+    setSugarItem(null)
   }
 
   const updateQuantity = (id, delta) => {
@@ -120,8 +177,7 @@ export default function Order() {
   }
 
   const subtotal = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0)
-  const tax = subtotal * 0.1
-  const total = subtotal + tax
+  const total = subtotal
 
   const destinationLabel =
     assignmentTargets.find((t) => String(t.id) === selectedDestination)?.name ?? null
@@ -176,17 +232,18 @@ export default function Order() {
 
           <div className="order-menu-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-6">
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-              {filteredMenuItems.map((item) => (
+              {filteredMenuItems.map((item, index) => (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => addToCart(item)}
+                  onClick={() => handleMenuItemClick(item)}
                   className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-100 bg-white p-4 text-left transition-all hover:border-emerald-500/50 hover:shadow-md dark:border-zinc-800/80 dark:bg-zinc-900"
                 >
                   <div className="flex justify-center">
                     <MenuItemImage
                       imageUrl={item.image_url}
                       alt={item.name}
+                      eager={index < 9}
                       className="h-16 w-16 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
                     />
                   </div>
@@ -270,9 +327,12 @@ export default function Order() {
                   className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/40"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-slate-900 dark:text-zinc-100">
-                      {item.name}
+                    <p className="font-medium text-slate-900 dark:text-zinc-100">
+                      {item.originalName || item.name}
                     </p>
+                    {item.notes ? (
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">{item.notes}</p>
+                    ) : null}
                     <p className="mt-0.5 text-sm font-medium text-[#10b981]">
                       ${Number(item.price).toFixed(2)} each
                     </p>
@@ -310,12 +370,8 @@ export default function Order() {
                   <span>Subtotal</span>
                   <span className="tabular-nums">${subtotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-slate-500 dark:text-zinc-400">
-                  <span>Tax (10%)</span>
-                  <span className="tabular-nums">${tax.toFixed(2)}</span>
-                </div>
                 <div className="flex justify-between border-t border-slate-100 pt-2 text-lg font-semibold text-slate-900 dark:border-zinc-800 dark:text-zinc-100">
-                  <span>Running Total</span>
+                  <span>Total</span>
                   <span className="tabular-nums text-[#10b981]">${total.toFixed(2)}</span>
                 </div>
               </div>
@@ -335,9 +391,19 @@ export default function Order() {
                   className="input-field rounded-xl"
                 >
                   <option value="">Select table or take out...</option>
-                  <optgroup label="Dining Tables">
+                  <optgroup label="Standard tables">
                     {assignmentTargets
-                      .filter((t) => !t.isTakeOut)
+                      .filter((table) => !table.isTakeOut && table.section !== 'vip' && !String(table.name).startsWith('VIP'))
+                      .map((table) => (
+                        <option key={table.id} value={table.id}>
+                          {table.name}
+                          {table.status !== 'empty' ? ` (${table.status.replace('_', ' ')})` : ''}
+                        </option>
+                      ))}
+                  </optgroup>
+                  <optgroup label="VIP rooms">
+                    {assignmentTargets
+                      .filter((table) => table.section === 'vip' || String(table.name).startsWith('VIP'))
                       .map((table) => (
                         <option key={table.id} value={table.id}>
                           {table.name}
@@ -373,6 +439,12 @@ export default function Order() {
           )}
         </div>
       </div>
+
+      <SugarLevelModal
+        item={sugarItem}
+        onConfirm={handleSugarConfirm}
+        onClose={() => setSugarItem(null)}
+      />
     </div>
   )
 }

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+  <meta charset="UTF-8" />
+  <title>Data Dictionary — Mlu Kitchen & Cafe Siem Reap</title>
+  <style>
+    body {
+      font-family: "Khmer OS Battambang", "Khmer OS", "Siemreap", "Noto Sans Khmer", "Segoe UI", Arial, sans-serif;
+      max-width: 820px;
+      margin: 32px auto;
+      padding: 0 24px 64px;
+      color: #111;
+      line-height: 1.7;
+      font-size: 16px;
+    }
+    h1 { font-size: 22px; text-align: center; margin-bottom: 8px; }
+    .sub { text-align: center; color: #444; margin-bottom: 32px; }
+    h2 { font-size: 18px; margin-top: 36px; }
+    p { text-align: justify; }
+    .caption { text-align: center; margin: 18px 0 8px; font-weight: 700; }
+    .caption small { display: block; font-weight: 400; margin-top: 2px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #333;
+      padding: 6px 10px;
+      text-align: left;
+    }
+    th { background: #e8e8e8; text-align: center; }
+    td.no { text-align: center; width: 56px; }
+    td.field { width: 42%; }
+    .note { background: #f4f4f4; padding: 12px 16px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>៤.២.៤- ការបង្ហាញការរក្សាទុកទិន្នន័យក្នុង Database (Data Dictionary)</h1>
+  <p class="sub">Mlu Kitchen &amp; Cafe Siem Reap — MySQL</p>
+
+  <p class="note">ចម្លងពីទីនេះទៅ Word។ ក្នុងគំរូសិស្សច្បង ផ្នែកនេះជាតារាង មិនមែនគូសក្នុង draw.io។ DFD នឹងមកវិញពេលក្រោយ។</p>
+
+  <p>ប្រព័ន្ធគ្រប់គ្រង Mlu Kitchen &amp; Cafe Siem Reap ប្រើមូលដ្ឋានទិន្នន័យ MySQL ដើម្បីរក្សាទុកទិន្នន័យប្រតិបត្តិការ។ ខាងក្រោមនេះគឺជាតារាងទាំង ១០ ក្នុង database។</p>
+
+  <h2>ក. Table users</h2>
+  <p>Table users គឺជាតារាងមួយផ្ទុកព័ត៌មានគណនីអ្នកប្រើប្រាស់ក្នុងប្រព័ន្ធ គឺ Administrator និង Staff។ គណនីនីមួយៗមានឈ្មោះចូល លេខសម្ងាត់ដែលបានធ្វើ hash តួនាទី និងសិទ្ធិចូលអេក្រង់។ អតិថិជនមិនមានគណនីក្នុងតារាងនេះទេ។</p>
+  <p class="caption">តារាងទី ៤.១<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table users</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">display_name</td><td>VARCHAR(100)</td></tr>
+      <tr><td class="no">3</td><td class="field">username</td><td>VARCHAR(50) UK</td></tr>
+      <tr><td class="no">4</td><td class="field">email</td><td>VARCHAR(255)</td></tr>
+      <tr><td class="no">5</td><td class="field">password_hash</td><td>VARCHAR(255)</td></tr>
+      <tr><td class="no">6</td><td class="field">role</td><td>VARCHAR(20)</td></tr>
+      <tr><td class="no">7</td><td class="field">permissions</td><td>TEXT</td></tr>
+      <tr><td class="no">8</td><td class="field">created_at</td><td>TIMESTAMP</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ខ. Table menu_items</h2>
+  <p>Table menu_items គឺជាតារាងមួយផ្ទុកមុខម្ហូប និងភេសជ្ជៈរបស់ហាង រួមទាំងឈ្មោះ ប្រភេទ តម្លៃ រូបភាព និងស្ថានភាពអាចលក់បាន។</p>
+  <p class="caption">តារាងទី ៤.២<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table menu_items</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">name</td><td>VARCHAR(100)</td></tr>
+      <tr><td class="no">3</td><td class="field">category</td><td>ENUM('Coffee','Bakery','Cold Drinks','Food')</td></tr>
+      <tr><td class="no">4</td><td class="field">price</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">5</td><td class="field">image_url</td><td>VARCHAR(512)</td></tr>
+      <tr><td class="no">6</td><td class="field">is_available</td><td>TINYINT(1)</td></tr>
+      <tr><td class="no">7</td><td class="field">created_at</td><td>TIMESTAMP</td></tr>
+    </tbody>
+  </table>
+
+  <h2>គ. Table tables</h2>
+  <p>Table tables គឺជាតារាងមួយផ្ទុកតុក្នុងហាង គឺតុធម្មតា ៨ តុ និងបន្ទប់ VIP ២។ តារាងនេះប្រើសម្រាប់ការកម្មង់នៅកន្លែង និងការកក់តុ។ Take Out មិនមែនជាជួរក្នុងតារាងនេះទេ។</p>
+  <p class="caption">តារាងទី ៤.៣<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table tables</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">table_name</td><td>VARCHAR(20) UK</td></tr>
+      <tr><td class="no">3</td><td class="field">section</td><td>VARCHAR(20)</td></tr>
+      <tr><td class="no">4</td><td class="field">capacity</td><td>INT</td></tr>
+      <tr><td class="no">5</td><td class="field">status</td><td>ENUM('Empty','Occupied','Pending Bill')</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ឃ. Table orders</h2>
+  <p>Table orders គឺជាតារាងមួយផ្ទុកវិក្កយបត្រ ឬសំបុត្រកម្មង់នីមួយៗ។ ការកម្មង់អាចជា Table ឬ Take Out។ ស្ថានភាពចាប់ផ្តើមជា Pending រួចប្តូរទៅ Completed ពេលបង់ប្រាក់។ ពន្ធ (tax) ត្រូវបានកត់ជា 0។</p>
+  <p class="caption">តារាងទី ៤.៤<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table orders</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">table_id</td><td>INT (FK)</td></tr>
+      <tr><td class="no">3</td><td class="field">target_id</td><td>INT</td></tr>
+      <tr><td class="no">4</td><td class="field">source_type</td><td>ENUM('Table','Take Out')</td></tr>
+      <tr><td class="no">5</td><td class="field">total_amount</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">6</td><td class="field">payment_type</td><td>ENUM('Cash','Bank Scan')</td></tr>
+      <tr><td class="no">7</td><td class="field">payment_method</td><td>VARCHAR(50)</td></tr>
+      <tr><td class="no">8</td><td class="field">status</td><td>VARCHAR(50)</td></tr>
+      <tr><td class="no">9</td><td class="field">kitchen_status</td><td>VARCHAR(20)</td></tr>
+      <tr><td class="no">10</td><td class="field">invoice_id</td><td>VARCHAR(50)</td></tr>
+      <tr><td class="no">11</td><td class="field">subtotal</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">12</td><td class="field">tax</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">13</td><td class="field">total</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">14</td><td class="field">bill_requested</td><td>TINYINT(1)</td></tr>
+      <tr><td class="no">15</td><td class="field">created_at</td><td>TIMESTAMP</td></tr>
+      <tr><td class="no">16</td><td class="field">updated_at</td><td>TIMESTAMP</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ង. Table order_items</h2>
+  <p>Table order_items គឺជាតារាងមួយផ្ទុកមុខម្ហូបនីមួយៗលើវិក្កយបត្រ។ វារក្សាទុកឈ្មោះ និងតម្លៃពេលលក់ ដើម្បីឱ្យវិក្កយបត្រចាស់នៅត្រឹមត្រូវ ទោះមុខម្ហូបត្រូវបានកែតម្លៃ ឬលុបពីម៉ឺនុយក៏ដោយ។</p>
+  <p class="caption">តារាងទី ៤.៥<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table order_items</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">order_id</td><td>INT (FK)</td></tr>
+      <tr><td class="no">3</td><td class="field">menu_item_id</td><td>INT (FK)</td></tr>
+      <tr><td class="no">4</td><td class="field">item_name</td><td>VARCHAR(255)</td></tr>
+      <tr><td class="no">5</td><td class="field">notes</td><td>VARCHAR(255)</td></tr>
+      <tr><td class="no">6</td><td class="field">quantity</td><td>INT</td></tr>
+      <tr><td class="no">7</td><td class="field">price</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">8</td><td class="field">subtotal</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">9</td><td class="field">inventory_deducted</td><td>TINYINT(1)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ច. Table reservations</h2>
+  <p>Table reservations គឺជាតារាងមួយផ្ទុកការកក់តុរបស់ភ្ញៀវ រួមទាំងឈ្មោះ លេខទូរស័ព្ទ ថ្ងៃ ម៉ោង ចំនួនភ្ញៀវ និងស្ថានភាព។ ហាងបិទថ្ងៃច័ន្ទ។</p>
+  <p class="caption">តារាងទី ៤.៦<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table reservations</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">customer_name</td><td>VARCHAR(160)</td></tr>
+      <tr><td class="no">3</td><td class="field">phone</td><td>VARCHAR(40)</td></tr>
+      <tr><td class="no">4</td><td class="field">reservation_date</td><td>DATE</td></tr>
+      <tr><td class="no">5</td><td class="field">time_slot</td><td>VARCHAR(8)</td></tr>
+      <tr><td class="no">6</td><td class="field">duration_minutes</td><td>INT</td></tr>
+      <tr><td class="no">7</td><td class="field">table_id</td><td>INT (FK)</td></tr>
+      <tr><td class="no">8</td><td class="field">guest_count</td><td>INT</td></tr>
+      <tr><td class="no">9</td><td class="field">status</td><td>VARCHAR(20)</td></tr>
+      <tr><td class="no">10</td><td class="field">checked_in_at</td><td>DATETIME</td></tr>
+      <tr><td class="no">11</td><td class="field">notes</td><td>TEXT</td></tr>
+      <tr><td class="no">12</td><td class="field">reminder_3d_sent</td><td>TINYINT(1)</td></tr>
+      <tr><td class="no">13</td><td class="field">reminder_1d_sent</td><td>TINYINT(1)</td></tr>
+      <tr><td class="no">14</td><td class="field">created_by</td><td>INT</td></tr>
+      <tr><td class="no">15</td><td class="field">created_at</td><td>TIMESTAMP</td></tr>
+      <tr><td class="no">16</td><td class="field">updated_at</td><td>TIMESTAMP</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ឆ. Table inventory</h2>
+  <p>Table inventory គឺជាតារាងមួយផ្ទុកស្តុកទំនិញក្នុងហាង ដូចជាបរិមាណ កម្រិតជូនដំណឹង និងស្ថានភាពស្តុក។ តារាងនេះមិនភ្ជាប់ទៅមុខម្ហូបដោយស្វ័យប្រវត្តិទេ ព្រោះប្រព័ន្ធគ្មានតារាងរូបមន្ត។</p>
+  <p class="caption">តារាងទី ៤.៧<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table inventory</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">item_name</td><td>VARCHAR(100)</td></tr>
+      <tr><td class="no">3</td><td class="field">category</td><td>VARCHAR(50)</td></tr>
+      <tr><td class="no">4</td><td class="field">section</td><td>VARCHAR(20)</td></tr>
+      <tr><td class="no">5</td><td class="field">stock_quantity</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">6</td><td class="field">max_stock</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">7</td><td class="field">unit_label</td><td>VARCHAR(20)</td></tr>
+      <tr><td class="no">8</td><td class="field">unit_singular</td><td>VARCHAR(20)</td></tr>
+      <tr><td class="no">9</td><td class="field">critical_threshold</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">10</td><td class="field">low_threshold</td><td>DECIMAL(10,2)</td></tr>
+      <tr><td class="no">11</td><td class="field">is_weight</td><td>TINYINT(1)</td></tr>
+      <tr><td class="no">12</td><td class="field">stock_status</td><td>VARCHAR(32)</td></tr>
+      <tr><td class="no">13</td><td class="field">unit_cost</td><td>DECIMAL(12,4)</td></tr>
+      <tr><td class="no">14</td><td class="field">updated_at</td><td>TIMESTAMP</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ជ. Table expenses</h2>
+  <p>Table expenses គឺជាតារាងមួយផ្ទុកចំណាយប្រចាំហាង ដូចជាប្រភេទ ចំនួនទឹកប្រាក់ កាលបរិច្ឆេទ និងអ្នកកត់ត្រា។</p>
+  <p class="caption">តារាងទី ៤.៨<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table expenses</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">category</td><td>VARCHAR(100)</td></tr>
+      <tr><td class="no">3</td><td class="field">description</td><td>VARCHAR(500)</td></tr>
+      <tr><td class="no">4</td><td class="field">amount</td><td>DECIMAL(12,2)</td></tr>
+      <tr><td class="no">5</td><td class="field">expense_date</td><td>DATE</td></tr>
+      <tr><td class="no">6</td><td class="field">created_by</td><td>INT</td></tr>
+      <tr><td class="no">7</td><td class="field">created_by_name</td><td>VARCHAR(120)</td></tr>
+      <tr><td class="no">8</td><td class="field">created_at</td><td>TIMESTAMP</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ឈ. Table audit_logs</h2>
+  <p>Table audit_logs គឺជាតារាងមួយផ្ទុកកំណត់ហេតុសកម្មភាពសំខាន់ៗក្នុងប្រព័ន្ធ ដូចជាអ្នកធ្វើ ម៉ូឌុល និងពេលវេលា។</p>
+  <p class="caption">តារាងទី ៤.៩<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table audit_logs</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>BIGINT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">user_id</td><td>INT</td></tr>
+      <tr><td class="no">3</td><td class="field">user_role</td><td>VARCHAR(50)</td></tr>
+      <tr><td class="no">4</td><td class="field">username</td><td>VARCHAR(120)</td></tr>
+      <tr><td class="no">5</td><td class="field">action</td><td>VARCHAR(120)</td></tr>
+      <tr><td class="no">6</td><td class="field">module</td><td>VARCHAR(120)</td></tr>
+      <tr><td class="no">7</td><td class="field">description</td><td>TEXT</td></tr>
+      <tr><td class="no">8</td><td class="field">created_at</td><td>TIMESTAMP</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ញ. Table admin_notifications</h2>
+  <p>Table admin_notifications គឺជាតារាងមួយផ្ទុកសារជូនដំណឹងសម្រាប់ Administrator ដូចជាការកក់តុ និងការរំលឹក។</p>
+  <p class="caption">តារាងទី ៤.១០<br /><small>តារាងបង្ហាញទិន្នន័យក្នុង Table admin_notifications</small></p>
+  <table>
+    <thead><tr><th>No</th><th>Field Name</th><th>Data Type</th></tr></thead>
+    <tbody>
+      <tr><td class="no">1</td><td class="field">id</td><td>INT (PK)</td></tr>
+      <tr><td class="no">2</td><td class="field">recipient_user_id</td><td>INT</td></tr>
+      <tr><td class="no">3</td><td class="field">type</td><td>VARCHAR(50)</td></tr>
+      <tr><td class="no">4</td><td class="field">title</td><td>VARCHAR(255)</td></tr>
+      <tr><td class="no">5</td><td class="field">message</td><td>TEXT</td></tr>
+      <tr><td class="no">6</td><td class="field">meta</td><td>JSON</td></tr>
+      <tr><td class="no">7</td><td class="field">is_read</td><td>TINYINT(1)</td></tr>
+      <tr><td class="no">8</td><td class="field">created_at</td><td>TIMESTAMP</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

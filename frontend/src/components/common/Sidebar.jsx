@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 
 import { STORE } from '../../config/store'
+import BrandLogo from './BrandLogo'
 
 import {
 
@@ -13,6 +14,8 @@ import {
   ShoppingCart,
 
   Coffee,
+
+  CalendarClock,
 
   CreditCard,
 
@@ -33,8 +36,6 @@ import {
   FolderOpen,
 
   FileBarChart,
-
-  Sparkles,
 
   ChevronDown,
 
@@ -57,6 +58,8 @@ const primaryNavigationItems = [
   { id: 'order', labelKey: 'nav.order', icon: ShoppingCart },
 
   { id: 'table', labelKey: 'nav.table', icon: Coffee },
+
+  { id: 'reservations', labelKey: 'nav.reservations', icon: CalendarClock },
 
   { id: 'payment', labelKey: 'nav.payment', icon: CreditCard },
 
@@ -83,8 +86,6 @@ const menuNavigationItem = {
 const reportsSubItems = [
 
   { id: 'reports_analysis', labelKey: 'nav.analysis', icon: BarChart3 },
-
-  { id: 'reports_prediction', labelKey: 'nav.aiPrediction', icon: Sparkles },
 
 ]
 
@@ -365,43 +366,25 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
     >
 
-      <div className="mb-4 flex items-start justify-between gap-2 lg:mb-8 lg:px-1">
+      <div className="relative mb-2 flex w-full flex-col items-center justify-center gap-2 px-2 py-4">
 
-        <div className="min-w-0 flex-1">
+        <BrandLogo
 
-          <div className="hidden lg:block">
+          src={STORE.sidebarLogoUrl}
 
-            <h2 className="text-base font-semibold tracking-tight text-foreground">{STORE.officialName}</h2>
+          className="h-auto w-[136px] max-w-[92%] object-contain sm:w-[85%] sm:max-w-full lg:w-[140px] lg:max-w-[148px]"
 
-            <p className="mt-0.5 text-xs text-muted-foreground">{STORE.location}</p>
+          title={STORE.officialName}
 
-          </div>
+        />
 
-          <div className="hidden justify-center sm:flex lg:hidden">
+        <p className="text-center text-[1.15rem] font-medium leading-snug text-foreground sm:hidden lg:block">
 
-            <div
+          Mlu Kitchen & Cafe
 
-              className="flex h-10 w-10 items-center justify-center rounded-2xl bg-forest-50 text-xs font-semibold text-forest-600 ring-1 ring-forest-100"
+          <span className="block">Siem Reap</span>
 
-              title={STORE.officialName}
-
-            >
-
-              RC
-
-            </div>
-
-          </div>
-
-          <div className="sm:hidden">
-
-            <h2 className="text-base font-semibold tracking-tight text-foreground">{STORE.officialName}</h2>
-
-            <p className="text-xs text-muted-foreground">{STORE.location}</p>
-
-          </div>
-
-        </div>
+        </p>
 
         <button
 
@@ -409,7 +392,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
           onClick={onMobileClose}
 
-          className="flex min-h-10 min-w-10 items-center justify-center rounded-full text-olive-400 hover:bg-olive-50 sm:hidden"
+          className="absolute right-2 top-1/2 flex min-h-10 min-w-10 -translate-y-1/2 items-center justify-center rounded-full text-olive-400 hover:bg-olive-50 sm:hidden"
 
           aria-label="Close navigation menu"
 

@@ -1,5 +1,5 @@
 /**
- * Replaces the menu with the photographed Romdoul Restaurant & Cafe menu.
+ * Replaces the menu with the photographed Mlu Kitchen & Cafe Siem Reap menu.
  *
  * Safe to re-run. Order of operations matters:
  *   1. Backfill order_items.item_name from menu_items.name. The FK is ON DELETE SET NULL
@@ -60,25 +60,69 @@ const MENU = [
 ]
 
 const CATEGORIES = ['Coffee', 'Bakery', 'Cold Drinks', 'Food']
+const PHOTO_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+
+function normalizePhotoKey(filename) {
+  return path
+    .basename(filename, path.extname(filename))
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '')
+}
+
+function listPhotoFiles() {
+  return fs.readdirSync(IMAGE_DIR).filter((name) => {
+    if (name.startsWith('__tmp__')) return false
+    if (name.toLowerCase() === 'placeholder.jpg') return false
+    return PHOTO_EXTENSIONS.has(path.extname(name).toLowerCase())
+  })
+}
+
+function findPhotoOnDisk(original, clean, files) {
+  const wanted = new Set([
+    original.toLowerCase(),
+    clean.toLowerCase(),
+  ])
+  const wantedKeys = new Set([
+    normalizePhotoKey(original),
+    normalizePhotoKey(clean),
+  ])
+
+  const exact = files.find((name) => wanted.has(name.toLowerCase()))
+  if (exact) return exact
+
+  return files.find((name) => wantedKeys.has(normalizePhotoKey(name))) || null
+}
 
 function renamePhotos() {
   let renamed = 0
-  let missing = []
+  const missing = []
+  let files = listPhotoFiles()
 
   for (const [original, clean] of MENU) {
-    const from = path.join(IMAGE_DIR, original)
     const to = path.join(IMAGE_DIR, clean)
+    const match = findPhotoOnDisk(original, clean, files)
 
-    if (fs.existsSync(to)) continue // already renamed on a previous run
-    if (!fs.existsSync(from)) {
-      missing.push(original)
+    if (!match) {
+      missing.push(`${original} (expected ${clean})`)
       continue
     }
+
+    if (match.toLowerCase() === clean.toLowerCase()) {
+      continue
+    }
+
+    const from = path.join(IMAGE_DIR, match)
     // Two-step guards against case-insensitive collisions on Windows.
     const temp = path.join(IMAGE_DIR, `__tmp__${clean}`)
     fs.renameSync(from, temp)
     fs.renameSync(temp, to)
     renamed += 1
+    files = files.map((name) => (name === match ? clean : name))
+  }
+
+  if (missing.length) {
+    throw new Error(`Missing photo file(s): ${missing.join(', ')}`)
   }
 
   return { renamed, missing }
@@ -109,15 +153,19 @@ async function main() {
   await db.query(`ALTER TABLE menu_items MODIFY category ENUM(${enumValues}) NOT NULL`)
   console.log(`     categories: ${CATEGORIES.join(', ')}`)
 
-  console.log('3/4  Renaming photos to url-safe names…')
-  const { renamed, missing } = renamePhotos()
-  console.log(`     renamed ${renamed} file(s)${missing.length ? `, missing: ${missing.join(', ')}` : ''}`)
+  console.log('3/4  Matching photos to url-safe file names…')
+  const { renamed } = renamePhotos()
+  console.log(`     renamed ${renamed} file(s); ${MENU.length} photo(s) ready`)
 
   console.log('4/4  Replacing menu items…')
   await db.query('DELETE FROM menu_items')
   await db.query('ALTER TABLE menu_items AUTO_INCREMENT = 1')
 
   for (const [, clean, name, category, price] of MENU) {
+    const photoPath = path.join(IMAGE_DIR, clean)
+    if (!fs.existsSync(photoPath)) {
+      throw new Error(`Photo still missing after rename: ${clean}`)
+    }
     await db.query(
       'INSERT INTO menu_items (name, category, price, image_url, is_available) VALUES (?, ?, ?, ?, 1)',
       [name, category, price, `${PUBLIC_PREFIX}/${clean}`],

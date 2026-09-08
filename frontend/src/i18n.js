@@ -1,11 +1,11 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 
-const STORAGE_KEY = 'romdoul_lang'
+const STORAGE_KEY = 'mlu_kitchen_cafe_lang'
 
 /**
- * UI localization. Do NOT translate brand titles (Romdoul Restaurant & Cafe),
- * or technical acronyms: AI, POS, VIP, USD, $, ID.
+ * UI localization. Do NOT translate brand titles (Mlu Kitchen & Cafe Siem Reap),
+ * or technical acronyms: POS, VIP, USD, $, ID.
  */
 const resources = {
   en: {
@@ -15,13 +15,13 @@ const resources = {
         users: 'Users',
         order: 'Order',
         table: 'Table',
+        reservations: 'Reservations',
         payment: 'Payment',
         salesHistory: 'Sales History',
         inventoryStock: 'Inventory & Stock',
         menuManagement: 'Menu Management',
         reports: 'Reports',
         analysis: 'Analysis',
-        aiPrediction: 'AI Prediction',
         others: 'Others',
         settings: 'Settings',
         backupRecovery: 'Backup & Recovery',
@@ -52,10 +52,9 @@ const resources = {
         onDuty: 'On duty',
       },
       sales: {
-        subtitle: 'Review sales, kitchen tickets, and operational spending',
+        subtitle: 'Review completed orders and print receipts',
         tabs: {
           logs: 'Order Logs',
-          kitchen: 'Kitchen Display',
           expenses: 'Expenses',
         },
         period: 'Period',
@@ -64,12 +63,6 @@ const resources = {
         searchPlaceholder: 'Search by invoice, source, payment, or status...',
         emptyLogs: 'No completed orders found for this month and search filter.',
         printReceipt: 'Print Receipt',
-      },
-      kitchen: {
-        clearTitle: 'Kitchen is clear!',
-        clearBody: 'New confirmed orders appear here instantly.',
-        markAs: 'Mark as {{status}}',
-        readyHint: 'Ready for pickup / serve',
       },
       payment: {
         receivedTitle: 'Payment Received',
@@ -93,30 +86,11 @@ const resources = {
         lowStockAlertsDesc: 'Receive alerts when inventory items fall below safe thresholds.',
         enabled: 'Enabled',
         disabled: 'Disabled',
-        aiForecast: 'AI Forecast Updates',
-        aiForecastDesc: 'Notify when new sales predictions are available in Reports.',
         security: 'Security',
         session: 'Session Management',
         sessionDesc: 'Your session expires 8 hours after sign-in for security.',
         standard: 'Standard',
         auditSection: 'Security History',
-      },
-      ai: {
-        subtitle: 'Sales & demand signals at a glance',
-        predictedRevenue: 'Predicted Revenue',
-        busyHours: 'Busy Hours',
-        monthlyOrders: 'Monthly Orders',
-        stockAlerts: 'Stock Alerts',
-        highDemand: 'High Demand',
-        stockAlert: 'Stock Alert',
-        stockOk: 'Healthy',
-        running: 'Analyzing…',
-        run: 'Refresh AI',
-        trend: 'Revenue Trend',
-        peakHours: 'Peak Hours',
-        topItems: 'Top Items',
-        actions: 'Action Pills',
-        noChart: 'No trend data yet',
       },
       expenses: {
         title: 'Expense / Spending',
@@ -136,13 +110,13 @@ const resources = {
         users: 'អ្នកប្រើប្រាស់',
         order: 'ការកុម្មង់',
         table: 'តុ',
+        reservations: 'ការកក់តុ',
         payment: 'ការទូទាត់',
         salesHistory: 'ប្រវត្តិនៃការលក់',
         inventoryStock: 'ស្តុក & អីវ៉ាន់',
         menuManagement: 'ការគ្រប់គ្រងមុខម្ហូប',
         reports: 'របាយការណ៍',
         analysis: 'ការវិភាគ',
-        aiPrediction: 'ការទស្សន៍ទាយដោយ AI',
         others: 'ផ្សេងៗ',
         settings: 'ការកំណត់',
         backupRecovery: 'បម្រុងទុក & ស្តារ',
@@ -173,10 +147,9 @@ const resources = {
         onDuty: 'កំពុងធ្វើការ',
       },
       sales: {
-        subtitle: 'ពិនិត្យការលក់ ទិដ្ឋភាពផ្ទះបាយ និងចំណាយប្រតិបត្តិការ',
+        subtitle: 'ពិនិត្យការកុម្មង់ដែលបានបញ្ចប់ និងបោះពុម្ពបង្កាន់ដៃ',
         tabs: {
           logs: 'កំណត់ហេតុការកុម្មង់',
-          kitchen: 'អេក្រង់ផ្ទះបាយ',
           expenses: 'ចំណាយ',
         },
         period: 'រយៈពេល',
@@ -185,12 +158,6 @@ const resources = {
         searchPlaceholder: 'ស្វែងរកតាមវិក្កយបត្រ ប្រភព ការទូទាត់ ឬស្ថានភាព...',
         emptyLogs: 'រកមិនឃើញការកុម្មង់ដែលបានបញ្ចប់សម្រាប់ខែ និងតម្រងនេះទេ។',
         printReceipt: 'បោះពុម្ពបង្កាន់ដៃ',
-      },
-      kitchen: {
-        clearTitle: 'ផ្ទះបាយគ្មានការកុម្មង់!',
-        clearBody: 'ការកុម្មង់ថ្មីនឹងបង្ហាញនៅទីនេះភ្លាមៗ។',
-        markAs: 'កំណត់ជា {{status}}',
-        readyHint: 'រួចរាល់សម្រាប់ប្រគល់ / បម្រើ',
       },
       payment: {
         receivedTitle: 'បានទទួលការទូទាត់',
@@ -213,30 +180,11 @@ const resources = {
         lowStockAlertsDesc: 'ទទួលការជូនដំណឹងនៅពេលស្តុកធ្លាក់ក្រោមកម្រិតសុវត្ថិភាព។',
         enabled: 'បើក',
         disabled: 'បិទ',
-        aiForecast: 'ការជូនដំណឹងព្យាករណ៍ AI',
-        aiForecastDesc: 'ជូនដំណឹងនៅពេលមានការព្យាករណ៍លក់ថ្មីក្នុងរបាយការណ៍។',
         security: 'សុវត្ថិភាព',
         session: 'ការគ្រប់គ្រងសម័យ',
         sessionDesc: 'សម័យរបស់អ្នកផុតកំណត់ ៨ ម៉ោង បន្ទាប់ពីចូលប្រើ ដើម្បីសុវត្ថិភាព។',
         standard: 'ស្តង់ដារ',
         auditSection: 'ប្រវត្តិសុវត្ថិភាព',
-      },
-      ai: {
-        subtitle: 'សញ្ញាលក់ និងតម្រូវការតាមរូបភាពងាយមើល',
-        predictedRevenue: 'ចំណូលព្យាករណ៍',
-        busyHours: 'ម៉ោងរវល់',
-        monthlyOrders: 'ការកុម្មង់ប្រចាំខែ',
-        stockAlerts: 'ការជូនដំណឹងស្តុក',
-        highDemand: 'តម្រូវការខ្ពស់',
-        stockAlert: 'ការព្រមានស្តុក',
-        stockOk: 'សុខភាពល្អ',
-        running: 'កំពុងវិភាគ…',
-        run: 'ផ្ទុក AI ឡើងវិញ',
-        trend: 'និន្នាការចំណូល',
-        peakHours: 'ម៉ោងកំពូល',
-        topItems: 'មុខម្ហូបលក់ដាច់',
-        actions: 'សកម្មភាពសង្ខេប',
-        noChart: 'មិនទាន់មានទិន្នន័យនិន្នាការ',
       },
       expenses: {
         title: 'ចំណាយ / ការចំណាយ',

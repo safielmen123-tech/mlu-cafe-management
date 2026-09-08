@@ -112,7 +112,7 @@ function parseBackupMetadata(sqlContent) {
 
 function buildMetadataComments(period) {
   const lines = [
-    '-- Romdoul Restaurant / Cafe System Database Backup',
+    '-- Mlu Kitchen & Cafe Siem Reap System Database Backup',
     `-- Generated: ${new Date().toISOString()}`,
     `-- Backup-Scope: ${period.scope}`,
     `-- Backup-Period: ${period.label}`,

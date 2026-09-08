@@ -6,7 +6,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.e
 
 const db = require('../../db');
 
-const TAX_RATE = 0.1;
+const TAX_RATE = 0;
 const START_DATE = new Date(2025, 7, 1);
 const END_DATE = new Date(2026, 6, 31);
 const PAYMENT_METHODS = ['Cash', 'Bank Scan'];
@@ -233,7 +233,7 @@ async function insertCompletedOrder(menuItems, tableIds, orderDate, invoiceCount
     const isTakeOut = Math.random() < profile.takeoutRatio;
     const sourceType = isTakeOut ? 'Take Out' : 'Table';
     const tableId = isTakeOut ? null : tableIds[randomInt(0, tableIds.length - 1)];
-    const timestamp = orderDate.toISOString().slice(0, 19).replace('T', ' ');
+    const timestamp = formatMysqlDateTime(orderDate);
 
     const [orderResult] = await db.execute(
         `INSERT INTO orders
@@ -272,9 +272,15 @@ function roundMoney(value) {
     return Math.round(value * 100) / 100;
 }
 
+function formatMysqlDateTime(date) {
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+        + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 async function seed12MonthsSales() {
     console.log('═══════════════════════════════════════════════════════');
-    console.log('  Romdoul Cafe — 12-Month Sales Seed');
+    console.log('  Mlu Kitchen & Cafe Siem Reap — 12-Month Sales Seed');
     console.log('  Period: August 2025 → July 2026');
     console.log('═══════════════════════════════════════════════════════');
     console.log('');

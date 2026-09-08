@@ -4,96 +4,39 @@ export const TAKEOUT_BILL = {
   id: TAKEOUT_ID,
   name: 'Take Out',
   isTakeOut: true,
+  section: 'takeout',
+  capacity: null,
   status: 'empty',
   orderTotal: null,
   orderSummary: null,
   items: [],
 }
 
+function emptyTable(id, name, section = 'standard', capacity = 4) {
+  return {
+    id,
+    name,
+    isTakeOut: false,
+    section,
+    capacity,
+    status: 'empty',
+    orderTotal: null,
+    orderSummary: null,
+    items: [],
+  }
+}
+
 export const floorTables = [
-  {
-    id: 1,
-    name: 'Table 1',
-    isTakeOut: false,
-    status: 'empty',
-    orderTotal: null,
-    orderSummary: null,
-    items: [],
-  },
-  {
-    id: 2,
-    name: 'Table 2',
-    isTakeOut: false,
-    status: 'occupied',
-    orderTotal: 20.35,
-    orderSummary: '2× Cappuccino, 1× Croissant',
-    items: [
-      { id: 1, name: 'Cappuccino', qty: 2, unitPrice: 4.25, lineTotal: 8.5 },
-      { id: 5, name: 'Croissant', qty: 1, unitPrice: 3.5, lineTotal: 3.5 },
-    ],
-  },
-  {
-    id: 3,
-    name: 'Table 3',
-    isTakeOut: false,
-    status: 'occupied',
-    orderTotal: 36.03,
-    orderSummary: '1× Latte, 2× Mocha, 1× Blueberry Muffin',
-    items: [
-      { id: 2, name: 'Latte', qty: 1, unitPrice: 4.25, lineTotal: 4.25 },
-      { id: 4, name: 'Mocha', qty: 2, unitPrice: 4.5, lineTotal: 9.0 },
-      { id: 7, name: 'Blueberry Muffin', qty: 1, unitPrice: 3.5, lineTotal: 3.5 },
-    ],
-  },
-  {
-    id: 4,
-    name: 'Table 4',
-    isTakeOut: false,
-    status: 'empty',
-    orderTotal: null,
-    orderSummary: null,
-    items: [],
-  },
-  {
-    id: 5,
-    name: 'Table 5',
-    isTakeOut: false,
-    status: 'occupied',
-    orderTotal: 13.2,
-    orderSummary: '3× Americano',
-    items: [{ id: 3, name: 'Americano', qty: 3, unitPrice: 4.0, lineTotal: 12.0 }],
-  },
-  {
-    id: 6,
-    name: 'Table 6',
-    isTakeOut: false,
-    status: 'empty',
-    orderTotal: null,
-    orderSummary: null,
-    items: [],
-  },
-  {
-    id: 7,
-    name: 'VIP Room 1',
-    isTakeOut: false,
-    status: 'occupied',
-    orderTotal: 59.68,
-    orderSummary: '4× Cappuccino, 2× Chocolate Cake, 1× Iced Coffee',
-    items: [
-      { id: 1, name: 'Cappuccino', qty: 4, unitPrice: 4.25, lineTotal: 17.0 },
-      { id: 8, name: 'Chocolate Cake', qty: 2, unitPrice: 4.75, lineTotal: 9.5 },
-      { id: 6, name: 'Iced Coffee', qty: 1, unitPrice: 4.75, lineTotal: 4.75 },
-    ],
-  },
-  {
-    id: 8,
-    name: 'VIP Room 2',
-    isTakeOut: false,
-    status: 'empty',
-    orderTotal: null,
-    orderSummary: null,
-    items: [],
-  },
+  emptyTable(1, 'Table 1'),
+  emptyTable(2, 'Table 2'),
+  emptyTable(3, 'Table 3'),
+  emptyTable(4, 'Table 4'),
+  emptyTable(5, 'Table 5'),
+  emptyTable(6, 'Table 6'),
+  emptyTable(7, 'Table 7'),
+  emptyTable(8, 'Table 8'),
+  emptyTable(9, 'VIP Room 1', 'vip', 12),
+  emptyTable(10, 'VIP Room 2', 'vip', 12),
 ]
 
 export const TABLE_STATUS_META = {
@@ -109,6 +52,12 @@ export const TABLE_STATUS_META = {
       'bg-amber-50 text-amber-800 ring-amber-300/80 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-700/50',
     card: 'border-amber-300/70 bg-amber-50/35 dark:border-amber-700/40 dark:bg-amber-950/20',
   },
+  reserved: {
+    label: 'Reserved',
+    badge:
+      'bg-violet-50 text-violet-800 ring-violet-300/80 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-700/50',
+    card: 'border-violet-300/80 bg-violet-50/40 dark:border-violet-700/40 dark:bg-violet-950/20',
+  },
 }
 
 /** Cashier queue badge — all open unbilled orders display as awaiting checkout */
@@ -118,4 +67,11 @@ export const PAYMENT_QUEUE_STATUS = {
     'bg-orange-100 text-orange-900 ring-orange-400/80 dark:bg-orange-950/45 dark:text-orange-200 dark:ring-orange-600/50',
 }
 
-export const FLOOR_STATUS_KEYS = ['empty', 'occupied']
+export const FLOOR_STATUS_KEYS = ['empty', 'occupied', 'reserved']
+
+export function getFloorTableLabel(tableId) {
+  if (tableId === 'takeout') return 'Take Out'
+  if (tableId == null || tableId === '') return 'Table'
+  const table = floorTables.find((entry) => String(entry.id) === String(tableId))
+  return table?.name || `Table ${tableId}`
+}

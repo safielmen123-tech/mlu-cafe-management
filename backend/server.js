@@ -1,10 +1,10 @@
 const { assertRequiredEnv, env } = require('./src/config/env');
+const { STORE } = require('./src/config/store');
 assertRequiredEnv();
 
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
 const db = require('./db'); // Import our database connection pool
 const { resolveDbHost } = require('./db');
 const {
@@ -17,46 +17,31 @@ const {
     pendingOrderWhereClause,
     resolveTableForeignKey,
     ensureOrderItemsSchema,
+    formatOrderLineName,
 } = require('./src/utils/orderTargets');
 const { normalizePermissions, isAdminRole, VALID_PERMISSIONS } = require('./src/constants/permissions');
 const {
     authenticateToken,
     requireAdmin,
     requirePermission,
-    JWT_SECRET,
+    requireAnyPermission,
 } = require('./src/middleware/auth');
 const multer = require('multer');
 const { exportBusinessDataBuffer } = require('./src/utils/backupExport');
 const { createDatabaseDump, restoreDatabaseFromSql } = require('./src/utils/backupSql');
 const { parseBackupPeriod, buildBackupFilename } = require('./src/utils/backupPeriod');
-const {
-    normalizeLoginInput,
-    resolveStoredPasswordHash,
-    verifyPassword,
-    equalizeFailedLoginTiming,
-    buildTokenPayload,
-    assertJwtSecret,
-} = require('./src/utils/loginAuth');
-const {
-    isDatabaseConnectionError,
-    getDatabaseErrorMessage,
-} = require('./src/utils/dbErrors');
-const { buildAiPredictions, buildInventoryAiInsights, mergeInventoryAiFlags } = require('./src/utils/aiPredictions');
 const { buildActiveAlerts } = require('./src/utils/alertEngine');
-const { buildDailyBriefing } = require('./src/utils/dailyBriefing');
 const {
     ensureMenuItemsImageSchema,
     normalizeMenuImageUrl,
+    serializeMenuItem,
 } = require('./src/utils/menuItemsSchema');
+const { buildSalesReport } = require('./src/utils/reports');
 const {
-    ensureRecipeSchema,
-    getMenuItemRecipe,
-    saveMenuItemRecipe,
-    deductInventoryForOrderId,
-    deductInventoryForOrderLines,
-    restoreInventoryForOrderId,
+    ensureInventorySchema,
     resolveStockStatus,
-} = require('./src/utils/recipeInventory');
+} = require('./src/utils/inventorySchema');
+const { ensureOrdersSchema } = require('./src/utils/ordersSchema');
 const {
     ensureExpensesSchema,
     listExpenses,
@@ -70,16 +55,30 @@ const {
     auditFromRequest,
     listAuditLogs,
 } = require('./src/utils/auditLog');
-const {
-    ensureKitchenSchema,
-    listKitchenOrders,
-    updateKitchenStatus,
-} = require('./src/utils/kitchenOrders');
 const helmet = require('helmet');
 const { sanitizeRequest } = require('./src/middleware/sanitize');
-const { loginLimiter, apiLimiter, sensitiveOperationLimiter } = require('./src/middleware/rateLimit');
+const { apiLimiter, sensitiveOperationLimiter } = require('./src/middleware/rateLimit');
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
 const { logError, logSecurity } = require('./src/utils/logger');
+const { publicAuthRouter, privateAuthRouter, rejectPublicSignup } = require('./src/routes/auth');
+const { listUnreadUserAlerts, markNotificationRead, ensureAdminNotificationsSchema } = require('./src/utils/adminNotifications');
+const { ensureUsersEmailColumn } = require('./src/utils/userAccounts');
+const {
+    ensureReservationsSchema,
+    listFloorTables,
+    listReservations,
+    getReservation,
+    createReservation,
+    updateReservation,
+    checkInReservation,
+    deleteReservation,
+    getAvailableTables,
+    getLiveFloorReservations,
+    TIME_SLOTS,
+    ALL_STATUSES,
+} = require('./src/utils/reservations');
+const { processReservationReminders, startReservationReminderJob } = require('./src/utils/reservationReminders');
+const { sendReservationConfirmationLetter } = require('./src/utils/reservationLetter');
 
 const app = express();
 
@@ -126,119 +125,19 @@ app.use(express.urlencoded({ extended: false, limit: env.security.jsonBodyLimit 
 app.use(sanitizeRequest);
 
 // ==========================================
-// 🔐 USER LOGIN API ROUTE
+// 🔐 PUBLIC AUTH (login, password reset — no JWT)
 // ==========================================
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
-    const { normalizedUsername, plainPassword } = normalizeLoginInput(
-        req.body?.username,
-        req.body?.password,
-    );
+app.use('/api/auth', publicAuthRouter);
+app.post('/api/register', rejectPublicSignup);
+app.post('/api/signup', rejectPublicSignup);
+app.get('/api/register', rejectPublicSignup);
+app.get('/api/signup', rejectPublicSignup);
 
-    // One message for every failure path below, so a caller can never tell whether the
-    // username exists, the account is broken, or only the password was wrong.
-    const INVALID_CREDENTIALS = 'Invalid username or password';
-
-    if (!normalizedUsername || !plainPassword) {
-        return res.status(400).json({ message: "Please provide both username and password" });
-    }
-
-    try {
-        const [rows] = await db.execute(
-            `SELECT id, display_name, username, role, permissions, password_hash
-             FROM users WHERE BINARY username = ? LIMIT 1`,
-            [normalizedUsername],
-        );
-
-        const user = rows[0] ?? null;
-        const storedHash = user ? resolveStoredPasswordHash(user) : null;
-
-        let isPasswordMatch = false;
-        try {
-            if (storedHash) {
-                isPasswordMatch = await verifyPassword(plainPassword, storedHash);
-            } else {
-                // No account (or no hash on file): still run one comparison so the response
-                // time matches a real check and cannot be used to enumerate usernames.
-                await equalizeFailedLoginTiming(plainPassword);
-            }
-        } catch (compareError) {
-            logError(compareError, { route: 'POST /api/auth/login', stage: 'password-compare' });
-            return res.status(401).json({ message: INVALID_CREDENTIALS });
-        }
-
-        if (!user || !storedHash || !isPasswordMatch) {
-            logSecurity('login_failed', {
-                ip: req.ip,
-                username: normalizedUsername.slice(0, 64),
-                reason: !user ? 'unknown_user' : !storedHash ? 'no_password_hash' : 'bad_password',
-            });
-            return res.status(401).json({ message: INVALID_CREDENTIALS });
-        }
-
-        const userPermissions = normalizePermissions(user.permissions);
-        const tokenPayload = buildTokenPayload(user);
-        const jwtSecret = assertJwtSecret(JWT_SECRET);
-
-        const token = jwt.sign(tokenPayload, jwtSecret, {
-            expiresIn: env.jwtExpiresIn,
-            algorithm: 'HS256',
-        });
-
-        await writeAuditLog(db, {
-            userId: user.id,
-            userRole: user.role,
-            username: user.username,
-            action: 'login',
-            module: 'Auth',
-            description: `User ${user.username} signed in`,
-        });
-
-        logSecurity('login_success', { ip: req.ip, username: user.username, userId: user.id });
-
-        res.status(200).json({
-            message: "Login successful",
-            token,
-            user: {
-                id: user.id,
-                display_name: user.display_name,
-                username: user.username,
-                role: user.role,
-                permissions: userPermissions
-            }
-        });
-
-    } catch (error) {
-        logError(error, { route: 'POST /api/auth/login' });
-
-        if (isDatabaseConnectionError(error)) {
-            return res.status(503).json({ message: getDatabaseErrorMessage(error) });
-        }
-
-        if (error.message === 'JWT_SECRET is not configured') {
-            return res.status(500).json({ message: "Server authentication is misconfigured" });
-        }
-
-        console.error("Login Server Error:", error);
-        res.status(500).json({ message: "Internal server error occurred during login" });
-    }
-});
 // ==========================================
 // 🔐 AUTHENTICATED API ROUTES (JWT + live DB permissions)
 // ==========================================
 app.use('/api', apiLimiter, authenticateToken);
-
-app.get('/api/auth/me', async (req, res) => {
-    res.status(200).json({ user: req.user });
-});
-
-app.post('/api/auth/logout', async (req, res) => {
-    await auditFromRequest(db, req, {
-        action: 'logout',
-        module: 'Auth',
-        description: `User ${req.user?.username || req.user?.id} signed out`,
-    });
-    res.status(200).json({ message: 'Logged out' });
-});
+app.use('/api/auth', privateAuthRouter);
 
 // ==========================================
 // 👥 EMPLOYEES & USER MANAGEMENT API ROUTES
@@ -261,11 +160,14 @@ app.get('/api/users', requireAdmin, async (req, res) => {
         );
         
         // Safely parse the permissions JSON string back into an array for React
-        const users = rows.map(u => ({
-            ...u,
+        const users = rows.map((u) => ({
+            id: u.id,
+            display_name: u.display_name,
+            username: u.username,
+            role: u.role,
             permissions: normalizePermissions(u.permissions),
         }));
-        
+
         res.status(200).json(users);
     } catch (error) {
         console.error("❌ FETCH USERS ERROR:", error.message);
@@ -360,9 +262,13 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             [userId],
         );
 
+        const updated = updatedRows[0]
         const updatedUser = {
-            ...updatedRows[0],
-            permissions: normalizePermissions(updatedRows[0].permissions),
+            id: updated.id,
+            display_name: updated.display_name,
+            username: updated.username,
+            role: updated.role,
+            permissions: normalizePermissions(updated.permissions),
         };
 
         res.status(200).json({
@@ -375,6 +281,65 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     }
 });
 
+app.delete('/api/users/:id', requireAdmin, async (req, res) => {
+    const userId = Number.parseInt(req.params.id, 10);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    if (Number(req.user?.id) === userId) {
+        return res.status(400).json({ message: 'You cannot delete your own account.' });
+    }
+
+    try {
+        const [existingRows] = await db.execute(
+            'SELECT id, display_name, username, role FROM users WHERE id = ? LIMIT 1',
+            [userId],
+        );
+        if (!existingRows.length) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const target = existingRows[0];
+        if (isAdminRole(target.role)) {
+            const [adminCountRows] = await db.execute(
+                `SELECT COUNT(*) AS admin_count FROM users WHERE LOWER(role) = 'admin'`,
+            );
+            if (Number(adminCountRows[0]?.admin_count || 0) <= 1) {
+                return res.status(400).json({ message: 'Cannot delete the last administrator account.' });
+            }
+        }
+
+        try {
+            await db.execute('DELETE FROM admin_notifications WHERE recipient_user_id = ?', [userId]);
+        } catch (notificationError) {
+            if (notificationError.code !== 'ER_NO_SUCH_TABLE') {
+                throw notificationError;
+            }
+        }
+
+        const [result] = await db.execute('DELETE FROM users WHERE id = ?', [userId]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        await auditFromRequest(db, req, {
+            action: 'user_delete',
+            module: 'User Management',
+            description: `Deleted user ${target.username} (${target.display_name})`,
+        });
+
+        res.status(200).json({ message: 'User deleted successfully' });
+    } catch (error) {
+        console.error('❌ DELETE USER ERROR:', error.message);
+        res.status(500).json({
+            message: 'Failed to delete user',
+            errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }),
+        });
+    }
+});
+
 // ==========================================
 // ☕ MENU MANAGEMENT API ROUTES
 // ==========================================
@@ -382,8 +347,10 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 // 1. GET ALL MENU ITEMS (To display them on your frontend grid)
 app.get('/api/menu', async (req, res) => {
     try {
-        const [items] = await db.execute('SELECT * FROM menu_items ORDER BY category, name');
-        res.status(200).json(items);
+        const [items] = await db.execute(
+            'SELECT id, name, category, price, image_url, is_available FROM menu_items ORDER BY category, name',
+        );
+        res.status(200).json(items.map(serializeMenuItem));
     } catch (error) {
         console.error("Error fetching menu items:", error);
         res.status(500).json({ message: "Failed to load menu items" });
@@ -391,7 +358,7 @@ app.get('/api/menu', async (req, res) => {
 });
 
 // 2. ADD A NEW MENU ITEM (When you click 'Add Item' on your management page)
-app.post('/api/menu', async (req, res) => {
+app.post('/api/menu', requirePermission('menu'), async (req, res) => {
     const { name, category, price, image_url } = req.body ?? {};
     const priceNum = Number(price);
 
@@ -430,7 +397,7 @@ app.post('/api/menu', async (req, res) => {
 });
 
 // 3. EDIT AN EXISTING MENU ITEM (Fixes your click/modify actions)
-app.put('/api/menu/:id', async (req, res) => {
+app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
     const { name, category, price, image_url } = req.body ?? {};
     const priceNum = Number(price);
@@ -468,8 +435,12 @@ app.put('/api/menu/:id', async (req, res) => {
 });
 
 // 4. DELETE A MENU ITEM (When clicking the delete/trash icon on a menu card)
-app.delete('/api/menu/:id', async (req, res) => {
-    const itemId = req.params.id;
+app.delete('/api/menu/:id', requirePermission('menu'), async (req, res) => {
+    const itemId = Number.parseInt(req.params.id, 10);
+
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+        return res.status(400).json({ message: 'Invalid menu item id' });
+    }
 
     try {
         const [result] = await db.execute('DELETE FROM menu_items WHERE id = ?', [itemId]);
@@ -491,86 +462,6 @@ app.delete('/api/menu/:id', async (req, res) => {
     }
 });
 
-app.get('/api/menu/recipe-summaries', async (req, res) => {
-    try {
-        await ensureRecipeSchema(db);
-        const [rows] = await db.execute(`
-            SELECT
-                mii.menu_item_id,
-                i.item_name,
-                mii.quantity_required,
-                mii.unit
-            FROM menu_item_ingredients mii
-            JOIN inventory i ON i.id = mii.inventory_item_id
-            ORDER BY mii.menu_item_id ASC, i.item_name ASC
-        `);
-
-        const summaries = {};
-        for (const row of rows) {
-            const id = row.menu_item_id;
-            if (!summaries[id]) {
-                summaries[id] = { count: 0, preview: [] };
-            }
-            summaries[id].count += 1;
-            if (summaries[id].preview.length < 3) {
-                summaries[id].preview.push({
-                    name: row.item_name,
-                    quantity_required: Number(row.quantity_required),
-                    unit: row.unit,
-                });
-            }
-        }
-
-        res.status(200).json(summaries);
-    } catch (error) {
-        console.error('❌ MENU RECIPE SUMMARIES ERROR:', error);
-        res.status(500).json({ message: 'Failed to load recipe summaries' });
-    }
-});
-
-app.get('/api/menu/:id/recipe', async (req, res) => {
-    const menuItemId = Number.parseInt(req.params.id, 10);
-    if (!menuItemId) {
-        return res.status(400).json({ message: 'Invalid menu item id' });
-    }
-
-    try {
-        const recipe = await getMenuItemRecipe(db, menuItemId);
-        if (!recipe) {
-            return res.status(404).json({ message: 'Menu item not found' });
-        }
-        res.status(200).json(recipe);
-    } catch (error) {
-        console.error('❌ GET MENU RECIPE ERROR:', error);
-        res.status(500).json({ message: 'Failed to load recipe', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
-    }
-});
-
-app.put('/api/menu/:id/recipe', async (req, res) => {
-    const menuItemId = Number.parseInt(req.params.id, 10);
-    if (!menuItemId) {
-        return res.status(400).json({ message: 'Invalid menu item id' });
-    }
-
-    const ingredients = Array.isArray(req.body?.ingredients) ? req.body.ingredients : [];
-
-    try {
-        const recipe = await saveMenuItemRecipe(db, menuItemId, ingredients);
-        await auditFromRequest(db, req, {
-            action: 'recipe_update',
-            module: 'Menu Management',
-            description: `Updated recipe for menu item #${menuItemId} (${ingredients.length} ingredient link(s))`,
-        });
-        res.status(200).json({
-            message: 'Recipe saved successfully',
-            recipe,
-        });
-    } catch (error) {
-        console.error('❌ SAVE MENU RECIPE ERROR:', error);
-        res.status(500).json({ message: 'Failed to save recipe', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
-    }
-});
-
 // ==========================================
 // 📋 ACTIVE ORDERING & POS API ROUTES
 // ==========================================
@@ -582,7 +473,7 @@ app.get('/api/orders/active', async (req, res) => {
         const query = `
             SELECT o.id AS order_id, ${targetSelect} AS target_id, o.status,
                    COALESCE(o.bill_requested, 0) AS bill_requested,
-                   oi.menu_item_id, oi.quantity, oi.price,
+                   oi.menu_item_id, oi.quantity, oi.price, oi.notes,
                    COALESCE(m.name, oi.item_name, 'Custom item') AS name
             FROM orders o
             JOIN order_items oi ON o.id = oi.order_id
@@ -590,13 +481,18 @@ app.get('/api/orders/active', async (req, res) => {
             WHERE o.status = 'Pending'
         `;
         const [results] = await db.execute(query);
-        res.status(200).json(results);
+        res.status(200).json(results.map((row) => ({
+            ...row,
+            notes: row.notes || '',
+            name: formatOrderLineName(row.name, row.notes),
+            bill_requested: Number(row.bill_requested) ? 1 : 0,
+        })));
     } catch (error) {
         if (error.message && error.message.includes('bill_requested')) {
             try {
                 const fallbackQuery = `
                     SELECT o.id AS order_id, ${targetSelect} AS target_id, o.status,
-                           oi.menu_item_id, oi.quantity, oi.price,
+                           oi.menu_item_id, oi.quantity, oi.price, oi.notes,
                            COALESCE(m.name, oi.item_name, 'Custom item') AS name
                     FROM orders o
                     JOIN order_items oi ON o.id = oi.order_id
@@ -604,7 +500,12 @@ app.get('/api/orders/active', async (req, res) => {
                     WHERE o.status = 'Pending'
                 `;
                 const [results] = await db.execute(fallbackQuery);
-                res.status(200).json(results);
+                res.status(200).json(results.map((row) => ({
+                    ...row,
+                    notes: row.notes || '',
+                    name: formatOrderLineName(row.name, row.notes),
+                    bill_requested: 0,
+                })));
                 return;
             } catch (fallbackError) {
                 logOrderError('DATABASE ERROR IN /api/orders/active (fallback)', fallbackError);
@@ -649,25 +550,7 @@ app.post('/api/orders', async (req, res) => {
         }
 
         for (const item of items) {
-            const { orderItemId, menuItemId } = await insertOrderItem(db, orderId, item);
-            if (menuItemId == null) {
-                continue;
-            }
-            try {
-                await deductInventoryForOrderLines(
-                    db,
-                    [
-                        {
-                            order_item_id: orderItemId,
-                            menu_item_id: menuItemId,
-                            quantity: item.quantity,
-                        },
-                    ],
-                    { markOrderItemIds: true },
-                );
-            } catch (deductError) {
-                console.warn('⚠️ Recipe inventory deduction skipped:', deductError.message);
-            }
+            await insertOrderItem(db, orderId, item);
         }
 
         res.status(201).json({
@@ -703,8 +586,6 @@ app.post('/api/orders/checkout', async (req, res) => {
         target_id,
         payment_method,
         subtotal,
-        tax,
-        total,
         table_id,
     } = req.body ?? {};
 
@@ -718,11 +599,11 @@ app.post('/api/orders/checkout', async (req, res) => {
     }
 
     const subtotalNum = Number(subtotal);
-    const taxNum = Number(tax);
-    const totalNum = Number(total);
-    if (![subtotalNum, taxNum, totalNum].every((value) => Number.isFinite(value) && value >= 0)) {
-        return res.status(400).json({ message: 'Checkout requires valid subtotal, tax, and total' });
+    if (!Number.isFinite(subtotalNum) || subtotalNum < 0) {
+        return res.status(400).json({ message: 'Checkout requires a valid subtotal' });
     }
+    const taxNum = 0;
+    const totalNum = subtotalNum;
 
     let target;
     try {
@@ -765,12 +646,6 @@ app.post('/api/orders/checkout', async (req, res) => {
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'No active ticket session found for this target.' });
-        }
-
-        try {
-            await deductInventoryForOrderId(db, orderId);
-        } catch (deductError) {
-            console.warn('⚠️ Checkout inventory deduction warning:', deductError.message);
         }
 
         await auditFromRequest(db, req, {
@@ -863,12 +738,6 @@ app.put('/api/orders/items', async (req, res) => {
             orderId = await createPendingOrder(db, target, table_id);
         }
 
-        try {
-            await restoreInventoryForOrderId(db, orderId);
-        } catch (restoreError) {
-            console.warn('⚠️ Inventory restore before bill sync skipped:', restoreError.message);
-        }
-
         await db.execute('DELETE FROM order_items WHERE order_id = ?', [orderId]);
 
         for (const item of items) {
@@ -889,8 +758,8 @@ app.put('/api/orders/items', async (req, res) => {
 // 6. FETCH COMPLETED SALES HISTORY LOGS
 app.get('/api/orders/history', async (req, res) => {
     const parsedDays = Number.parseInt(req.query.days, 10);
-    const allowedDayRanges = [30, 60, 90, 120, 180, 365];
-    const days = allowedDayRanges.includes(parsedDays) ? parsedDays : 365;
+    const allowedDayRanges = [30, 60, 90, 120, 180, 365, 730];
+    const days = allowedDayRanges.includes(parsedDays) ? parsedDays : 730;
 
     try {
         const query = `
@@ -926,6 +795,7 @@ app.get('/api/orders/history', async (req, res) => {
             SELECT
                 oi.order_id,
                 COALESCE(m.name, oi.item_name, 'Custom item') AS name,
+                oi.notes,
                 oi.quantity AS qty,
                 oi.price AS unitPrice,
                 (oi.quantity * oi.price) AS lineTotal
@@ -939,7 +809,8 @@ app.get('/api/orders/history', async (req, res) => {
         const itemsByOrder = itemRows.reduce((acc, row) => {
             if (!acc[row.order_id]) acc[row.order_id] = [];
             acc[row.order_id].push({
-                name: row.name,
+                name: formatOrderLineName(row.name, row.notes),
+                notes: row.notes || '',
                 qty: row.qty,
                 unitPrice: parseFloat(row.unitPrice),
                 lineTotal: parseFloat(row.lineTotal),
@@ -969,44 +840,52 @@ app.get('/api/orders/history', async (req, res) => {
 });
 
 // ==========================================
-// 🤖 AI PREDICTIONS & ANALYTICS API ROUTES
+// 🔔 REAL-TIME ALERTS
 // ==========================================
 
-app.get('/api/ai/predictions', requirePermission('reports_prediction'), async (req, res) => {
-    try {
-        const payload = await buildAiPredictions(db, req.query);
-        res.status(200).json(payload);
-    } catch (error) {
-        console.error('❌ AI PREDICTIONS ERROR:', error.message);
-        res.status(500).json({ message: 'Failed to generate AI predictions', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
-    }
-});
-
-app.get('/api/ai/daily-briefing', async (req, res) => {
-    try {
-        const bypassCache = req.query.refresh === '1';
-        const displayName =
-            req.user?.display_name || req.user?.username || req.query.name || 'Manager';
-        const payload = await buildDailyBriefing(db, { bypassCache, displayName });
-        res.status(200).json(payload);
-    } catch (error) {
-        console.error('❌ DAILY BRIEFING ERROR:', error.message);
-        res.status(500).json({ message: 'Failed to build daily AI briefing', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
-    }
-});
-
-// ==========================================
-// 🔔 REAL-TIME ALERTS & AI ADVISORY
-// ==========================================
+function summarizeAlertCounts(alerts) {
+    return {
+        total: alerts.length,
+        critical: alerts.filter((alert) => alert.severity === 'critical').length,
+        warning: alerts.filter((alert) => alert.severity === 'warning').length,
+        info: alerts.filter((alert) => alert.severity === 'info').length,
+        reservation: alerts.filter((alert) => alert.category === 'reservation').length,
+    };
+}
 
 app.get('/api/alerts', async (req, res) => {
     try {
+        await processReservationReminders(db).catch(() => null);
         const bypassCache = req.query.refresh === '1';
         const payload = await buildActiveAlerts(db, { bypassCache });
-        res.status(200).json(payload);
+        const storedAlerts = req.user?.id ? await listUnreadUserAlerts(db, req.user.id) : [];
+        const alerts = [...storedAlerts, ...(payload.alerts || [])];
+        const counts = summarizeAlertCounts(alerts);
+        return res.status(200).json({ ...payload, alerts, counts });
     } catch (error) {
         console.error('❌ ALERTS ENGINE ERROR:', error.message);
         res.status(500).json({ message: 'Failed to scan active alerts', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
+    }
+});
+
+app.patch('/api/notifications/:id/read', async (req, res) => {
+    const notificationId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(notificationId) || notificationId <= 0) {
+        return res.status(400).json({ message: 'Invalid notification id' });
+    }
+
+    try {
+        const updated = await markNotificationRead(db, {
+            notificationId,
+            recipientUserId: req.user.id,
+        });
+        if (!updated) {
+            return res.status(404).json({ message: 'Notification not found' });
+        }
+        res.status(200).json({ message: 'Notification marked as read' });
+    } catch (error) {
+        console.error('❌ MARK NOTIFICATION READ ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to update notification' });
     }
 });
 
@@ -1017,27 +896,6 @@ app.get('/api/alerts', async (req, res) => {
 app.get('/api/inventory', async (req, res) => {
     try {
         const [items] = await db.execute('SELECT * FROM inventory ORDER BY section, category, item_name');
-
-        if (req.query.includeAi === '1') {
-            try {
-                const aiInsights = await buildInventoryAiInsights(db, req.query);
-                const merged = mergeInventoryAiFlags(items, aiInsights.items);
-                return res.status(200).json({
-                    generatedAt: aiInsights.generatedAt,
-                    targetPeriod: aiInsights.targetPeriod,
-                    items: merged,
-                });
-            } catch (aiError) {
-                console.warn('⚠️ Inventory AI insights unavailable, returning plain stock list:', aiError.message);
-                return res.status(200).json({
-                    generatedAt: null,
-                    targetPeriod: null,
-                    aiError: true,
-                    items,
-                });
-            }
-        }
-
         res.status(200).json(items);
     } catch (error) {
         console.error('❌ INVENTORY FETCH ERROR:', error.message);
@@ -1045,17 +903,7 @@ app.get('/api/inventory', async (req, res) => {
     }
 });
 
-app.get('/api/inventory/ai-recommendations', async (req, res) => {
-    try {
-        const payload = await buildInventoryAiInsights(db, req.query);
-        res.status(200).json(payload);
-    } catch (error) {
-        console.error('❌ INVENTORY AI INSIGHTS ERROR:', error.message);
-        res.status(500).json({ message: 'Failed to load inventory AI recommendations', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
-    }
-});
-
-app.put('/api/inventory/:id/stock', async (req, res) => {
+app.put('/api/inventory/:id/stock', requirePermission('inventory_stock'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
     const { stock_quantity, unit_cost } = req.body ?? {};
     const qty = Number(stock_quantity);
@@ -1069,7 +917,7 @@ app.put('/api/inventory/:id/stock', async (req, res) => {
     }
 
     try {
-        await ensureRecipeSchema(db);
+        await ensureInventorySchema(db);
         const [rows] = await db.execute(
             'SELECT low_threshold, critical_threshold, unit_cost FROM inventory WHERE id = ? LIMIT 1',
             [itemId],
@@ -1099,7 +947,7 @@ app.put('/api/inventory/:id/stock', async (req, res) => {
 });
 
 // 3. ADD A NEW TRACKED INVENTORY ITEM
-app.post('/api/inventory', async (req, res) => {
+app.post('/api/inventory', requirePermission('inventory_stock'), async (req, res) => {
     const body = req.body ?? {};
     const item_name = body.item_name;
     const category = body.category;
@@ -1183,7 +1031,7 @@ app.get('/api/system/backup/excel', sensitiveOperationLimiter, requirePermission
     try {
         const period = parseBackupPeriod(req.query);
         const buffer = await exportBusinessDataBuffer(db, period);
-        const filename = buildBackupFilename('romduol-business-data', 'xlsx', period);
+        const filename = buildBackupFilename('mlu-kitchen-cafe-business-data', 'xlsx', period);
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1230,40 +1078,6 @@ app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, 
             handleBackupError(res, error, 'Failed to restore database from SQL backup');
         }
     });
-});
-
-// ==========================================
-// 🍳 KITCHEN DISPLAY SYSTEM
-// ==========================================
-app.get('/api/orders/kitchen', async (req, res) => {
-    try {
-        const tickets = await listKitchenOrders(db);
-        res.status(200).json(tickets);
-    } catch (error) {
-        console.error('❌ KITCHEN QUEUE ERROR:', error.message);
-        res.status(500).json({ message: 'Failed to load kitchen queue', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
-    }
-});
-
-app.put('/api/orders/:id/kitchen-status', async (req, res) => {
-    try {
-        const updated = await updateKitchenStatus(db, req.params.id, req.body?.kitchen_status);
-        await auditFromRequest(db, req, {
-            action: 'kitchen_status',
-            module: 'Kitchen Display',
-            description: `Order #${updated.order_id} → ${updated.kitchen_status}`,
-        });
-        res.status(200).json(updated);
-    } catch (error) {
-        const status = error.status || 500;
-        // Only validation errors raised on purpose keep their text; anything else could
-        // be a driver error and collapses to a generic message.
-        if (status >= 500) {
-            const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` });
-            return res.status(500).json({ message: 'Failed to update kitchen status', errorId });
-        }
-        res.status(status).json({ message: error.message || 'Failed to update kitchen status' });
-    }
 });
 
 // ==========================================
@@ -1328,6 +1142,182 @@ app.delete('/api/expenses/:id', async (req, res) => {
 });
 
 // ==========================================
+// 📅 TABLE RESERVATIONS
+// ==========================================
+
+const requireReservationsAccess = requireAnyPermission('reservations', 'table')
+const requireReportsAccess = requireAnyPermission('reports', 'reports_analysis', 'sales_history')
+
+app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
+    try {
+        const tables = await listFloorTables(db)
+        const floor = await getLiveFloorReservations(db)
+        const standard = tables.filter((table) => table.section !== 'vip')
+        const vip = tables.filter((table) => table.section === 'vip')
+        const reservations = floor.tables || {}
+
+        res.status(200).json({
+            date: floor.date,
+            counts: {
+                standard: standard.length,
+                vip: vip.length,
+                takeout: 1,
+            },
+            standard,
+            vip,
+            takeout: {
+                id: 'takeout',
+                name: 'Take Out',
+                section: 'takeout',
+                capacity: null,
+                status: 'Empty',
+            },
+            tables,
+            reservations,
+        })
+    } catch (error) {
+        console.error('❌ TABLES FLOOR ERROR:', error.message)
+        res.status(500).json({ message: 'Failed to load floor tables' })
+    }
+})
+
+app.get('/api/reports', requireReportsAccess, async (req, res) => {
+    try {
+        const report = await buildSalesReport(db, { days: req.query.days })
+        res.status(200).json(report)
+    } catch (error) {
+        console.error('❌ REPORTS ERROR:', error.message)
+        res.status(500).json({ message: 'Failed to load sales report', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) })
+    }
+})
+
+app.get('/api/reservations/meta', requireReservationsAccess, async (_req, res) => {
+    try {
+        const tables = await listFloorTables(db)
+        res.status(200).json({ tables, timeSlots: TIME_SLOTS, statuses: ALL_STATUSES })
+    } catch (error) {
+        console.error('❌ RESERVATION META ERROR:', error.message)
+        res.status(500).json({ message: 'Failed to load reservation options' })
+    }
+})
+
+app.get('/api/reservations/availability', requireReservationsAccess, async (req, res) => {
+    try {
+        const payload = await getAvailableTables(db, {
+            date: req.query.date,
+            timeSlot: req.query.time_slot,
+            excludeId: req.query.exclude_id,
+        })
+        res.status(200).json(payload)
+    } catch (error) {
+        const status = error.status || 500
+        if (status >= 500) console.error('❌ RESERVATION AVAILABILITY ERROR:', error.message)
+        res.status(status).json({ message: error.message || 'Failed to check table availability' })
+    }
+})
+
+app.get('/api/reservations/floor', requireAnyPermission('reservations', 'table'), async (_req, res) => {
+    try {
+        const payload = await getLiveFloorReservations(db)
+        res.status(200).json(payload)
+    } catch (error) {
+        console.error('❌ RESERVATION FLOOR ERROR:', error.message)
+        res.status(500).json({ message: 'Failed to load reserved floor status' })
+    }
+})
+
+app.get('/api/reservations', requireReservationsAccess, async (req, res) => {
+    try {
+        const reservations = await listReservations(db, req.query)
+        res.status(200).json(reservations)
+    } catch (error) {
+        console.error('❌ RESERVATIONS LIST ERROR:', error.message)
+        res.status(500).json({ message: 'Failed to load reservations' })
+    }
+})
+
+app.get('/api/reservations/:id', requireReservationsAccess, async (req, res) => {
+    try {
+        const reservation = await getReservation(db, req.params.id)
+        res.status(200).json(reservation)
+    } catch (error) {
+        const status = error.status || 500
+        if (status >= 500) console.error('❌ RESERVATION FETCH ERROR:', error.message)
+        res.status(status).json({ message: error.message || 'Failed to load reservation' })
+    }
+})
+
+app.post('/api/reservations', requireReservationsAccess, async (req, res) => {
+    try {
+        const reservation = await createReservation(db, req.body, req.user)
+        res.status(201).json(reservation)
+    } catch (error) {
+        const status = error.status || 500
+        if (status >= 500) console.error('❌ RESERVATION CREATE ERROR:', error.message)
+        res.status(status).json({ message: error.message || 'Failed to create reservation' })
+    }
+})
+
+app.put('/api/reservations/:id', requireReservationsAccess, async (req, res) => {
+    try {
+        const reservation = await updateReservation(db, req.params.id, req.body)
+        res.status(200).json(reservation)
+    } catch (error) {
+        const status = error.status || 500
+        if (status >= 500) console.error('❌ RESERVATION UPDATE ERROR:', error.message)
+        res.status(status).json({ message: error.message || 'Failed to update reservation' })
+    }
+})
+
+app.post('/api/reservations/:id/check-in', requireReservationsAccess, async (req, res) => {
+    try {
+        const reservation = await checkInReservation(db, req.params.id)
+        res.status(200).json(reservation)
+    } catch (error) {
+        const status = error.status || 500
+        if (status >= 500) console.error('❌ RESERVATION CHECK-IN ERROR:', error.message)
+        res.status(status).json({ message: error.message || 'Failed to check in reservation' })
+    }
+})
+
+app.post('/api/reservations/:id/confirmation-letter', requireReservationsAccess, async (req, res) => {
+    try {
+        const reservation = await getReservation(db, req.params.id)
+        const result = await sendReservationConfirmationLetter({
+            reservation,
+            to: req.body?.email,
+        })
+        await auditFromRequest(db, req, {
+            action: 'reservation_letter_send',
+            module: 'Reservations',
+            description: `Sent confirmation letter for booking #${reservation.id} (${reservation.customer_name}) to ${String(req.body?.email || '').trim()}`,
+        })
+        res.status(200).json({
+            message: result.delivered
+                ? 'Confirmation letter sent'
+                : 'Confirmation letter saved to the mail log (SMTP is not configured)',
+            delivered: result.delivered,
+            method: result.method,
+        })
+    } catch (error) {
+        const status = error.status || 500
+        if (status >= 500) console.error('❌ RESERVATION LETTER ERROR:', error.message)
+        res.status(status).json({ message: error.message || 'Failed to send confirmation letter' })
+    }
+})
+
+app.delete('/api/reservations/:id', requireReservationsAccess, async (req, res) => {
+    try {
+        const reservation = await deleteReservation(db, req.params.id)
+        res.status(200).json({ message: 'Reservation deleted', reservation })
+    } catch (error) {
+        const status = error.status || 500
+        if (status >= 500) console.error('❌ RESERVATION DELETE ERROR:', error.message)
+        res.status(status).json({ message: error.message || 'Failed to delete reservation' })
+    }
+})
+
+// ==========================================
 // 🔐 AUDIT LOGS (ADMIN)
 // ==========================================
 app.get('/api/audit-logs', requireAdmin, async (req, res) => {
@@ -1367,23 +1357,33 @@ process.on('uncaughtException', (error) => {
 });
 
 app.listen(PORT, async () => {
-    console.log(`🚀 Romdoul Restaurant / Cafe Backend running smoothly on port ${PORT}`);
+    console.log(`🚀 ${STORE.officialName} Backend running smoothly on port ${PORT}`);
     console.log(`   CORS allowed origins: ${env.security.allowedOrigins.join(', ')}`);
     console.log(`   Security: helmet on, rate limiting on, JWT expiry ${env.jwtExpiresIn}`);
 
     try {
         await db.execute('SELECT 1');
         console.log(`   Database connection: OK (${resolveDbHost(env.db.host)}:${env.db.database})`);
-        await ensureRecipeSchema(db);
+        await ensureInventorySchema(db);
+        const restoredSaleDates = await ensureOrdersSchema(db);
         await ensureOrderItemsSchema(db);
         await ensureMenuItemsImageSchema(db);
         await ensureExpensesSchema(db);
         await ensureAuditSchema(db);
-        await ensureKitchenSchema(db);
-        console.log('   Recipe / inventory schema: OK');
+        await ensureUsersEmailColumn(db);
+        await ensureAdminNotificationsSchema(db);
+        await ensureReservationsSchema(db);
+        startReservationReminderJob(db);
+        console.log('   Inventory schema: OK');
+        if (restoredSaleDates > 0) {
+            console.log(`   Orders sale dates restored: ${restoredSaleDates} (updated_at <- created_at)`);
+        }
+        console.log('   Order timestamps: OK (no ON UPDATE stamp)');
         console.log('   Order items schema: OK');
         console.log('   Menu items image_url: OK');
-        console.log('   Expenses / audit / kitchen schema: OK');
+        console.log('   Expenses / audit schema: OK');
+        console.log('   Floor tables / reservations schema: OK');
+        console.log(`   Admin recovery email: ${env.adminEmail}`);
     } catch (error) {
         console.error('❌ Database connection failed:', error.code || error.message);
         console.error('   Start MySQL in Laragon, then restart this server.');

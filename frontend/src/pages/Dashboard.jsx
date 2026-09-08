@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  AlertTriangle,
-  Brain,
-  Clock,
   DollarSign,
-  Package,
-  Sparkles,
   TrendingDown,
   TrendingUp,
   UserCheck,
@@ -30,8 +25,7 @@ import { useSettings } from '../context/SettingsContext'
 import { STORE } from '../config/store'
 import { useAlerts } from '../hooks/useAlerts'
 import AlertCenter from '../components/alerts/AlertCenter'
-import DailyAIBriefing from '../components/dashboard/DailyAIBriefing'
-import { apiFetch } from '../services/apiClient'
+import { apiFetch, getAuthToken } from '../services/apiClient'
 import {
   buildDashboardStats,
   buildPaymentSplitData,
@@ -39,23 +33,7 @@ import {
   buildWeeklySalesData,
 } from '../utils/dashboardAnalytics'
 
-const API_PATH = '/orders/history?days=365'
-
-const peakHours = [
-  { hour: '6 AM', demand: 72, label: 'Tourist coffee rush' },
-  { hour: '8 AM', demand: 88, label: 'Morning peak' },
-  { hour: '12 PM', demand: 95, label: 'Midday food orders' },
-  { hour: '3 PM', demand: 58, label: 'Afternoon' },
-  { hour: '5 PM', demand: 70, label: 'Evening mix' },
-  { hour: '7 PM', demand: 40, label: 'Closing' },
-]
-
-const forecastItems = [
-  { name: 'Cappuccino', predicted: 34, trend: '+18%' },
-  { name: 'Iced Coffee', predicted: 28, trend: '+24%' },
-  { name: 'Croissant', predicted: 22, trend: '+11%' },
-  { name: 'Latte', predicted: 19, trend: '+8%' },
-]
+const API_PATH = '/orders/history?days=730'
 
 function useChartTheme() {
   const { isDark } = useTheme()
@@ -124,10 +102,10 @@ function PaymentTooltip({ active, payload, theme }) {
 
 export default function Dashboard({ onNavigate }) {
   const { t } = useTranslation()
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const chartTheme = useChartTheme()
-  const { lowStockAlertsEnabled, aiForecastUpdatesEnabled } = useSettings()
-  const { alerts, counts, isLoading: alertsLoading, error: alertsError, refresh } = useAlerts()
+  const { lowStockAlertsEnabled } = useSettings()
+  const { alerts, counts, isLoading: alertsLoading, error: alertsError, refresh, markNotificationRead } = useAlerts()
   const [orders, setOrders] = useState([])
   const [todaySpending, setTodaySpending] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
@@ -137,12 +115,18 @@ export default function Dashboard({ onNavigate }) {
   }, [refresh])
 
   useEffect(() => {
+    const token = getAuthToken()
+    if (!token) {
+      setIsLoading(false)
+      return undefined
+    }
+
     Promise.all([
-      apiFetch(API_PATH)
-        .then((res) => res.json())
+      apiFetch(API_PATH, { token })
+        .then((res) => (res.ok ? res.json() : []))
         .then((data) => (Array.isArray(data) ? data : []))
         .catch(() => []),
-      apiFetch('/expenses/summary')
+      apiFetch('/expenses/summary', { token })
         .then((res) => (res.ok ? res.json() : { todaySpending: 0 }))
         .then((data) => Number(data.todaySpending) || 0)
         .catch(() => 0),
@@ -161,18 +145,23 @@ export default function Dashboard({ onNavigate }) {
     [orders, user, todaySpending],
   )
   const recentOrders = useMemo(() => buildRecentOrders(orders), [orders])
-  const stockAlerts = useMemo(
-    () => alerts.filter((alert) => alert.category === 'stock').slice(0, 4),
-    [alerts],
-  )
 
   const paymentColors = [chartTheme.primary, chartTheme.secondary]
   const paymentTotal = paymentSplit.reduce((sum, item) => sum + item.value, 0)
-  const maxDemand = Math.max(...peakHours.map((hour) => hour.demand))
 
   const handleAlertAction = (alert) => {
-    onNavigate?.(alert?.action?.navigateTo || 'inventory')
+    onNavigate?.(
+      alert?.action?.navigateTo ||
+        (alert?.category === 'password_reset' ? 'users' : alert?.category === 'reservation' ? 'reservations' : 'inventory'),
+    )
   }
+
+  const hasSecurityAlerts = alerts.some((alert) => alert.category === 'password_reset')
+  const hasReservationAlerts = alerts.some((alert) => alert.category === 'reservation')
+  const showAlertCenter =
+    lowStockAlertsEnabled ||
+    (isAdmin && hasSecurityAlerts) ||
+    hasReservationAlerts
 
   const stats = [
     {
@@ -218,19 +207,15 @@ export default function Dashboard({ onNavigate }) {
         </p>
       </div>
 
-      <DailyAIBriefing
-        displayName={user?.display_name || user?.displayName || user?.username}
-        hidden={!aiForecastUpdatesEnabled}
-      />
-
-      {(lowStockAlertsEnabled || aiForecastUpdatesEnabled) && (
+      {showAlertCenter && (
         <AlertCenter
           alerts={alerts}
           counts={counts}
           isLoading={alertsLoading}
           error={alertsError}
           onAction={handleAlertAction}
-          onViewAll={() => onNavigate?.('inventory')}
+          onDismiss={markNotificationRead}
+          onViewAll={() => onNavigate?.(hasSecurityAlerts ? 'users' : hasReservationAlerts ? 'reservations' : 'inventory')}
           variant="widget"
           maxItems={5}
         />
@@ -263,141 +248,6 @@ export default function Dashboard({ onNavigate }) {
           )
         })}
       </div>
-
-      {(aiForecastUpdatesEnabled || lowStockAlertsEnabled) && (
-      <div className="surface-card p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl surface-emerald text-emerald-900 dark:text-emerald-300">
-              <Brain className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold tracking-tight text-foreground">AI Sales &amp; Demand Analytics</h3>
-                <span className="inline-flex items-center gap-1 rounded-full badge-forest px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-                  <Sparkles className="h-3 w-3" />
-                  Live
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Predictions based on 30-day sales history and local foot traffic patterns
-              </p>
-            </div>
-          </div>
-          <div className="rounded-2xl surface-subtle px-4 py-2 text-center">
-            <p className="text-xs text-slate-500 dark:text-zinc-400">7-Day Revenue</p>
-            <p className="text-2xl font-semibold text-emerald-900 tabular-nums tracking-tight dark:text-emerald-300">
-              ${weeklySales.reduce((sum, day) => sum + day.revenue, 0).toFixed(2)}
-            </p>
-            <p className="text-xs text-emerald-800 dark:text-emerald-300">From completed orders</p>
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          {aiForecastUpdatesEnabled && (
-          <div className="surface-subtle p-4">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-forest-600" />
-              <h4 className="text-sm font-semibold text-foreground">Predicted Peak Hours Today</h4>
-            </div>
-            <div className="mt-4 space-y-3">
-              {peakHours.map((slot) => (
-                <div key={slot.hour}>
-                  <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="font-medium text-foreground">{slot.hour}</span>
-                    <span className="text-muted-foreground">{slot.label}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700">
-                    <div
-                      className="h-full rounded-full bg-forest-500 transition-all"
-                      style={{ width: `${(slot.demand / maxDemand) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          )}
-
-          {lowStockAlertsEnabled && (
-          <div className="surface-subtle p-4">
-            <div className="flex items-center gap-2">
-              <Package className="h-4 w-4 text-amber-600" />
-              <h4 className="text-sm font-semibold text-foreground">Inventory Restock Alerts</h4>
-            </div>
-            <div className="mt-4 space-y-3">
-              {stockAlerts.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No stock alerts right now.</p>
-              ) : (
-                stockAlerts.map((alert) => (
-                  <button
-                    key={alert.id}
-                    type="button"
-                    onClick={() => handleAlertAction(alert)}
-                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/50"
-                  >
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle
-                        className={`h-4 w-4 ${
-                          alert.severity === 'critical'
-                            ? 'text-red-500'
-                            : 'text-amber-500'
-                        }`}
-                      />
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{alert.title}</p>
-                        <p className="line-clamp-1 text-xs text-muted-foreground">{alert.message}</p>
-                      </div>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ring-1 ${
-                        alert.severity === 'critical'
-                          ? 'bg-red-50 text-red-600 ring-red-100 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-800/60'
-                          : 'bg-amber-50 text-amber-700 ring-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800/60'
-                      }`}
-                    >
-                      {alert.severity === 'critical' ? 'Critical' : 'Warning'}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-          )}
-
-          {aiForecastUpdatesEnabled && (
-          <div className="surface-subtle p-4">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-forest-600" />
-              <h4 className="text-sm font-semibold text-foreground">Tomorrow&apos;s Top Sellers</h4>
-            </div>
-            <div className="mt-4 space-y-3">
-              {forecastItems.map((item, index) => (
-                <div key={item.name} className="flex items-center gap-3">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full badge-forest text-xs font-semibold">
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{item.name}</p>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700">
-                      <div
-                        className="h-full rounded-full bg-forest-500"
-                        style={{ width: `${(item.predicted / 34) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-foreground tabular-nums">~{item.predicted}</p>
-                    <p className="text-xs text-forest-600">{item.trend}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          )}
-        </div>
-      </div>
-      )}
 
       <div className="grid gap-6 xl:grid-cols-5">
         <div className="surface-card p-6 xl:col-span-2">

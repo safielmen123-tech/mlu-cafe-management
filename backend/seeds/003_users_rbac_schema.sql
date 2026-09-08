@@ -1,7 +1,7 @@
 -- RBAC users table with JSON permissions array
--- Database: romduol_cafe_db
+-- Database: mlu_kitchen_cafe_db
 
-USE romduol_cafe_db;
+USE mlu_kitchen_cafe_db;
 
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,

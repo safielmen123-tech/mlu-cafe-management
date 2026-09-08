@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '../services/apiClient'
+import { apiFetch, getAuthToken } from '../services/apiClient'
 import { filterAlertsBySettings, countAlerts } from '../utils/alertSettings'
 import { useSettings } from './SettingsContext'
 
@@ -7,55 +7,86 @@ const AlertsContext = createContext(null)
 const POLL_INTERVAL_MS = 30_000
 
 export function AlertsProvider({ children }) {
-  const { lowStockAlertsEnabled, aiForecastUpdatesEnabled } = useSettings()
+  const { lowStockAlertsEnabled } = useSettings()
   const [alerts, setAlerts] = useState([])
   const [rawCounts, setRawCounts] = useState({
     total: 0,
     critical: 0,
     warning: 0,
-    ai_suggestion: 0,
+    info: 0,
   })
   const [generatedAt, setGeneratedAt] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const fetchAlerts = useCallback(async ({ refresh = false } = {}) => {
+    const token = getAuthToken()
+    if (!token) {
+      setIsLoading(false)
+      return null
+    }
+
     try {
       const path = refresh ? '/alerts?refresh=1' : '/alerts'
-      const response = await apiFetch(path)
-      if (!response.ok) {
-        setError(response.status === 401 ? null : 'Alerts temporarily unavailable')
+      const response = await apiFetch(path, { token })
+      if (response.status === 401) {
+        setError(null)
         setAlerts([])
-        setRawCounts({ total: 0, critical: 0, warning: 0, ai_suggestion: 0 })
+        setRawCounts({ total: 0, critical: 0, warning: 0, info: 0 })
+        return null
+      }
+      if (!response.ok) {
+        setError('Alerts temporarily unavailable')
+        setAlerts([])
+        setRawCounts({ total: 0, critical: 0, warning: 0, info: 0 })
         return null
       }
       const data = await response.json()
       setAlerts(Array.isArray(data.alerts) ? data.alerts : [])
-      setRawCounts(data.counts || { total: 0, critical: 0, warning: 0, ai_suggestion: 0 })
+      setRawCounts(data.counts || { total: 0, critical: 0, warning: 0, info: 0 })
       setGeneratedAt(data.generatedAt || null)
       setError(null)
       return data
     } catch (err) {
       setError(err.message || 'Failed to load alerts')
       setAlerts([])
-      setRawCounts({ total: 0, critical: 0, warning: 0, ai_suggestion: 0 })
+      setRawCounts({ total: 0, critical: 0, warning: 0, info: 0 })
       return null
     } finally {
       setIsLoading(false)
     }
   }, [])
 
-  const refresh = useCallback(() => fetchAlerts({ refresh: true }), [fetchAlerts])
+  const markNotificationRead = useCallback(async (alert) => {
+    const notificationId = alert?.notificationId
+    if (!notificationId) return false
+    try {
+      const response = await apiFetch(`/notifications/${notificationId}/read`, { method: 'PATCH' })
+      if (!response.ok) return false
+      await fetchAlerts({ refresh: true })
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchAlerts])
 
   useEffect(() => {
+    if (!getAuthToken()) {
+      setIsLoading(false)
+      return undefined
+    }
+
     fetchAlerts()
-    const interval = setInterval(() => fetchAlerts(), POLL_INTERVAL_MS)
+    const interval = setInterval(() => {
+      if (!getAuthToken()) return
+      fetchAlerts()
+    }, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [fetchAlerts])
 
   const settingsSnapshot = useMemo(
-    () => ({ lowStockAlertsEnabled, aiForecastUpdatesEnabled }),
-    [lowStockAlertsEnabled, aiForecastUpdatesEnabled],
+    () => ({ lowStockAlertsEnabled }),
+    [lowStockAlertsEnabled],
   )
 
   const visibleAlerts = useMemo(
@@ -64,6 +95,8 @@ export function AlertsProvider({ children }) {
   )
 
   const counts = useMemo(() => countAlerts(visibleAlerts), [visibleAlerts])
+
+  const refresh = useCallback(() => fetchAlerts({ refresh: true }), [fetchAlerts])
 
   const value = useMemo(
     () => ({
@@ -77,8 +110,8 @@ export function AlertsProvider({ children }) {
       error,
       refresh,
       refetch: fetchAlerts,
+      markNotificationRead,
       lowStockAlertsEnabled,
-      aiForecastUpdatesEnabled,
     }),
     [
       visibleAlerts,
@@ -90,8 +123,8 @@ export function AlertsProvider({ children }) {
       error,
       refresh,
       fetchAlerts,
+      markNotificationRead,
       lowStockAlertsEnabled,
-      aiForecastUpdatesEnabled,
     ],
   )
 

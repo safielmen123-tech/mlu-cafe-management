@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { ShieldCheck, UserPlus, X } from 'lucide-react'
+import { ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { apiFetch } from '../services/apiClient'
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
+import { useAuth } from '../context/AuthContext'
 
 import { getPermissionLabel, isAdminRole, normalizePermissions, PERMISSION_OPTIONS, VALID_PERMISSIONS } from '../utils/permissions'
 
@@ -410,11 +412,16 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 
 export default function Users() {
   const { t } = useTranslation()
+  const { user: currentUser } = useAuth()
   const [users, setUsers] = useState([])
 
   const [modalMode, setModalMode] = useState(null)
 
   const [selectedUser, setSelectedUser] = useState(null)
+
+  const [userToDelete, setUserToDelete] = useState(null)
+
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const [error, setError] = useState('')
 
@@ -502,6 +509,48 @@ export default function Users() {
 
   }
 
+  const requestDeleteUser = (event, user) => {
+    event.stopPropagation()
+    setError('')
+    setUserToDelete(user)
+  }
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete?.id || isDeleting) return
+
+    try {
+      setIsDeleting(true)
+      setError('')
+      const res = await apiFetch(`/users/${userToDelete.id}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to delete user')
+      }
+      setUserToDelete(null)
+      if (selectedUser?.id === userToDelete.id) closeModal()
+      fetchUsers()
+    } catch (err) {
+      setError(err.message || 'Failed to delete user')
+      setUserToDelete(null)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const adminCount = users.filter((account) => isAdminRole(account.role)).length
+
+  const getDeleteGuard = (account) => {
+    const isSelf = Number(currentUser?.id) === Number(account.id)
+    const isLastAdmin = isAdminRole(account.role) && adminCount <= 1
+    if (isSelf) {
+      return { canDelete: false, title: 'You cannot delete your own account' }
+    }
+    if (isLastAdmin) {
+      return { canDelete: false, title: 'Cannot delete the last administrator' }
+    }
+    return { canDelete: true, title: `Delete ${account.display_name}` }
+  }
+
 
 
   return (
@@ -514,7 +563,9 @@ export default function Users() {
 
           <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
 
-          <p className="text-muted text-sm">Manage staff accounts, roles, and page access permissions.</p>
+          <p className="text-muted text-sm">
+            Staff accounts are created here only — public sign-up is disabled.
+          </p>
 
         </div>
 
@@ -557,6 +608,8 @@ export default function Users() {
                 <th className="px-6 py-3.5">Role</th>
 
                 <th className="px-6 py-3.5">Active Permissions</th>
+
+                <th className="px-6 py-3.5 text-right">Actions</th>
 
               </tr>
 
@@ -624,6 +677,24 @@ export default function Users() {
 
                   </td>
 
+                  <td className="px-6 py-4 text-right" onClick={(event) => event.stopPropagation()}>
+                    {(() => {
+                      const { canDelete, title } = getDeleteGuard(user)
+                      return (
+                        <button
+                          type="button"
+                          onClick={(event) => canDelete && requestDeleteUser(event, user)}
+                          disabled={!canDelete}
+                          title={title}
+                          aria-label={title}
+                          className="rounded-lg p-2 text-stone-400 transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-stone-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )
+                    })()}
+                  </td>
+
                 </tr>
 
               ))}
@@ -655,6 +726,16 @@ export default function Users() {
         />
 
       )}
+
+      <ConfirmDeleteModal
+        isOpen={Boolean(userToDelete)}
+        title="Delete this user?"
+        itemName={userToDelete ? `${userToDelete.display_name} (@${userToDelete.username})` : ''}
+        message="This permanently removes the account. They will no longer be able to sign in. This cannot be undone."
+        confirmLabel={isDeleting ? 'Deleting…' : 'Yes, Delete'}
+        onCancel={() => !isDeleting && setUserToDelete(null)}
+        onConfirm={confirmDeleteUser}
+      />
 
     </div>
 

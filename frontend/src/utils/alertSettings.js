@@ -3,13 +3,10 @@
 export function filterAlertsBySettings(alerts, settings) {
   const list = Array.isArray(alerts) ? alerts : []
   const lowStock = settings?.lowStockAlertsEnabled !== false
-  const aiForecast = settings?.aiForecastUpdatesEnabled !== false
 
   return list.filter((alert) => {
+    if (alert.category === 'password_reset' || alert.category === 'reservation') return true
     if (!lowStock && alert.category === 'stock') return false
-    if (!aiForecast && (alert.category === 'ai_suggestion' || alert.category === 'margin')) {
-      return false
-    }
     return true
   })
 }
@@ -19,16 +16,16 @@ export function countAlerts(alerts) {
     total: alerts.length,
     critical: 0,
     warning: 0,
-    ai_suggestion: 0,
+    info: 0,
     stock: 0,
-    margin: 0,
+    reservation: 0,
   }
   for (const alert of alerts) {
     if (alert.severity === 'critical') counts.critical += 1
     else if (alert.severity === 'warning') counts.warning += 1
-    else if (alert.severity === 'ai_suggestion') counts.ai_suggestion += 1
+    else if (alert.severity === 'info') counts.info += 1
     if (alert.category === 'stock') counts.stock += 1
-    if (alert.category === 'margin') counts.margin += 1
+    if (alert.category === 'reservation') counts.reservation += 1
   }
   return counts
 }

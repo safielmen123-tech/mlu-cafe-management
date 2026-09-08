@@ -1,8 +1,8 @@
--- Romduol Cafe: wipe users and prepare for fresh admin seed
+-- Mlu Kitchen & Cafe Siem Reap: wipe users and prepare for fresh admin seed
 -- NOTE: password_hash must be generated with bcrypt (see scripts/seed-admin.js).
 -- Do not run the INSERT below manually unless you replace :password_hash with a real bcrypt string.
 
-USE romduol_cafe_db;
+USE mlu_kitchen_cafe_db;
 
 DELETE FROM users;
 

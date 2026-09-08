@@ -26,7 +26,7 @@ function getDatabaseErrorMessage(error) {
   }
 
   if (error.code === 'ER_BAD_DB_ERROR') {
-    return 'Database romduol_cafe_db was not found. Create/import the schema, then try again.'
+    return `Database ${process.env.DB_NAME || 'mlu_kitchen_cafe_db'} was not found. Create/import the schema, then try again.`
   }
 
   return 'Database is unavailable. Start MySQL in Laragon and try again.'

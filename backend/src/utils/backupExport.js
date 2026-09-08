@@ -98,6 +98,7 @@ function buildExportSheets(period) {
           o.invoice_id,
           m.name AS menu_item,
           m.category,
+          oi.notes,
           oi.quantity,
           oi.price,
           oi.subtotal,
@@ -148,6 +149,29 @@ function buildExportSheets(period) {
       `,
       params: [],
     },
+    {
+      name: 'Reservations',
+      query: `
+        SELECT
+          r.id,
+          r.customer_name,
+          r.phone,
+          r.reservation_date,
+          r.time_slot,
+          r.duration_minutes,
+          r.table_id,
+          t.table_name,
+          r.guest_count,
+          r.status,
+          r.notes,
+          r.created_at,
+          r.updated_at
+        FROM reservations r
+        LEFT JOIN tables t ON t.id = r.table_id
+        ORDER BY r.reservation_date DESC, r.time_slot ASC
+      `,
+      params: [],
+    },
   ]
 }
 
@@ -170,10 +194,19 @@ async function buildBusinessDataWorkbook(db, period) {
   const sheets = buildExportSheets(period)
 
   for (const sheet of sheets) {
-    const [rows] = await db.execute(sheet.query, sheet.params)
-    const serializedRows = rows.map(serializeRow)
-    const worksheet = XLSX.utils.json_to_sheet(serializedRows.length ? serializedRows : [{ note: 'No records found' }])
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name)
+    try {
+      const [rows] = await db.execute(sheet.query, sheet.params)
+      const serializedRows = rows.map(serializeRow)
+      const worksheet = XLSX.utils.json_to_sheet(serializedRows.length ? serializedRows : [{ note: 'No records found' }])
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name)
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        const worksheet = XLSX.utils.json_to_sheet([{ note: 'No records found' }])
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name)
+        continue
+      }
+      throw error
+    }
   }
 
   return workbook

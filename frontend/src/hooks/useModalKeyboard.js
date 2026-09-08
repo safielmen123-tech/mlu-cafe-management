@@ -8,9 +8,14 @@ function isButtonTypeButton(target) {
   return target?.tagName?.toLowerCase() === 'button' && target.type === 'button'
 }
 
+function isEditableField(target) {
+  const tag = target?.tagName?.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select'
+}
+
 /**
  * @param {'auto' | 'always' | 'never'} primaryActionMode
- * - auto: Enter submits nearest form (Save Recipe / Save Item)
+ * - auto: Enter submits nearest form (Save Item)
  * - always: Enter calls onPrimaryAction (confirm dialogs)
  * - never: Escape only
  * @returns {React.RefObject<HTMLElement|null>} attach to modal panel with tabIndex={-1}
@@ -22,21 +27,34 @@ export function useModalKeyboard({
   primaryActionMode = 'auto',
 }) {
   const panelRef = useRef(null)
+  const onEscapeRef = useRef(onEscape)
+  const onPrimaryActionRef = useRef(onPrimaryAction)
+  const modeRef = useRef(primaryActionMode)
+
+  // Kept in refs so the keydown listener always sees the latest callbacks without
+  // being torn down and re-attached on every render.
+  useEffect(() => {
+    onEscapeRef.current = onEscape
+    onPrimaryActionRef.current = onPrimaryAction
+    modeRef.current = primaryActionMode
+  })
 
   useEffect(() => {
     if (!isOpen) return undefined
 
-    const focusPanel = () => {
-      panelRef.current?.focus({ preventScroll: true })
+    const panel = panelRef.current
+    const active = document.activeElement
+    const typingInsidePanel = Boolean(panel && active && panel.contains(active) && isEditableField(active))
+
+    if (!typingInsidePanel) {
+      panel?.focus({ preventScroll: true })
     }
-    focusPanel()
-    const focusTimer = window.setTimeout(focusPanel, 0)
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
-        onEscape?.()
+        onEscapeRef.current?.()
         return
       }
 
@@ -45,9 +63,10 @@ export function useModalKeyboard({
       const target = event.target
       if (isTextarea(target) || isButtonTypeButton(target)) return
 
+      const mode = modeRef.current
       const form = target?.closest?.('form')
 
-      if (form && primaryActionMode !== 'never') {
+      if (form && mode !== 'never') {
         if (target?.tagName?.toLowerCase() === 'select') return
         event.preventDefault()
         event.stopPropagation()
@@ -59,19 +78,16 @@ export function useModalKeyboard({
         return
       }
 
-      if (primaryActionMode === 'always' && onPrimaryAction) {
+      if (mode === 'always' && onPrimaryActionRef.current) {
         event.preventDefault()
         event.stopPropagation()
-        onPrimaryAction()
+        onPrimaryActionRef.current()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.clearTimeout(focusTimer)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, onEscape, onPrimaryAction, primaryActionMode])
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen])
 
   return panelRef
 }

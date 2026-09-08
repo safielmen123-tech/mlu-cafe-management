@@ -1,11 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
-const STORAGE_KEY = 'romduol-app-settings'
+const STORAGE_KEY = 'mlu_kitchen_cafe-app-settings'
 
 const DEFAULT_SETTINGS = {
   isDarkCanvas: false,
   lowStockAlertsEnabled: true,
-  aiForecastUpdatesEnabled: true,
 }
 
 function readStoredSettings() {
@@ -17,7 +16,6 @@ function readStoredSettings() {
     return {
       isDarkCanvas: Boolean(parsed.isDarkCanvas),
       lowStockAlertsEnabled: parsed.lowStockAlertsEnabled !== false,
-      aiForecastUpdatesEnabled: parsed.aiForecastUpdatesEnabled !== false,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -34,7 +32,7 @@ const SettingsContext = createContext(null)
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(readStoredSettings)
 
-  const { isDarkCanvas, lowStockAlertsEnabled, aiForecastUpdatesEnabled } = settings
+  const { isDarkCanvas, lowStockAlertsEnabled } = settings
 
   useEffect(() => {
     persistSettings(settings)
@@ -48,27 +46,14 @@ export function SettingsProvider({ children }) {
     setSettings((prev) => ({ ...prev, lowStockAlertsEnabled: Boolean(value) }))
   }, [])
 
-  const setAiForecastUpdatesEnabled = useCallback((value) => {
-    setSettings((prev) => ({ ...prev, aiForecastUpdatesEnabled: Boolean(value) }))
-  }, [])
-
   const value = useMemo(
     () => ({
       isDarkCanvas,
       lowStockAlertsEnabled,
-      aiForecastUpdatesEnabled,
       setIsDarkCanvas,
       setLowStockAlertsEnabled,
-      setAiForecastUpdatesEnabled,
     }),
-    [
-      isDarkCanvas,
-      lowStockAlertsEnabled,
-      aiForecastUpdatesEnabled,
-      setIsDarkCanvas,
-      setLowStockAlertsEnabled,
-      setAiForecastUpdatesEnabled,
-    ],
+    [isDarkCanvas, lowStockAlertsEnabled, setIsDarkCanvas, setLowStockAlertsEnabled],
   )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>

@@ -12,7 +12,7 @@ const {
 } = require('./backupPeriod')
 
 const REFERENCE_TABLES = ['menu_items', 'users', 'inventory', 'tables']
-const TRANSACTIONAL_TABLES = ['orders', 'order_items']
+const TRANSACTIONAL_TABLES = ['orders', 'order_items', 'reservations']
 
 async function getTableColumns(db, tableName) {
   const [rows] = await db.execute(`SHOW COLUMNS FROM \`${tableName}\``)
@@ -109,12 +109,28 @@ async function createPeriodDatabaseDump(db, period) {
   sections.push(`-- Transactional table: order_items (${period.label})`)
   sections.push(buildReplaceStatements('order_items', orderItems, orderItemColumns))
   sections.push('')
+
+  try {
+    const reservationColumns = await getTableColumns(db, 'reservations')
+    const reservations = await fetchTableRows(
+      db,
+      'reservations',
+      'reservation_date >= ? AND reservation_date < ?',
+      [period.startDate, period.endDate],
+    )
+    sections.push(`-- Transactional table: reservations (${period.label})`)
+    sections.push(buildReplaceStatements('reservations', reservations, reservationColumns))
+    sections.push('')
+  } catch (error) {
+    if (error.code !== 'ER_NO_SUCH_TABLE') throw error
+  }
+
   sections.push('SET FOREIGN_KEY_CHECKS=1;')
 
   const buffer = Buffer.from(sections.join('\n'), 'utf8')
   return {
     buffer,
-    filename: buildBackupFilename('romduol-database', 'sql', period),
+    filename: buildBackupFilename('mlu-kitchen-cafe-database', 'sql', period),
   }
 }
 
@@ -151,7 +167,7 @@ async function createFullDatabaseDump(period) {
 
   return {
     buffer: dumpBuffer,
-    filename: buildBackupFilename('romduol-database', 'sql', period),
+    filename: buildBackupFilename('mlu-kitchen-cafe-database', 'sql', period),
   }
 }
 

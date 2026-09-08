@@ -1,22 +1,23 @@
-const SESSION_KEY = 'romduol.session'
+const SESSION_KEY = 'mlu_kitchen_cafe.session'
 
 const VALID_PAGES = new Set([
   'dashboard',
   'users',
   'order',
   'table',
+  'reservations',
   'payment',
   'menu',
   'sales_history',
   'inventory',
   'reports_analysis',
-  'reports_prediction',
   'settings',
   'backup_recovery',
 ])
 
 const LEGACY_PAGE_ALIASES = {
   reports: 'reports_analysis',
+  reports_prediction: 'reports_analysis',
 }
 
 function resolveActivePage(page) {
@@ -46,6 +47,26 @@ export function writeSession(session) {
 
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY)
+}
+
+const CONNECTION_LOST_KEY = 'mlu_kitchen_cafe.connection_lost'
+
+export function markConnectionLost() {
+  try {
+    sessionStorage.setItem(CONNECTION_LOST_KEY, '1')
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
+export function consumeConnectionLost() {
+  try {
+    const flagged = sessionStorage.getItem(CONNECTION_LOST_KEY) === '1'
+    if (flagged) sessionStorage.removeItem(CONNECTION_LOST_KEY)
+    return flagged
+  } catch {
+    return false
+  }
 }
 
 export function createSession(user, activePage = 'dashboard') {

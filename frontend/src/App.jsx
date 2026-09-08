@@ -12,12 +12,12 @@ import { getDefaultViewForUser } from './utils/permissions'
 import Dashboard from './pages/Dashboard'
 import Order from './pages/Order'
 import Table from './pages/Table'
+import Reservations from './pages/Reservations'
 import Payment from './pages/Payment'
 import MenuManagement from './pages/MenuManagement'
 import SalesHistory from './pages/SalesHistory'
 import InventoryStock from './pages/InventoryStock'
 import ReportsAnalysis from './pages/ReportsAnalysis'
-import ReportsAIPrediction from './pages/ReportsAIPrediction'
 import Users from './pages/Users'
 import Settings from './pages/Settings'
 import BackupRecovery from './pages/BackupRecovery'
@@ -98,6 +98,8 @@ function AuthenticatedApp() {
         return <Order />
       case 'table':
         return <Table />
+      case 'reservations':
+        return <Reservations />
       case 'payment':
         return <Payment />
       case 'menu':
@@ -108,8 +110,6 @@ function AuthenticatedApp() {
         return <InventoryStock />
       case 'reports_analysis':
         return <ReportsAnalysis />
-      case 'reports_prediction':
-        return <ReportsAIPrediction />
       case 'users':
         return <Users />
       case 'settings':

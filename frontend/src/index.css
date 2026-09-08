@@ -36,8 +36,66 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  html,
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
   body {
     @apply overflow-x-hidden bg-slate-100 text-slate-900 transition-colors duration-300 dark:bg-zinc-950 dark:text-zinc-100;
+    cursor: default;
+  }
+
+  input,
+  textarea,
+  [contenteditable='true'] {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+
+  input[type='button'],
+  input[type='submit'],
+  input[type='reset'],
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='file'],
+  input[type='range'],
+  input[type='color'] {
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: pointer;
+  }
+
+  button,
+  a,
+  label,
+  select,
+  summary,
+  [role='button'],
+  [role='tab'],
+  [role='menuitem'],
+  [role='option'],
+  [role='switch'],
+  [role='link'],
+  [role='combobox'],
+  .interactive-card,
+  .interactive-btn,
+  .interactive-nav,
+  .tab-pill,
+  .btn-primary,
+  .btn-secondary,
+  .surface-card {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  textarea:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
   }
 }
 
@@ -188,17 +246,12 @@
            dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-0;
   }
 
-  .badge-ai {
-    @apply inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900
-           dark:bg-emerald-950/40 dark:text-emerald-300;
-  }
-
   .tab-pill {
     @apply min-h-10 cursor-pointer select-none rounded-full px-4 py-2 text-sm font-medium transition-colors duration-200;
   }
 
   .modal-panel {
-    @apply mx-4 flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-apple-md outline-none;
+    @apply flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl outline-none;
   }
 
   .modal-panel-body {
@@ -324,7 +377,7 @@
     }
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: none;
     }
   }
 
@@ -377,5 +430,18 @@
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;
+  }
+
+  #receipt-print-area .brand-logo {
+    display: block !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    height: auto !important;
+    width: auto !important;
+    max-width: 48mm !important;
+    max-height: 22mm !important;
+    object-fit: contain !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

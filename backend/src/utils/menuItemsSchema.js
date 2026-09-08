@@ -21,6 +21,18 @@ function normalizeMenuImageUrl(raw) {
   return trimmed === '' ? null : trimmed.slice(0, 512)
 }
 
+function serializeMenuItem(row) {
+  const price = Number.parseFloat(row?.price)
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    price: Number.isFinite(price) ? price : 0,
+    image_url: normalizeMenuImageUrl(row.image_url),
+    is_available: row.is_available === 0 || row.is_available === false ? false : true,
+  }
+}
+
 async function ensureMenuItemsImageSchema(db) {
   if (!menuItemsImageSchemaReadyPromise) {
     menuItemsImageSchemaReadyPromise = (async () => {
@@ -42,4 +54,5 @@ async function ensureMenuItemsImageSchema(db) {
 module.exports = {
   ensureMenuItemsImageSchema,
   normalizeMenuImageUrl,
+  serializeMenuItem,
 }

@@ -11,17 +11,23 @@ const EXPENSE_CATEGORIES = [
   'Maintenance',
   'Other',
 ]
+const PAGE_SIZE = 25
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10)
+  const date = new Date()
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-export default function ExpenseTracker({ days = 365 }) {
+export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChanged }) {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
   const [form, setForm] = useState({
     category: EXPENSE_CATEGORIES[0],
     description: '',
@@ -56,10 +62,23 @@ export default function ExpenseTracker({ days = 365 }) {
     loadExpenses()
   }, [loadExpenses])
 
+  useEffect(() => {
+    setPage(1)
+  }, [filterMonth])
+
+  const visibleExpenses = useMemo(() => {
+    if (!filterMonth || filterMonth === 'all') return expenses
+    return expenses.filter((row) => String(row.expense_date || '').startsWith(filterMonth))
+  }, [expenses, filterMonth])
+
   const totalSpending = useMemo(
-    () => expenses.reduce((sum, row) => sum + Number(row.amount || 0), 0),
-    [expenses],
+    () => visibleExpenses.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+    [visibleExpenses],
   )
+
+  const pageCount = Math.max(1, Math.ceil(visibleExpenses.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const pagedExpenses = visibleExpenses.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -86,6 +105,7 @@ export default function ExpenseTracker({ days = 365 }) {
         expense_date: todayIso(),
       })
       await loadExpenses()
+      onChanged?.()
     } catch (err) {
       setError(err.message || 'Failed to save expense')
     } finally {
@@ -98,6 +118,7 @@ export default function ExpenseTracker({ days = 365 }) {
       const res = await apiFetch(`/expenses/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete expense')
       setExpenses((prev) => prev.filter((row) => row.id !== id))
+      onChanged?.()
     } catch (err) {
       setError(err.message || 'Failed to delete expense')
     }
@@ -147,7 +168,7 @@ export default function ExpenseTracker({ days = 365 }) {
                   Loading expenses…
                 </td>
               </tr>
-            ) : expenses.length === 0 ? (
+            ) : visibleExpenses.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-muted">
                   <Wallet className="mx-auto mb-2 h-8 w-8 opacity-40" />
@@ -155,7 +176,7 @@ export default function ExpenseTracker({ days = 365 }) {
                 </td>
               </tr>
             ) : (
-              expenses.map((row) => (
+              pagedExpenses.map((row) => (
                 <tr key={row.id} className="table-row">
                   <td className="px-4 py-3 tabular-nums text-muted">{row.expense_date}</td>
                   <td className="px-4 py-3 font-medium text-heading">{row.category}</td>
@@ -180,6 +201,33 @@ export default function ExpenseTracker({ days = 365 }) {
           </tbody>
         </table>
       </div>
+
+      {visibleExpenses.length > PAGE_SIZE ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted text-xs">
+            Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, visibleExpenses.length)} of{' '}
+            {visibleExpenses.length} records
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              className="btn-secondary px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={currentPage >= pageCount}
+              onClick={() => setPage((prev) => Math.min(pageCount, prev + 1))}
+              className="btn-secondary px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

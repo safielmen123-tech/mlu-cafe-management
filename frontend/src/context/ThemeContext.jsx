@@ -4,7 +4,7 @@ const ThemeContext = createContext(null)
 
 function getInitialTheme() {
   if (typeof window === 'undefined') return 'light'
-  const stored = localStorage.getItem('romduol-theme') || localStorage.getItem('theme')
+  const stored = localStorage.getItem('mlu_kitchen_cafe-theme')
   if (stored === 'light' || stored === 'dark') return stored
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
@@ -26,7 +26,7 @@ export function ThemeProvider({ children }) {
     const root = document.documentElement
     root.classList.remove('light', 'dark')
     root.classList.add(theme)
-    localStorage.setItem('romduol-theme', theme)
+    localStorage.setItem('mlu_kitchen_cafe-theme', theme)
     localStorage.setItem('theme', theme)
   }, [theme])
 

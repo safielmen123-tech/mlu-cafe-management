@@ -17,8 +17,9 @@ import {
   groupActiveRows,
   reconcileActiveOrders,
 } from '../utils/activeOrdersStorage'
+import { getFloorTableLabel } from '../data/tables'
 
-import { apiFetch } from '../services/apiClient'
+import { apiFetch, getAuthToken } from '../services/apiClient'
 
 const POSContext = createContext(null)
 
@@ -49,6 +50,7 @@ function mapBillItemsForApi(items) {
     return {
       menu_item_id: Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null,
       name: item.name,
+      notes: item.notes || '',
       quantity: item.qty,
       price: item.unitPrice,
     }
@@ -66,6 +68,7 @@ async function postOrderToServer(destinationId, safeCartItems) {
         return {
           menu_item_id: Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null,
           name: item.name,
+          notes: item.notes || '',
           quantity: item.qty,
           price: item.unitPrice,
         }
@@ -87,6 +90,7 @@ export function POSProvider({ children }) {
   const [salesHistory, setSalesHistory] = useState([])
   const [invoiceCounter, setInvoiceCounter] = useState(initialState.invoiceCounter)
   const [paymentTargetId, setPaymentTargetId] = useState(null)
+  const [orderTargetId, setOrderTargetId] = useState(null)
   const navigateRef = useRef(null)
   const tablesRef = useRef(initialState.tables)
   const takeOutRef = useRef(initialState.takeOut)
@@ -106,13 +110,26 @@ export function POSProvider({ children }) {
     navigateRef.current?.('payment')
   }, [])
 
+  const openOrderFor = useCallback((targetId) => {
+    setOrderTargetId(targetId)
+    navigateRef.current?.('order')
+  }, [])
+
+  const clearOrderTarget = useCallback(() => {
+    setOrderTargetId(null)
+  }, [])
+
   const clearPaymentTarget = useCallback(() => {
     setPaymentTargetId(null)
   }, [])
 
   const loadSalesHistory = useCallback(async (days = DEFAULT_HISTORY_DAYS) => {
+    const token = getAuthToken()
+    if (!token) return null
+
     try {
-      const response = await apiFetch(`/orders/history?days=${days}`)
+      const response = await apiFetch(`/orders/history?days=${days}`, { token })
+      if (response.status === 401) return null
       if (!response.ok) throw new Error(`Server status returned ${response.status}`)
       const historyRows = await response.json()
 
@@ -130,7 +147,7 @@ export function POSProvider({ children }) {
           source:
             row.target_id === 'takeout' || row.source_type === 'Take Out'
               ? 'Take Out'
-              : `Table ${row.target_id}`,
+              : getFloorTableLabel(row.target_id),
           summary: row.summary || '',
           items: row.items || [],
         }))
@@ -149,13 +166,18 @@ export function POSProvider({ children }) {
   }, [tables, takeOut, invoiceCounter])
 
   useEffect(() => {
-    apiFetch('/orders/active')
+    const token = getAuthToken()
+    if (!token) return undefined
+
+    let cancelled = false
+    apiFetch('/orders/active', { token })
       .then(async (res) => {
+        if (cancelled || res.status === 401) return null
         if (!res.ok) throw new Error(`Server status returned ${res.status}`)
         return res.json()
       })
       .then((activeOrderRows) => {
-        if (!activeOrderRows || !Array.isArray(activeOrderRows)) return
+        if (cancelled || !activeOrderRows || !Array.isArray(activeOrderRows)) return
 
         const groupedOrders = groupActiveRows(activeOrderRows)
         const reconciled = reconcileActiveOrders(
@@ -167,9 +189,14 @@ export function POSProvider({ children }) {
         setTakeOut(reconciled.takeOut)
       })
       .catch((err) => {
-        // Keep localStorage-hydrated floor state when the backend is briefly unreachable.
-        console.error('Error fetching live table states:', err)
+        if (!cancelled) {
+          console.error('Error fetching live table states:', err)
+        }
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -195,6 +222,7 @@ export function POSProvider({ children }) {
       id: table.id,
       name: table.name,
       status: table.status,
+      section: table.section || 'standard',
       isTakeOut: false,
     })),
     {
@@ -238,7 +266,9 @@ export function POSProvider({ children }) {
     const safeCartItems = cartItems.map((item) =>
       normalizeBillItem({
         id: item.id,
+        menu_item_id: item.menu_item_id ?? item.id,
         name: item.name,
+        notes: item.notes || '',
         qty: item.qty || item.quantity || 1,
         unitPrice: item.unitPrice || item.price || 0,
       }),
@@ -381,6 +411,7 @@ export function POSProvider({ children }) {
         loadSalesHistory,
         assignmentTargets,
         paymentTargetId,
+        orderTargetId,
         getBillById,
         getActiveBills,
         assignOrder,
@@ -389,6 +420,8 @@ export function POSProvider({ children }) {
         updateBillItemPrice,
         processPayment,
         openPaymentFor,
+        openOrderFor,
+        clearOrderTarget,
         clearPaymentTarget,
         registerNavigate,
       }}

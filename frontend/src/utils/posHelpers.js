@@ -1,9 +1,10 @@
-const TAX_RATE = 0.1
+import { formatOrderDate, formatTime12Hour } from './dateTimeFormat'
+import { lineIdentity } from './sugarLevel'
 
 export function calculateTotals(items) {
   const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0)
-  const tax = subtotal * TAX_RATE
-  const total = subtotal + tax
+  const tax = 0
+  const total = subtotal
   return { subtotal, tax, total }
 }
 
@@ -17,15 +18,26 @@ export function mergeCartIntoItems(existingItems, cartItems) {
   for (const cartItem of cartItems) {
     const addQty = cartItem.qty ?? cartItem.quantity ?? 1
     const unitPrice = cartItem.unitPrice ?? cartItem.price ?? 0
-    const found = merged.find((item) => item.id === cartItem.id)
+    const notes = cartItem.notes != null ? String(cartItem.notes) : ''
+    const parsedMenuId = Number.parseInt(cartItem.menu_item_id ?? cartItem.id, 10)
+    const menuItemId =
+      Number.isFinite(parsedMenuId) && parsedMenuId > 0 ? parsedMenuId : (cartItem.menu_item_id ?? null)
+    const incomingKey = lineIdentity({
+      id: cartItem.id,
+      menu_item_id: menuItemId,
+      notes,
+    })
+    const found = merged.find((item) => lineIdentity(item) === incomingKey)
     if (found) {
       found.qty += addQty
       found.quantity = found.qty
       found.lineTotal = found.qty * found.unitPrice
     } else {
       merged.push({
-        id: cartItem.id,
+        id: incomingKey,
+        menu_item_id: menuItemId,
         name: cartItem.name,
+        notes,
         qty: addQty,
         quantity: addQty,
         unitPrice,
@@ -41,8 +53,19 @@ export function mergeCartIntoItems(existingItems, cartItems) {
 export function normalizeBillItem(item) {
   const unitPrice = parseFloat(item.unitPrice ?? item.price ?? 0)
   const qty = parseInt(item.qty ?? item.quantity ?? 1, 10)
+  const notes = item.notes != null ? String(item.notes) : ''
+  const parsedMenuId = Number.parseInt(item.menu_item_id ?? item.id, 10)
+  const menuItemId =
+    Number.isFinite(parsedMenuId) && parsedMenuId > 0 ? parsedMenuId : (item.menu_item_id ?? null)
+  const id = item.id != null && String(item.id).includes('::')
+    ? item.id
+    : lineIdentity({ menu_item_id: menuItemId ?? item.id, notes })
+
   return {
     ...item,
+    id,
+    menu_item_id: menuItemId,
+    notes,
     qty,
     quantity: qty,
     unitPrice,
@@ -79,8 +102,6 @@ export function formatInvoiceId(counter) {
   return `INV-${counter}`
 }
 
-import { formatOrderDate, formatTime12Hour } from './dateTimeFormat'
-
 export function formatNow() {
   const now = new Date()
   return {
@@ -88,6 +109,7 @@ export function formatNow() {
     time: formatTime12Hour(now),
   }
 }
+
 export function buildPreCheckoutReceipt(bill) {
   const { subtotal, tax, total } = calculateTotals(bill.items)
   const { date, time } = formatNow()

@@ -16,7 +16,16 @@ function assertRequiredEnv() {
 
   const secret = String(process.env.JWT_SECRET || '')
   const isProduction = process.env.NODE_ENV === 'production'
-  const weakSecrets = ['secret', 'changeme', 'jwt_secret', 'your_jwt_secret', 'test']
+  const weakSecrets = [
+    'secret',
+    'changeme',
+    'jwt_secret',
+    'your_jwt_secret',
+    'test',
+    'replace_with_a_long_random_secret_key',
+    'your_super_secret_key_for_romduol_cafe',
+    'your_super_secret_key_for_mlu_kitchen_cafe',
+  ]
 
   if (secret.length < 32 || weakSecrets.includes(secret.toLowerCase())) {
     const note =
@@ -58,9 +67,16 @@ const env = {
   },
   jwtSecret: String(process.env.JWT_SECRET || '').trim(),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
+  adminEmail: String(process.env.ADMIN_EMAIL || 'antagonistslayer9000@gmail.com').trim().toLowerCase(),
+  smtp: {
+    host: String(process.env.SMTP_HOST || '').trim(),
+    port: parseIntOr(process.env.SMTP_PORT, 587),
+    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    user: String(process.env.SMTP_USER || '').trim(),
+    pass: String(process.env.SMTP_PASS || '').trim(),
+    from: String(process.env.SMTP_FROM || process.env.ADMIN_EMAIL || 'antagonistslayer9000@gmail.com').trim(),
+  },
   frontendUrl,
-  pythonPath: process.env.PYTHON_PATH || 'python',
-  openWeatherApiKey: process.env.OPENWEATHER_API_KEY || '',
   security: {
     allowedOrigins: parseOrigins(process.env.CORS_ALLOWED_ORIGINS, [frontendUrl]),
     // Only enable behind a real reverse proxy. If it is on without one, a client can

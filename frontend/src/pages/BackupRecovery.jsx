@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next'
 
 import { useAuth } from '../context/AuthContext'
 import { apiDownload, apiUpload } from '../services/apiClient'
+import OperatingHoursNotice from '../components/common/OperatingHoursNotice'
 
 function buildPeriodOptions() {
   const options = [{ value: 'all', label: 'All Time', month: null, year: null }]
@@ -124,7 +125,7 @@ export default function BackupRecovery() {
       const query = buildPeriodQuery(selectedPeriod)
       const filename = await apiDownload(
         '/system/backup/excel',
-        'romduol-business-data.xlsx',
+        'mlu-kitchen-cafe-business-data.xlsx',
         query,
       )
       setStatusMessage(`Business data exported as ${filename}`)
@@ -140,7 +141,7 @@ export default function BackupRecovery() {
     setSqlLoading(true)
     try {
       const query = buildPeriodQuery(selectedPeriod)
-      const filename = await apiDownload('/system/backup/sql', 'romduol-database.sql', query)
+      const filename = await apiDownload('/system/backup/sql', 'mlu-kitchen-cafe-database.sql', query)
       setStatusMessage(`Database backup saved as ${filename}`)
     } catch (error) {
       setErrorMessage(error.message || 'Failed to create SQL backup')
@@ -191,6 +192,8 @@ export default function BackupRecovery() {
           without duplicate rows
         </p>
       </div>
+
+      <OperatingHoursNotice />
 
       {(statusMessage || errorMessage) && (
         <div

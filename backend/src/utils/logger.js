@@ -28,11 +28,15 @@ const REDACTED_KEYS = new Set([
   'newpassword',
   'currentpassword',
   'confirmpassword',
+  'temporarypassword',
+  'temppassword',
   'token',
   'authorization',
   'jwt',
   'secret',
   'password_hash',
+  'smtp_pass',
+  'smtppass',
 ])
 
 function redact(value, depth = 0) {

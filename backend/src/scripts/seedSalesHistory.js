@@ -6,7 +6,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.e
 
 const db = require('../../db');
 
-const TAX_RATE = 0.1;
+const TAX_RATE = 0;
 const START_DATE = new Date(2025, 7, 1); // Aug 1 2025
 const END_DATE = new Date(2026, 6, 31); // Jul 31 2026
 const TARGET_TABLES = [1, 2, 3, 4, 5, 6];
@@ -145,6 +145,12 @@ function formatInvoiceId(counter) {
     return `INV-${String(counter).padStart(6, '0')}`;
 }
 
+function formatMysqlDateTime(date) {
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+        + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 async function ensureMenuItems() {
     const [rows] = await db.execute('SELECT id, name, category, price FROM menu_items ORDER BY id');
 
@@ -198,7 +204,7 @@ async function insertCompletedOrder(menuItems, orderDate, invoiceCounter, profil
     const isTakeOut = Math.random() < profile.takeoutRatio;
     const sourceType = isTakeOut ? 'Take Out' : 'Table';
     const tableTargetId = isTakeOut ? null : TARGET_TABLES[randomInt(0, TARGET_TABLES.length - 1)];
-    const timestamp = orderDate.toISOString().slice(0, 19).replace('T', ' ');
+    const timestamp = formatMysqlDateTime(orderDate);
 
     const [orderResult] = await db.execute(
         `INSERT INTO orders

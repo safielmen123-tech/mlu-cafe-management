@@ -69,10 +69,21 @@ function requirePermission(permissionId) {
   }
 }
 
+function requireAnyPermission(...permissionIds) {
+  return (req, res, next) => {
+    const allowed = permissionIds.some((permissionId) => userHasPermission(req.user, permissionId))
+    if (!allowed) {
+      return res.status(403).json({ message: 'You do not have permission to perform this action' })
+    }
+    return next()
+  }
+}
+
 module.exports = {
   JWT_SECRET,
   loadUserById,
   authenticateToken,
   requireAdmin,
   requirePermission,
+  requireAnyPermission,
 }

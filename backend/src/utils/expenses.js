@@ -26,14 +26,20 @@ async function ensureExpensesSchema(db) {
 }
 
 function serializeExpense(row) {
+  const rawDate = row.expense_date
+  let expenseDate = ''
+  if (typeof rawDate === 'string') {
+    expenseDate = rawDate.slice(0, 10)
+  } else if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+    expenseDate = `${rawDate.getFullYear()}-${String(rawDate.getMonth() + 1).padStart(2, '0')}-${String(rawDate.getDate()).padStart(2, '0')}`
+  }
+
   return {
     id: row.id,
     category: row.category,
     description: row.description || '',
     amount: Number.parseFloat(row.amount) || 0,
-    expense_date: row.expense_date instanceof Date
-      ? row.expense_date.toISOString().slice(0, 10)
-      : String(row.expense_date).slice(0, 10),
+    expense_date: expenseDate,
     created_by: row.created_by,
     created_by_name: row.created_by_name || null,
     created_at: row.created_at,
@@ -42,11 +48,14 @@ function serializeExpense(row) {
 
 async function listExpenses(db, { days = 365 } = {}) {
   await ensureExpensesSchema(db)
-  const allowed = [30, 60, 90, 120, 180, 365]
-  const range = allowed.includes(Number(days)) ? Number(days) : 365
+  const allowed = [30, 60, 90, 120, 180, 365, 730]
+  const range = allowed.includes(Number(days)) ? Number(days) : 730
   const [rows] = await db.execute(
     `
-    SELECT *
+    SELECT
+      id, category, description, amount,
+      DATE_FORMAT(expense_date, '%Y-%m-%d') AS expense_date,
+      created_by, created_by_name, created_at
     FROM expenses
     WHERE expense_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
     ORDER BY expense_date DESC, id DESC

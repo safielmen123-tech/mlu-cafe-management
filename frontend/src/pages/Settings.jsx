@@ -1,12 +1,14 @@
-import { Bell, Moon, Palette, Shield, Sparkles } from 'lucide-react'
+import { Bell, Clock, Moon, Palette, Shield } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import ThemeToggle from '../components/ui/ThemeToggle'
 import SettingToggle from '../components/ui/SettingToggle'
 import AuditLogPanel from '../components/security/AuditLogPanel'
+import OperatingHoursNotice from '../components/common/OperatingHoursNotice'
 import { useTheme } from '../context/ThemeContext'
 import { useSettings } from '../context/SettingsContext'
 import { useAuth } from '../context/AuthContext'
 import { isAdminRole } from '../utils/permissions'
+import { getSeasonForDate, STORE_SCHEDULE } from '../config/siteData'
 
 function SettingRow({ icon: Icon, label, description, children }) {
   return (
@@ -32,13 +34,12 @@ export default function Settings() {
   const {
     isDarkCanvas,
     lowStockAlertsEnabled,
-    aiForecastUpdatesEnabled,
     setIsDarkCanvas,
     setLowStockAlertsEnabled,
-    setAiForecastUpdatesEnabled,
   } = useSettings()
 
   const isAdmin = isAdminRole(user?.role)
+  const currentSeason = getSeasonForDate(new Date())
 
   return (
     <div className="space-y-8 page-enter">
@@ -49,6 +50,22 @@ export default function Settings() {
             defaultValue: 'Manage appearance, notifications, and system preferences',
           })}
         </p>
+      </div>
+
+      <div className="space-y-4">
+        <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
+          Store hours
+        </h4>
+        <SettingRow
+          icon={Clock}
+          label="Operating hours"
+          description={`${currentSeason.label} today (${currentSeason.hoursLabel}). Weekly off day: ${STORE_SCHEDULE.weeklyOffDay.label}.`}
+        >
+          <span className="text-muted max-w-xs text-right text-sm font-medium">
+            {currentSeason.label}
+          </span>
+        </SettingRow>
+        <OperatingHoursNotice />
       </div>
 
       <div className="space-y-4">
@@ -118,27 +135,6 @@ export default function Settings() {
               enabled={lowStockAlertsEnabled}
               onChange={setLowStockAlertsEnabled}
               ariaLabel="Toggle low stock alerts"
-            />
-          </div>
-        </SettingRow>
-
-        <SettingRow
-          icon={Sparkles}
-          label={t('settings.aiForecast', { defaultValue: 'AI Forecast Updates' })}
-          description={t('settings.aiForecastDesc', {
-            defaultValue: 'Notify when new sales predictions are available in Reports.',
-          })}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-muted text-sm">
-              {aiForecastUpdatesEnabled
-                ? t('settings.enabled', { defaultValue: 'Enabled' })
-                : t('settings.disabled', { defaultValue: 'Disabled' })}
-            </span>
-            <SettingToggle
-              enabled={aiForecastUpdatesEnabled}
-              onChange={setAiForecastUpdatesEnabled}
-              ariaLabel="Toggle AI forecast and market signal updates"
             />
           </div>
         </SettingRow>

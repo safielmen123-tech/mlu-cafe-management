@@ -1,7 +1,7 @@
 import { floorTables, TAKEOUT_BILL } from '../data/tables'
 import { applyItemsToBill, normalizeBillItem } from './posHelpers'
 
-const STORAGE_KEY = 'romduol.activeOrders'
+const STORAGE_KEY = 'mlu_kitchen_cafe.activeOrders'
 
 function statusForItems(items) {
   return items?.length > 0 ? 'occupied' : 'empty'
@@ -90,14 +90,27 @@ export function groupActiveRows(activeOrderRows) {
     const targetKey = row.target_id != null ? String(row.target_id).trim() : 'takeout'
     if (!acc[targetKey]) acc[targetKey] = []
 
-    acc[targetKey].push(
-      normalizeBillItem({
-        id: row.menu_item_id,
-        name: row.name,
-        qty: parseInt(row.quantity || 0, 10),
-        unitPrice: parseFloat(row.price || 0),
-      }),
-    )
+    const notes = row.notes != null ? String(row.notes) : ''
+    const qty = parseInt(row.quantity || 0, 10)
+    const unitPrice = parseFloat(row.price || 0)
+    const lineId = `${row.menu_item_id ?? row.name}::${notes}`
+    const existing = acc[targetKey].find((item) => String(item.id) === lineId)
+    if (existing) {
+      existing.qty += qty
+      existing.quantity = existing.qty
+      existing.lineTotal = existing.qty * existing.unitPrice
+    } else {
+      acc[targetKey].push(
+        normalizeBillItem({
+          id: lineId,
+          menu_item_id: row.menu_item_id,
+          name: row.name,
+          notes,
+          qty,
+          unitPrice,
+        }),
+      )
+    }
     return acc
   }, {})
 }

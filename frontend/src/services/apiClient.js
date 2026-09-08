@@ -4,26 +4,63 @@ const DEFAULT_API_BASE = 'http://localhost:5500/api'
 
 export const API_BASE = (import.meta.env.VITE_API_URL || DEFAULT_API_BASE).replace(/\/$/, '')
 
+export const CONNECTION_LOST_EVENT = 'mlu:connection-lost'
+
+const PUBLIC_API_PATHS = new Set(['/auth/login', '/auth/forgot-password'])
+const SILENT_NETWORK_PATHS = new Set(['/auth/login', '/auth/forgot-password', '/auth/logout'])
+
+function normalizeApiPath(path) {
+  const withSlash = path.startsWith('/') ? path : `/${path}`
+  return withSlash.split('?')[0]
+}
+
+function isPublicApiPath(path) {
+  return PUBLIC_API_PATHS.has(normalizeApiPath(path))
+}
+
 export function getAuthToken() {
-  return readSession()?.token ?? null
+  const token = readSession()?.token
+  if (!token) return null
+  const trimmed = String(token).trim()
+  return trimmed || null
+}
+
+function unauthenticatedResponse() {
+  return new Response(JSON.stringify({ message: 'Authentication required' }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
 
 export async function apiFetch(path, options = {}) {
-  const token = getAuthToken()
+  const token = options.token ?? getAuthToken()
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const fetchOptions = { ...options }
+  delete fetchOptions.token
   const headers = {
-    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-    ...(options.headers || {}),
+    ...(fetchOptions.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(fetchOptions.headers || {}),
+  }
+
+  if (!isPublicApiPath(normalizedPath) && !token) {
+    return unauthenticatedResponse()
   }
 
   if (token) {
     headers.Authorization = `Bearer ${token}`
   }
 
-  return fetch(`${API_BASE}${normalizedPath}`, {
-    ...options,
-    headers,
-  })
+  try {
+    return await fetch(`${API_BASE}${normalizedPath}`, {
+      ...fetchOptions,
+      headers,
+    })
+  } catch (error) {
+    if (!SILENT_NETWORK_PATHS.has(normalizeApiPath(normalizedPath))) {
+      window.dispatchEvent(new CustomEvent(CONNECTION_LOST_EVENT))
+    }
+    throw error
+  }
 }
 
 function parseFilenameFromDisposition(headerValue) {
@@ -33,6 +70,10 @@ function parseFilenameFromDisposition(headerValue) {
 }
 
 export async function apiDownload(path, fallbackFilename = 'download', query = {}) {
+  if (!getAuthToken()) {
+    throw new Error('Authentication required')
+  }
+
   const searchParams = new URLSearchParams()
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -74,18 +115,17 @@ export async function apiDownload(path, fallbackFilename = 'download', query = {
 
 export async function apiUpload(path, fieldName, file) {
   const token = getAuthToken()
+  if (!token) {
+    throw new Error('Authentication required')
+  }
+
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   const formData = new FormData()
   formData.append(fieldName, file)
 
-  const headers = {}
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-
   const response = await fetch(`${API_BASE}${normalizedPath}`, {
     method: 'POST',
-    headers,
+    headers: { Authorization: `Bearer ${token}` },
     body: formData,
   })
 

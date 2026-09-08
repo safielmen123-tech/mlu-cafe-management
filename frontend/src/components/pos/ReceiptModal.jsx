@@ -1,8 +1,10 @@
-import { BadgeCheck, Coffee, Printer, X } from 'lucide-react'
+import { BadgeCheck, Printer, X } from 'lucide-react'
 import { STORE } from '../../config/store'
+import { OPERATING_HOURS_NOTICE } from '../../config/siteData'
 import { formatDateTimeDisplay } from '../../utils/dateTimeFormat'
 import { calculateTotals } from '../../utils/posHelpers'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
+import BrandLogo from '../common/BrandLogo'
 
 function ModalShell({ onClose, printLabel, documentContent }) {
   const panelRef = useModalKeyboard({
@@ -73,6 +75,7 @@ function InvoiceTemplate({ transaction }) {
       className="mx-auto cursor-default select-none rounded-xl bg-white p-1 text-stone-900 print:rounded-none print:border print:border-stone-400 print:p-4 print:shadow-none"
     >
       <div className="border-b border-dashed border-stone-300 pb-5 text-center">
+        <BrandLogo className="brand-logo mx-auto mb-3 h-auto max-h-20 w-auto max-w-[140px] object-contain print:max-h-24 print:max-w-[160px]" />
         <h2 className="text-xl font-bold tracking-tight text-stone-900">{STORE.officialName}</h2>
         <p className="mt-1 text-[11px] text-stone-600">{STORE.address}</p>
         <p className="text-[11px] text-stone-500">{STORE.phone}</p>
@@ -106,6 +109,9 @@ function InvoiceTemplate({ transaction }) {
             <div key={`${item.id ?? 'line'}-${item.name}-${index}`} className="flex justify-between gap-3 text-sm">
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-stone-900">{item.name}</p>
+                {item.notes && !String(item.name || '').includes(item.notes) ? (
+                  <p className="text-xs text-stone-500">{item.notes}</p>
+                ) : null}
                 <p className="text-xs text-stone-500">
                   {item.qty} × ${item.unitPrice.toFixed(2)}
                 </p>
@@ -123,10 +129,6 @@ function InvoiceTemplate({ transaction }) {
           <span>Subtotal</span>
           <span className="tabular-nums">${transaction.subtotal.toFixed(2)}</span>
         </div>
-        <div className="flex justify-between text-stone-600">
-          <span>Tax (10%)</span>
-          <span className="tabular-nums">${transaction.tax.toFixed(2)}</span>
-        </div>
         <div className="flex justify-between border-t border-stone-200 pt-2 text-base font-bold text-stone-900">
           <span>Total Balance Due</span>
           <span className="tabular-nums">${transaction.total.toFixed(2)}</span>
@@ -135,6 +137,8 @@ function InvoiceTemplate({ transaction }) {
 
       <p className="mt-6 border-t border-dashed border-stone-300 pt-4 text-center text-xs font-medium leading-relaxed text-stone-600">
         Please present this invoice at the counter to settle your payment.
+        <br />
+        {OPERATING_HOURS_NOTICE}
       </p>
     </div>
   )
@@ -149,9 +153,7 @@ function ReceiptTemplate({ transaction }) {
       className="relative mx-auto cursor-default select-none overflow-hidden rounded-xl bg-white p-1 text-stone-900 print:rounded-none print:border print:border-stone-400 print:p-4 print:shadow-none"
     >
       <div className="flex flex-col items-center border-b border-dashed border-emerald-200 pb-5 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 print:border print:border-stone-400 print:bg-white print:text-emerald-700 print:shadow-none">
-          <Coffee className="h-7 w-7" />
-        </div>
+        <BrandLogo className="brand-logo mx-auto h-auto max-h-20 w-auto max-w-[140px] object-contain print:max-h-24 print:max-w-[160px]" />
         <h2 className="mt-3 text-xl font-bold tracking-tight text-stone-900">{STORE.officialName}</h2>
         <p className="mt-2 text-[11px] text-stone-600">{STORE.address}</p>
         <p className="mt-0.5 text-[11px] text-stone-500">{STORE.phone}</p>
@@ -186,6 +188,9 @@ function ReceiptTemplate({ transaction }) {
             <div key={`${item.id ?? 'line'}-${item.name}-${index}`} className="flex justify-between gap-3 text-sm">
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-stone-900">{item.name}</p>
+                {item.notes && !String(item.name || '').includes(item.notes) ? (
+                  <p className="text-xs text-stone-500">{item.notes}</p>
+                ) : null}
                 <p className="text-xs text-stone-500">
                   {item.qty} × ${item.unitPrice.toFixed(2)}
                 </p>
@@ -202,10 +207,6 @@ function ReceiptTemplate({ transaction }) {
         <div className="flex justify-between text-stone-600">
           <span>Subtotal</span>
           <span className="tabular-nums">${transaction.subtotal.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between text-stone-600">
-          <span>Tax (10%)</span>
-          <span className="tabular-nums">${transaction.tax.toFixed(2)}</span>
         </div>
         <div className="flex justify-between border-t border-emerald-100 pt-2 text-base font-bold text-stone-900">
           <span>Total Paid</span>
@@ -226,6 +227,8 @@ function ReceiptTemplate({ transaction }) {
         {STORE.receiptThanks}
         <br />
         Have a wonderful day!
+        <br />
+        {OPERATING_HOURS_NOTICE}
       </p>
     </div>
   )
@@ -236,16 +239,16 @@ export default function ReceiptModal({ transaction, onClose, isPreCheckout = fal
 
   const items = Array.isArray(transaction.items) ? transaction.items : []
   const hasTotals =
-    typeof transaction.subtotal === 'number' &&
-    typeof transaction.tax === 'number' &&
-    typeof transaction.total === 'number'
-  const totals = hasTotals ? transaction : calculateTotals(items)
+    typeof transaction.subtotal === 'number' && typeof transaction.total === 'number'
+  const totals = hasTotals
+    ? { subtotal: transaction.subtotal, tax: 0, total: transaction.subtotal }
+    : calculateTotals(items)
   const normalizedTransaction = {
     ...transaction,
     items,
     subtotal: totals.subtotal,
-    tax: totals.tax,
-    total: totals.total,
+    tax: 0,
+    total: totals.subtotal,
   }
 
   const isInvoice = variant === 'invoice' || isPreCheckout || transaction.isPreCheckout

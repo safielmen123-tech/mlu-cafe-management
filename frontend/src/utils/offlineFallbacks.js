@@ -1,8 +1,8 @@
 import { menuItems as seedMenuItems } from '../data/menuItems'
 import { inventoryItems as seedInventoryItems } from '../data/inventory'
 
-const MENU_CACHE_KEY = 'romdoul_menu_cache_v1'
-const INVENTORY_CACHE_KEY = 'romdoul_inventory_cache_v1'
+const MENU_CACHE_KEY = 'mlu_kitchen_cafe_menu_cache_v1'
+const INVENTORY_CACHE_KEY = 'mlu_kitchen_cafe_inventory_cache_v1'
 
 function readCache(key) {
   try {

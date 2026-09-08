@@ -1,0 +1,55 @@
+import { writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Resvg } from '@resvg/resvg-js'
+
+const here = dirname(fileURLToPath(import.meta.url))
+
+const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820">
+  <rect width="1400" height="820" fill="#ffffff"/>
+
+  <text x="700" y="52" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700" fill="#1f4e79">Organizational Structure</text>
+  <text x="700" y="86" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="17" fill="#5a6a7a">Mlu Kitchen &amp; Cafe Siem Reap</text>
+
+  <rect x="475" y="130" width="450" height="100" rx="4" fill="#dae8fc" stroke="#1f4e79" stroke-width="2.5"/>
+  <text x="700" y="172" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#1f4e79">Owner / Manager</text>
+  <text x="700" y="202" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#3d5a73">overall cafe management</text>
+
+  <line x1="700" y1="230" x2="700" y2="320" stroke="#1f4e79" stroke-width="2.5"/>
+  <line x1="320" y1="320" x2="1080" y2="320" stroke="#1f4e79" stroke-width="2.5"/>
+  <line x1="320" y1="320" x2="320" y2="400" stroke="#1f4e79" stroke-width="2.5"/>
+  <line x1="1080" y1="320" x2="1080" y2="400" stroke="#1f4e79" stroke-width="2.5"/>
+
+  <rect x="120" y="400" width="400" height="110" rx="4" fill="#fff2cc" stroke="#d6b656" stroke-width="2.5"/>
+  <text x="320" y="448" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#7a4f01">Administrator</text>
+  <text x="320" y="480" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#7a4f01">users, audit, backup, all screens</text>
+
+  <rect x="880" y="400" width="400" height="110" rx="4" fill="#d5e8d4" stroke="#82b366" stroke-width="2.5"/>
+  <text x="1080" y="448" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#2d6a32">Staff</text>
+  <text x="1080" y="480" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#2d6a32">order, table, payment, stock</text>
+
+  <line x1="1080" y1="510" x2="1080" y2="580" stroke="#82b366" stroke-width="2.5"/>
+  <line x1="880" y1="580" x2="1280" y2="580" stroke="#82b366" stroke-width="2.5"/>
+  <line x1="880" y1="580" x2="880" y2="620" stroke="#82b366" stroke-width="2.5"/>
+  <line x1="1280" y1="580" x2="1280" y2="620" stroke="#82b366" stroke-width="2.5"/>
+
+  <rect x="705" y="620" width="350" height="90" rx="4" fill="#f6fbf4" stroke="#82b366" stroke-width="2"/>
+  <text x="880" y="658" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#2d6a32">Front of house</text>
+  <text x="880" y="686" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#2d6a32">cashier, tables, reservations</text>
+
+  <rect x="1105" y="620" width="350" height="90" rx="4" fill="#f6fbf4" stroke="#82b366" stroke-width="2"/>
+  <text x="1280" y="658" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#2d6a32">Kitchen</text>
+  <text x="1280" y="686" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#2d6a32">food and drink preparation</text>
+</svg>
+`
+
+const svgPath = join(here, '4.3-organizational-structure.svg')
+const pngPath = join(here, '4.3-organizational-structure.png')
+writeFileSync(svgPath, svg, 'utf8')
+const resvg = new Resvg(svg, {
+  fitTo: { mode: 'width', value: 2000 },
+  background: '#ffffff',
+})
+writeFileSync(pngPath, resvg.render().asPng())
+console.log('Wrote', pngPath)

@@ -1,36 +1,18 @@
 /**
-
- * Official business profile & branding for Romdoul Restaurant & Cafe.
-
+ * Official business profile & branding for Mlu Kitchen & Cafe Siem Reap.
  * Single source of truth for receipts, headers, and title tags.
-
  */
-
 export const STORE = {
-
-  officialName: 'Romdoul Restaurant & Cafe',
-
-  shortName: 'Romdoul',
-
-  location: 'Siem Reap, Cambodia',
-
-  address: 'Makara St, Krong Siem Reap',
-
+  officialName: 'Mlu Kitchen & Cafe Siem Reap',
+  shortName: 'Mlu',
+  logoUrl: '/logo/logo.png',
+  sidebarLogoUrl: '/logo/logo%20in%20system.png',
+  location: 'Pink Paradise Rd, Wat Bo Village, Siem Reap, Cambodia',
+  address: 'Pink Paradise Rd, Wat Bo Village, Siem Reap, Cambodia',
   phone: 'Tel: 099 333 225',
-
-  tagline: 'Restaurant & Cafe Management',
-
-  domainContext:
-
-    'Siem Reap tourist & local market — early morning tourist coffee spikes, midday food orders, and an international/local customer mix.',
-
-  documentTitle: 'Romdoul Restaurant & Cafe — Management',
-
-  receiptThanks: 'Thank you for visiting Romdoul Restaurant & Cafe!',
-
+  tagline: 'Kitchen & Cafe Management',
+  documentTitle: 'Mlu Kitchen & Cafe Siem Reap',
+  receiptThanks: 'Thank you for visiting Mlu Kitchen & Cafe Siem Reap!',
 }
 
-
-
 export default STORE
-

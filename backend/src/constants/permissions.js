@@ -6,6 +6,7 @@ const VALID_PERMISSIONS = [
   'dashboard',
   'order',
   'table',
+  'reservations',
   'payment',
   'menu',
   'settings',
@@ -14,7 +15,6 @@ const VALID_PERMISSIONS = [
   'inventory_stock',
   'reports',
   'reports_analysis',
-  'reports_prediction',
 ]
 
 function parsePermissionsRaw(raw) {

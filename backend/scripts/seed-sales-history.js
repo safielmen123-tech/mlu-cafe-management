@@ -7,7 +7,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 
 const db = require('../db')
 
-const TAX_RATE = 0.1
+const TAX_RATE = 0
 const ORDER_COUNT = 140
 const TARGET_TABLES = [1, 2, 3, 4, 5, 6]
 const PAYMENT_METHODS = ['Cash', 'Bank Scan']
@@ -78,6 +78,12 @@ function randomDateInMonth(year, month) {
 
 function formatInvoiceId(counter) {
   return `INV-${String(counter).padStart(5, '0')}`
+}
+
+function formatMysqlDateTime(date) {
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 function isCoffeeItem(item) {
@@ -155,7 +161,7 @@ async function insertCompletedOrder(menuItems, orderDate, invoiceCounter) {
   const sourceType = isTakeOut ? 'Take Out' : 'Table'
   const tableTargetId = isTakeOut ? null : TARGET_TABLES[randomInt(0, TARGET_TABLES.length - 1)]
   const invoiceId = formatInvoiceId(invoiceCounter)
-  const timestamp = orderDate.toISOString().slice(0, 19).replace('T', ' ')
+  const timestamp = formatMysqlDateTime(orderDate)
 
   const [orderResult] = await db.execute(
     `INSERT INTO orders

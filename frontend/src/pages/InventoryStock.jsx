@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Brain, Package, PackagePlus, Scale, Search, Sparkles, X } from 'lucide-react'
+import { Package, PackagePlus, Scale, Search, X } from 'lucide-react'
 import { apiFetch } from '../services/apiClient'
 import { cacheInventoryItems, getInventoryFallback } from '../utils/offlineFallbacks'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
@@ -116,15 +116,7 @@ function InventoryTable({ items, onRestock, isLoading }) {
             return (
               <tr key={item.id} className="table-row">
                 <td className="text-heading px-6 py-4 font-semibold">
-                  <div className="flex flex-col gap-1.5">
-                    <span>{item.item_name}</span>
-                    {item.predictedLowStock && (
-                      <span className="badge-ai w-fit">
-                        <Sparkles className="h-3 w-3" />
-                        AI Recommendation
-                      </span>
-                    )}
-                  </div>
+                  <span>{item.item_name}</span>
                 </td>
                 <td className="table-cell-muted px-6 py-4">{item.category}</td>
                 <td className="px-6 py-4">
@@ -293,49 +285,29 @@ export default function InventoryStock() {
   const [items, setItems] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [usingFallbackInventory, setUsingFallbackInventory] = useState(false)
-  const [aiMeta, setAiMeta] = useState(null)
   const [search, setSearch] = useState('')
   const [restockItem, setRestockItem] = useState(null)
 
   const fetchInventory = useCallback(async () => {
     try {
-      const response = await apiFetch('/inventory?includeAi=1')
+      const response = await apiFetch('/inventory')
       if (!response.ok) {
         throw new Error(`Server status returned ${response.status}`)
       }
       const data = await response.json()
-      if (Array.isArray(data)) {
-        if (data.length === 0) {
-          setItems(getInventoryFallback())
-          setUsingFallbackInventory(true)
-          setAiMeta(null)
-          return
-        }
-        cacheInventoryItems(data)
-        setItems(data)
-        setUsingFallbackInventory(false)
-        setAiMeta(null)
-      } else {
-        const nextItems = data.items || []
-        if (nextItems.length === 0) {
-          setItems(getInventoryFallback())
-          setUsingFallbackInventory(true)
-          setAiMeta(null)
-          return
-        }
-        cacheInventoryItems(nextItems)
-        setItems(nextItems)
-        setUsingFallbackInventory(false)
-        setAiMeta({
-          generatedAt: data.generatedAt,
-          targetPeriod: data.targetPeriod,
-        })
+      const nextItems = Array.isArray(data) ? data : data.items || []
+      if (nextItems.length === 0) {
+        setItems(getInventoryFallback())
+        setUsingFallbackInventory(true)
+        return
       }
+      cacheInventoryItems(nextItems)
+      setItems(nextItems)
+      setUsingFallbackInventory(false)
     } catch (error) {
       console.error('Error loading inventory layout:', error)
       setItems(getInventoryFallback())
       setUsingFallbackInventory(true)
-      setAiMeta(null)
     } finally {
       setIsLoading(false)
     }
@@ -367,54 +339,11 @@ export default function InventoryStock() {
   const countableItems = filteredItems.filter((item) => item.section === 'countable')
   const uncountableItems = filteredItems.filter((item) => item.section === 'uncountable')
 
-  const aiFlaggedItems = useMemo(
-    () => items.filter((item) => item.predictedLowStock),
-    [items],
-  )
-
   return (
     <div className="space-y-8">
       {usingFallbackInventory && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
           Showing offline inventory data. Reconnect the backend to sync live stock levels.
-        </div>
-      )}
-
-      {aiFlaggedItems.length > 0 && (
-        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 dark:bg-emerald-950/40">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl surface-emerald text-emerald-900 dark:text-emerald-300">
-                <Brain className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">AI Inventory Alert</p>
-                <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-                  {aiFlaggedItems.length} ingredient{aiFlaggedItems.length === 1 ? '' : 's'} may run low within
-                  the next 14 days based on seasonal demand
-                  {aiMeta?.targetPeriod?.label ? ` for ${aiMeta.targetPeriod.label}` : ''}.
-                </p>
-              </div>
-            </div>
-            <span className="badge-ai w-fit px-3 py-1 text-xs font-medium normal-case">
-              <Sparkles className="h-3.5 w-3.5" />
-              Reorder recommended
-            </span>
-          </div>
-
-          <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-            {aiFlaggedItems.slice(0, 4).map((item) => (
-              <li
-                key={item.id}
-                className="rounded-xl border border-emerald-500/20 bg-white/80 px-3 py-2 text-xs text-slate-700 dark:border-emerald-500/25 dark:bg-zinc-900/80 dark:text-zinc-300"
-              >
-                <span className="font-semibold text-slate-900 dark:text-zinc-100">{item.item_name}</span>
-                {item.aiRecommendation && (
-                  <span className="mt-0.5 block text-slate-500 dark:text-zinc-400">{item.aiRecommendation}</span>
-                )}
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 

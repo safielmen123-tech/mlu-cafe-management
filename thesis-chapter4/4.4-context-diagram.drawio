@@ -1,0 +1,58 @@
+<mxfile host="app.diagrams.net" agent="mlu-thesis-chapter4" pages="1">
+  <diagram id="context-4-4" name="4.4 Context Diagram">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="t1" value="Context Diagram" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1F4E79;" vertex="1" parent="1">
+          <mxGeometry x="400" y="20" width="800" height="36" as="geometry"/>
+        </mxCell>
+        <mxCell id="t2" value="Mlu Kitchen &amp; Cafe Siem Reap — Management System" style="text;html=1;align=center;verticalAlign=middle;fontSize=13;fontColor=#5A6A7A;" vertex="1" parent="1">
+          <mxGeometry x="400" y="52" width="800" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="admin" value="Administrator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1F4E79;strokeWidth=2;fontSize=14;fontStyle=1;fontColor=#1F4E79;" vertex="1" parent="1">
+          <mxGeometry x="680" y="100" width="240" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="staff" value="Staff" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1F4E79;strokeWidth=2;fontSize=14;fontStyle=1;fontColor=#1F4E79;" vertex="1" parent="1">
+          <mxGeometry x="680" y="800" width="240" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="cust" value="Customer&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal&quot;&gt;no system account&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#1F4E79;strokeWidth=2;fontSize=14;fontStyle=1;fontColor=#1F4E79;" vertex="1" parent="1">
+          <mxGeometry x="60" y="430" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext" value="External Services&lt;br&gt;&lt;font style=&quot;font-size:11px;font-weight:normal&quot;&gt;Email · Weather · Exchange Rate&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#B85450;strokeWidth=2;fontSize=14;fontStyle=1;fontColor=#1F4E79;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="420" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="sys" value="Cafe Management&lt;br&gt;System&lt;br&gt;&lt;font style=&quot;font-size:12px;font-weight:normal&quot;&gt;Mlu Kitchen &amp; Cafe&lt;br&gt;Siem Reap&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=3;fontSize=15;fontStyle=1;fontColor=#7A4F01;" vertex="1" parent="1">
+          <mxGeometry x="680" y="350" width="240" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="a1" value="User accounts,&lt;br&gt;permissions, backup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;strokeColor=#1F4E79;strokeWidth=2;endArrow=block;endFill=1;exitX=0.35;exitY=1;entryX=0.35;entryY=0;" edge="1" parent="1" source="admin" target="sys">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2" value="Reports, audit log,&lt;br&gt;backup file" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;strokeColor=#1F4E79;strokeWidth=2;endArrow=block;endFill=1;exitX=0.65;exitY=0;entryX=0.65;entryY=1;" edge="1" parent="1" source="sys" target="admin">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="s1" value="Orders, payment,&lt;br&gt;stock, reservations" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;strokeColor=#1F4E79;strokeWidth=2;endArrow=block;endFill=1;exitX=0.35;exitY=0;entryX=0.35;entryY=1;" edge="1" parent="1" source="staff" target="sys">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="s2" value="Receipts, table status,&lt;br&gt;alerts, reports, forecast" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;strokeColor=#1F4E79;strokeWidth=2;endArrow=block;endFill=1;exitX=0.65;exitY=1;entryX=0.65;entryY=0;" edge="1" parent="1" source="sys" target="staff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1" value="Order / booking request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;strokeColor=#1F4E79;strokeWidth=2;endArrow=block;endFill=1;exitX=1;exitY=0.35;entryX=0;entryY=0.35;" edge="1" parent="1" source="cust" target="sys">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" value="Receipt / confirmation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;strokeColor=#1F4E79;strokeWidth=2;endArrow=block;endFill=1;exitX=0;exitY=0.65;entryX=1;entryY=0.65;" edge="1" parent="1" source="sys" target="cust">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" value="Weather, exchange rate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;strokeColor=#1F4E79;strokeWidth=2;endArrow=block;endFill=1;exitX=0;exitY=0.35;entryX=1;entryY=0.35;" edge="1" parent="1" source="ext" target="sys">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" value="Email (reset, reminder)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;strokeColor=#1F4E79;strokeWidth=2;endArrow=block;endFill=1;exitX=1;exitY=0.65;entryX=0;entryY=0.65;" edge="1" parent="1" source="sys" target="ext">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="cap" value="រូបភាពទី ៤.៤  បង្ហាញពី Context Diagram នៃប្រព័ន្ធគ្រប់គ្រង Mlu Kitchen &amp; Cafe ទាំងមូល" style="text;html=1;align=center;verticalAlign=middle;fontSize=14;fontColor=#222222;" vertex="1" parent="1">
+          <mxGeometry x="200" y="920" width="1200" height="40" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

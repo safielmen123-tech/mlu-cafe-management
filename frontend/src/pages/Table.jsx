@@ -1,29 +1,209 @@
-import { ArrowRight, BaggageClaim, LayoutGrid } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ArrowRight, BaggageClaim, Crown, LayoutGrid, Phone, UserCheck, Users, UtensilsCrossed, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usePOS } from '../context/POSContext'
+import { useAlerts } from '../context/AlertsContext'
 import { FLOOR_STATUS_KEYS, TABLE_STATUS_META } from '../data/tables'
+import { canCheckInReservation, SEATED_STATUS, slotLabel } from '../data/reservations'
 import { calculateTotals } from '../utils/posHelpers'
+import { apiFetch, getAuthToken } from '../services/apiClient'
+import { useModalKeyboard } from '../hooks/useModalKeyboard'
 
-function getFloorStatus(bill) {
-  return bill.status === 'empty' ? 'empty' : 'occupied'
+function getFloorStatus(bill, reservation) {
+  if (bill.status !== 'empty') return 'occupied'
+  if (reservation?.status === SEATED_STATUS) return 'occupied'
+  if (reservation) return 'reserved'
+  return 'empty'
 }
 
-function TableCard({ bill, onSendToCheckout }) {
-  const floorStatus = getFloorStatus(bill)
-  const meta = TABLE_STATUS_META[floorStatus]
-  const isEmpty = floorStatus === 'empty'
-  const { total } = isEmpty ? { total: 0 } : calculateTotals(bill.items)
-  const isActive = !isEmpty
+function ReservationPreview({
+  reservation,
+  busy,
+  error,
+  onClose,
+  onCheckIn,
+  onOpenOrder,
+  onCancel,
+}) {
+  const panelRef = useModalKeyboard({ isOpen: Boolean(reservation), onEscape: onClose, primaryActionMode: 'never' })
+  const [confirmCancel, setConfirmCancel] = useState(false)
+
+  if (!reservation) return null
+
+  const canCheckIn = canCheckInReservation(reservation)
+  const isSeated = reservation.status === SEATED_STATUS
 
   return (
-    <div className={`flex cursor-default select-none flex-col rounded-2xl border p-5 shadow-sm ${meta.card}`}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
+      <button type="button" aria-label="Close reservation preview" className="absolute inset-0 cursor-default" onClick={onClose} />
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="relative z-10 max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reserved-table-title"
+      >
+        <div className="p-5">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-wide ${
+                isSeated ? 'text-emerald-700 dark:text-emerald-300' : 'text-violet-700 dark:text-violet-300'
+              }`}>
+                {isSeated ? 'Seated' : 'Reserved'}
+              </p>
+              <h4 id="reserved-table-title" className="text-heading mt-1 text-lg font-semibold">
+                {reservation.table_name}
+              </h4>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <dl className="space-y-3 text-sm">
+            <div>
+              <dt className="text-muted text-xs uppercase tracking-wide">Customer Name</dt>
+              <dd className="mt-0.5 font-medium">{reservation.customer_name}</dd>
+            </div>
+            <div>
+              <dt className="text-muted text-xs uppercase tracking-wide">Time</dt>
+              <dd className="mt-0.5 font-medium">
+                {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
+              </dd>
+            </div>
+            <div className="flex gap-6">
+              <div>
+                <dt className="text-muted inline-flex items-center gap-1 text-xs uppercase tracking-wide">
+                  <Users className="h-3 w-3" /> Guest Count
+                </dt>
+                <dd className="mt-0.5 font-medium tabular-nums">{reservation.guest_count}</dd>
+              </div>
+              <div>
+                <dt className="text-muted inline-flex items-center gap-1 text-xs uppercase tracking-wide">
+                  <Phone className="h-3 w-3" /> Contact Number
+                </dt>
+                <dd className="mt-0.5 font-medium">{reservation.phone}</dd>
+              </div>
+            </div>
+            {reservation.notes ? (
+              <div>
+                <dt className="text-muted text-xs uppercase tracking-wide">Notes</dt>
+                <dd className="mt-0.5 text-sm">{reservation.notes}</dd>
+              </div>
+            ) : null}
+          </dl>
+
+          {error ? <p className="mt-4 text-xs font-medium text-red-600 dark:text-red-400">{error}</p> : null}
+
+          <div className="mt-5 space-y-2">
+            {canCheckIn ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onCheckIn}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <UserCheck className="h-4 w-4" />
+                {busy ? 'Checking in…' : 'Check In / Mark Arrived'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onOpenOrder}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-forest-300/70 bg-white py-2.5 text-sm font-semibold text-forest-800 hover:bg-forest-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-forest-700/50 dark:bg-obsidian-850 dark:text-mint-100 dark:hover:bg-forest-950/30"
+            >
+              <UtensilsCrossed className="h-4 w-4" />
+              Open Order Ticket
+            </button>
+            {confirmCancel ? (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmCancel(false)}
+                  className="btn-secondary flex-1 py-2 text-sm"
+                >
+                  Keep booking
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onCancel}
+                  className="flex-1 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-60"
+                >
+                  Confirm cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmCancel(true)}
+                className="w-full rounded-xl py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+              >
+                Cancel Booking
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
+  const floorStatus = getFloorStatus(bill, reservation)
+  const meta = TABLE_STATUS_META[floorStatus]
+  const isEmpty = floorStatus === 'empty'
+  const isReserved = floorStatus === 'reserved'
+  const hasItems = Array.isArray(bill.items) && bill.items.length > 0
+  const { total } = isEmpty || isReserved || !hasItems ? { total: 0 } : calculateTotals(bill.items)
+  const isActive = floorStatus === 'occupied'
+  const isVip = bill.section === 'vip' || String(bill.name).startsWith('VIP')
+  const canOpenPreview = Boolean(reservation) && (isReserved || (isActive && !hasItems))
+
+  return (
+    <div
+      className={`flex select-none flex-col rounded-2xl border p-5 shadow-sm ${meta.card} ${
+        canOpenPreview ? 'cursor-pointer' : 'cursor-default'
+      }`}
+      onClick={() => {
+        if (canOpenPreview) onOpenReservation(reservation)
+      }}
+      onKeyDown={(event) => {
+        if (!canOpenPreview) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpenReservation(reservation)
+        }
+      }}
+      role={canOpenPreview ? 'button' : undefined}
+      tabIndex={canOpenPreview ? 0 : undefined}
+    >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className={`text-lg font-bold ${isEmpty ? 'text-emerald-700 dark:text-emerald-400' : 'text-heading'}`}>
+          <p className={`flex items-center gap-1.5 text-lg font-bold ${isEmpty ? 'text-emerald-700 dark:text-emerald-400' : 'text-heading'}`}>
+            {isVip ? <Crown className="h-4 w-4 text-violet-600 dark:text-violet-300" /> : null}
             {bill.name}
           </p>
-          {!isEmpty && bill.orderSummary && (
+          {!isEmpty && !isReserved && bill.orderSummary && hasItems && (
             <p className="text-muted mt-1 line-clamp-2 text-xs">{bill.orderSummary}</p>
+          )}
+          {isReserved && (
+            <p className="mt-1 line-clamp-2 text-xs text-violet-700 dark:text-violet-300">
+              {reservation.customer_name} · {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
+            </p>
+          )}
+          {isActive && reservation && !hasItems && (
+            <p className="mt-1 line-clamp-2 text-xs text-amber-800 dark:text-amber-200">
+              {reservation.customer_name} · Seated
+            </p>
           )}
         </div>
         <span className={`shrink-0 cursor-default select-none rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${meta.badge}`}>
@@ -32,7 +212,7 @@ function TableCard({ bill, onSendToCheckout }) {
       </div>
 
       <div className="mt-4 flex flex-1 flex-col justify-end">
-        {!isEmpty && (
+        {isActive && hasItems && (
           <p className="text-2xl font-bold tabular-nums text-forest-700 dark:text-forest-400">
             ${total.toFixed(2)}
           </p>
@@ -40,11 +220,20 @@ function TableCard({ bill, onSendToCheckout }) {
         {isEmpty && (
           <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Available</p>
         )}
+        {isReserved && (
+          <p className="text-sm font-medium text-violet-700 dark:text-violet-300">Tap for reservation details</p>
+        )}
+        {isActive && reservation && !hasItems && (
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Guest seated — tap to open ticket</p>
+        )}
 
-        {isActive && (
+        {isActive && hasItems && (
           <button
             type="button"
-            onClick={() => onSendToCheckout(bill)}
+            onClick={(event) => {
+              event.stopPropagation()
+              onSendToCheckout(bill)
+            }}
             className="mt-4 inline-flex w-full cursor-pointer select-none items-center justify-center gap-2 rounded-xl border border-forest-300/70 bg-white py-2.5 text-sm font-semibold text-forest-800 hover:bg-forest-50 dark:border-forest-700/50 dark:bg-obsidian-850 dark:text-mint-100 dark:hover:bg-forest-950/30"
           >
             Send to Cashier Checkout
@@ -115,13 +304,126 @@ function TakeOutCard({ bill, onSendToCheckout }) {
 
 export default function Table() {
   const { t } = useTranslation()
-  const { tables, takeOut, openPaymentFor } = usePOS()
+  const { tables, takeOut, openPaymentFor, openOrderFor } = usePOS()
+  const { refresh: refreshAlerts } = useAlerts()
+  const [floorReservations, setFloorReservations] = useState({})
+  const [preview, setPreview] = useState(null)
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const [previewError, setPreviewError] = useState('')
 
+  const loadFloorReservations = useCallback(async () => {
+    const token = getAuthToken()
+    if (!token) return
+
+    try {
+      const response = await apiFetch('/tables', { token })
+      if (response.status === 401) return
+      if (response.ok) {
+        const data = await response.json()
+        setFloorReservations(data?.reservations && typeof data.reservations === 'object' ? data.reservations : {})
+        return
+      }
+      const fallback = await apiFetch('/reservations/floor', { token })
+      if (!fallback.ok) return
+      const data = await fallback.json()
+      setFloorReservations(data?.tables && typeof data.tables === 'object' ? data.tables : {})
+    } catch {
+      setFloorReservations({})
+    }
+  }, [])
+
+  useEffect(() => {
+    loadFloorReservations()
+    const interval = window.setInterval(loadFloorReservations, 30_000)
+    const refreshOnFocus = () => {
+      if (document.visibilityState === 'visible') loadFloorReservations()
+    }
+    window.addEventListener('focus', refreshOnFocus)
+    document.addEventListener('visibilitychange', refreshOnFocus)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshOnFocus)
+      document.removeEventListener('visibilitychange', refreshOnFocus)
+    }
+  }, [loadFloorReservations])
+
+  const standardTables = useMemo(
+    () => tables.filter((table) => table.section !== 'vip' && !String(table.name).startsWith('VIP')),
+    [tables],
+  )
+  const vipTables = useMemo(
+    () => tables.filter((table) => table.section === 'vip' || String(table.name).startsWith('VIP')),
+    [tables],
+  )
+
+  const reservedCount = Object.values(floorReservations).filter(
+    (reservation) => reservation?.status && reservation.status !== SEATED_STATUS,
+  ).length
   const activeCount =
-    tables.filter((t) => t.status !== 'empty').length + (takeOut.status !== 'empty' ? 1 : 0)
+    tables.filter((table) => table.status !== 'empty').length + (takeOut.status !== 'empty' ? 1 : 0)
 
   const handleSendToCheckout = (bill) => {
     openPaymentFor(bill.id)
+  }
+
+  const handleCheckIn = async () => {
+    if (!preview?.id) return
+    setPreviewBusy(true)
+    setPreviewError('')
+    try {
+      const response = await apiFetch(`/reservations/${preview.id}/check-in`, { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Failed to check in')
+      setPreview(data)
+      await loadFloorReservations()
+      refreshAlerts?.()
+    } catch (err) {
+      setPreviewError(err.message || 'Failed to check in')
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
+
+  const handleOpenOrder = async () => {
+    if (!preview) return
+    setPreviewBusy(true)
+    setPreviewError('')
+    try {
+      if (canCheckInReservation(preview)) {
+        const response = await apiFetch(`/reservations/${preview.id}/check-in`, { method: 'POST' })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.message || 'Failed to check in')
+        refreshAlerts?.()
+      }
+      const tableId = preview.table_id
+      setPreview(null)
+      openOrderFor(tableId)
+    } catch (err) {
+      setPreviewError(err.message || 'Failed to open order ticket')
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
+
+  const handleCancelBooking = async () => {
+    if (!preview?.id) return
+    setPreviewBusy(true)
+    setPreviewError('')
+    try {
+      const response = await apiFetch(`/reservations/${preview.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'Canceled' }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Failed to cancel booking')
+      setPreview(null)
+      await loadFloorReservations()
+      refreshAlerts?.()
+    } catch (err) {
+      setPreviewError(err.message || 'Failed to cancel booking')
+    } finally {
+      setPreviewBusy(false)
+    }
   }
 
   return (
@@ -133,17 +435,51 @@ export default function Table() {
             Floor layout and live table status monitoring
           </p>
         </div>
-        <div className="badge-olive inline-flex items-center gap-2 self-start px-3 py-1.5 text-sm">
-          <LayoutGrid className="h-4 w-4" />
-          {activeCount} active bill(s)
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="badge-olive inline-flex items-center gap-2 self-start px-3 py-1.5 text-sm">
+            <LayoutGrid className="h-4 w-4" />
+            {activeCount} active bill(s)
+          </div>
+          {reservedCount > 0 && (
+            <div className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-800 ring-1 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-800/50">
+              {reservedCount} reserved now
+            </div>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         <TakeOutCard bill={takeOut} onSendToCheckout={handleSendToCheckout} />
-        {tables.map((table) => (
-          <TableCard key={table.id} bill={table} onSendToCheckout={handleSendToCheckout} />
-        ))}
+      </div>
+
+      <div>
+        <h4 className="text-heading mb-3 text-sm font-semibold uppercase tracking-wide">Standard tables</h4>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {standardTables.map((table) => (
+            <TableCard
+              key={table.id}
+              bill={table}
+              reservation={floorReservations[table.id] || floorReservations[String(table.id)]}
+              onSendToCheckout={handleSendToCheckout}
+              onOpenReservation={setPreview}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-heading mb-3 text-sm font-semibold uppercase tracking-wide">VIP rooms</h4>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {vipTables.map((table) => (
+            <TableCard
+              key={table.id}
+              bill={table}
+              reservation={floorReservations[table.id] || floorReservations[String(table.id)]}
+              onSendToCheckout={handleSendToCheckout}
+              onOpenReservation={setPreview}
+            />
+          ))}
+        </div>
       </div>
 
       <div className="surface-inset flex flex-wrap items-center gap-4 px-5 py-4">
@@ -157,6 +493,21 @@ export default function Table() {
           )
         })}
       </div>
+
+      <ReservationPreview
+        key={preview?.id || 'closed'}
+        reservation={preview}
+        busy={previewBusy}
+        error={previewError}
+        onClose={() => {
+          if (previewBusy) return
+          setPreview(null)
+          setPreviewError('')
+        }}
+        onCheckIn={handleCheckIn}
+        onOpenOrder={handleOpenOrder}
+        onCancel={handleCancelBooking}
+      />
     </div>
   )
 }

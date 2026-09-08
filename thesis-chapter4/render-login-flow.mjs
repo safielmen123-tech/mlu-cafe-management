@@ -1,0 +1,111 @@
+import { writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Resvg } from '@resvg/resvg-js'
+
+const here = dirname(fileURLToPath(import.meta.url))
+
+const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1680" viewBox="0 0 900 1680">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#222"/>
+    </marker>
+  </defs>
+  <rect width="900" height="1680" fill="#ffffff"/>
+  <text x="450" y="48" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#222">Flowchart User Login</text>
+  <text x="450" y="76" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#555">Mlu Kitchen &amp; Cafe Siem Reap</text>
+
+  <!-- Start -->
+  <rect x="340" y="110" width="220" height="50" rx="25" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+  <text x="450" y="142" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">Start</text>
+  <line x1="450" y1="160" x2="450" y2="200" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Input -->
+  <polygon points="300,200 620,200 580,260 260,260" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+  <text x="450" y="238" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14">Enter Username and Password</text>
+  <line x1="450" y1="260" x2="450" y2="300" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Diamond 1: filled? -->
+  <polygon points="450,300 620,380 450,460 280,380" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+  <text x="450" y="372" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13">Username and</text>
+  <text x="450" y="392" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13">Password filled?</text>
+
+  <!-- No left -->
+  <line x1="280" y1="380" x2="120" y2="380" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="190" y="368" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#b85450">No</text>
+  <rect x="30" y="430" width="180" height="70" rx="4" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
+  <text x="120" y="458" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12">Show message:</text>
+  <text x="120" y="478" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11">Please provide both</text>
+  <line x1="120" y1="500" x2="120" y2="230" stroke="#222" stroke-width="1.6"/>
+  <line x1="120" y1="230" x2="300" y2="230" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Yes down -->
+  <line x1="450" y1="460" x2="450" y2="510" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="470" y="490" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#2d6a32">Yes</text>
+
+  <!-- Check DB -->
+  <rect x="300" y="510" width="300" height="56" rx="4" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+  <text x="450" y="544" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14">Check user in database</text>
+  <line x1="450" y1="566" x2="450" y2="610" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Diamond 2: correct? -->
+  <polygon points="450,610 640,700 450,790 260,700" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+  <text x="450" y="690" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13">Username and</text>
+  <text x="450" y="710" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13">Password correct?</text>
+
+  <!-- No right -->
+  <line x1="640" y1="700" x2="790" y2="700" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="710" y="688" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#b85450">No</text>
+  <rect x="690" y="750" width="190" height="80" rx="4" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
+  <text x="785" y="778" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12">Show error:</text>
+  <text x="785" y="798" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11">Invalid username</text>
+  <text x="785" y="816" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11">or password</text>
+  <line x1="785" y1="830" x2="785" y2="1580" stroke="#222" stroke-width="1.6"/>
+  <line x1="785" y1="1580" x2="450" y2="1580" stroke="#222" stroke-width="1.6"/>
+
+  <!-- Yes down -->
+  <line x1="450" y1="790" x2="450" y2="840" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="470" y="820" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#2d6a32">Yes</text>
+
+  <!-- Create token -->
+  <rect x="285" y="840" width="330" height="56" rx="4" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+  <text x="450" y="874" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14">Create login token (8 hours)</text>
+  <line x1="450" y1="896" x2="450" y2="930" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Audit -->
+  <rect x="285" y="930" width="330" height="56" rx="4" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+  <text x="450" y="964" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14">Save login record to audit log</text>
+  <line x1="450" y1="986" x2="450" y2="1030" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Diamond 3: Admin? -->
+  <polygon points="450,1030 610,1110 450,1190 290,1110" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+  <text x="450" y="1104" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14">Is Admin?</text>
+
+  <!-- Yes left -->
+  <line x1="290" y1="1110" x2="140" y2="1110" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="210" y="1098" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#2d6a32">Yes</text>
+  <rect x="40" y="1220" width="200" height="70" rx="4" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+  <text x="140" y="1248" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13">Open Dashboard</text>
+  <text x="140" y="1268" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12">(all screens)</text>
+  <line x1="140" y1="1290" x2="140" y2="1480" stroke="#222" stroke-width="1.6"/>
+  <line x1="140" y1="1480" x2="450" y2="1480" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- No down -->
+  <line x1="450" y1="1190" x2="450" y2="1240" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="470" y="1220" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#b85450">No</text>
+  <rect x="285" y="1240" width="330" height="70" rx="4" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+  <text x="450" y="1268" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13">Open Dashboard</text>
+  <text x="450" y="1288" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12">(screens by permission)</text>
+  <line x1="450" y1="1310" x2="450" y2="1480" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- End -->
+  <rect x="340" y="1480" width="220" height="50" rx="25" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
+  <text x="450" y="1512" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">End</text>
+</svg>
+`
+
+writeFileSync(join(here, '4.6-flowchart-login.svg'), svg, 'utf8')
+const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 1100 }, background: '#ffffff' })
+writeFileSync(join(here, '4.6-flowchart-login.png'), resvg.render().asPng())
+console.log('Wrote 4.6-flowchart-login.png')

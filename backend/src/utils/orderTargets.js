@@ -98,6 +98,15 @@ function logOrderError(context, error, meta = {}) {
 
 let orderItemsSchemaReadyPromise = null
 let orderItemsHasNameColumn = null
+let orderItemsHasNotesColumn = null
+
+function formatOrderLineName(baseName, notes) {
+  const name = String(baseName || '').trim() || 'Custom item'
+  const note = notes != null ? String(notes).trim() : ''
+  if (!note) return name
+  if (name.includes(`(${note})`) || /\(\s*Sugar:/i.test(name)) return name
+  return `${name} (${note})`
+}
 
 async function columnExists(db, table, column) {
   const [rows] = await db.execute(
@@ -191,6 +200,14 @@ async function ensureOrderItemsSchema(db) {
       }
 
       orderItemsHasNameColumn = await columnExists(db, 'order_items', 'item_name')
+
+      const hasNotes = await columnExists(db, 'order_items', 'notes')
+      if (!hasNotes) {
+        await db.execute(
+          'ALTER TABLE order_items ADD COLUMN notes VARCHAR(255) NULL AFTER item_name',
+        )
+      }
+      orderItemsHasNotesColumn = true
     })().catch((error) => {
       orderItemsSchemaReadyPromise = null
       throw error
@@ -235,15 +252,36 @@ async function insertOrderItem(db, orderId, item) {
     orderItemsHasNameColumn = hasItemName
   }
 
-  const [result] = hasItemName
-    ? await db.execute(
-        'INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
-        [orderId, menuItemId, itemName, quantity, price, subtotal],
-      )
-    : await db.execute(
-        'INSERT INTO order_items (order_id, menu_item_id, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?)',
-        [orderId, menuItemId, quantity, price, subtotal],
-      )
+  const notes =
+    item.notes != null && String(item.notes).trim() !== ''
+      ? String(item.notes).trim().slice(0, 255)
+      : null
+
+  const hasNotes =
+    orderItemsHasNotesColumn === true ||
+    (orderItemsHasNotesColumn === null && (await columnExists(db, 'order_items', 'notes')))
+
+  if (orderItemsHasNotesColumn === null) {
+    orderItemsHasNotesColumn = hasNotes
+  }
+
+  let result
+  if (hasItemName && hasNotes) {
+    ;[result] = await db.execute(
+      'INSERT INTO order_items (order_id, menu_item_id, item_name, notes, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [orderId, menuItemId, itemName, notes, quantity, price, subtotal],
+    )
+  } else if (hasItemName) {
+    ;[result] = await db.execute(
+      'INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
+      [orderId, menuItemId, itemName, quantity, price, subtotal],
+    )
+  } else {
+    ;[result] = await db.execute(
+      'INSERT INTO order_items (order_id, menu_item_id, quantity, price, subtotal) VALUES (?, ?, ?, ?, ?)',
+      [orderId, menuItemId, quantity, price, subtotal],
+    )
+  }
 
   return {
     orderItemId: result.insertId,
@@ -262,5 +300,6 @@ module.exports = {
   insertOrderItem,
   parseMenuItemIdFromItem,
   ensureOrderItemsSchema,
+  formatOrderLineName,
   logOrderError,
 }

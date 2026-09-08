@@ -1,15 +1,14 @@
-# Romdoul Restaurant & Cafe — Management System
+# Mlu Kitchen & Cafe Siem Reap — Management System
 
-A point-of-sale and back-office system for Romdoul Restaurant & Cafe (Siem Reap, Cambodia).
+A point-of-sale and back-office system for Mlu Kitchen & Cafe Siem Reap (Siem Reap, Cambodia).
 It covers the full floor-to-books workflow: taking orders, managing tables, taking payment,
 tracking stock, managing the menu, and reporting on sales — with role-based access control,
-an audit trail, and AI-assisted forecasting.
+an audit trail.
 
 The system is a two-part application:
 
 - **Frontend** — React 19 + Vite, styled with Tailwind CSS, bilingual (English / Khmer) via i18next.
-- **Backend** — Express 5 REST API backed by MySQL, with JWT authentication and an optional
-  Python script for machine-learning sales predictions.
+- **Backend** — Express 5 REST API backed by MySQL, with JWT authentication.
 
 ## Features by screen
 
@@ -17,16 +16,15 @@ The sidebar tabs map one-to-one onto the files in `frontend/src/pages/`:
 
 | Sidebar tab                | Page component            | What it does                                               |
 | -------------------------- | ------------------------- | ---------------------------------------------------------- |
-| Dashboard                  | `Dashboard.jsx`           | Live KPIs, alerts, and the daily AI briefing                |
+| Dashboard                  | `Dashboard.jsx`           | Live KPIs, alerts, and daily sales overview                 |
 | Users                      | `Users.jsx`               | Staff accounts, roles, and per-view permissions (admin)     |
 | Order                      | `Order.jsx`               | POS order entry for dine-in and takeaway                    |
 | Table                      | `Table.jsx`               | Floor plan and per-table bill status                        |
 | Payment                    | `Payment.jsx`             | Checkout, split/settle bills, and receipt printing          |
 | Sales History              | `SalesHistory.jsx`        | Completed transactions, receipt reprints, expense tracking  |
 | Inventory & Stock          | `InventoryStock.jsx`      | Ingredient stock levels and low-stock alerts                |
-| Menu Management            | `MenuManagement.jsx`      | Menu items, pricing, photos, and recipe/ingredient links    |
+| Menu Management            | `MenuManagement.jsx`      | Menu items, pricing, and photos                             |
 | Reports → Analysis         | `ReportsAnalysis.jsx`     | Sales charts and breakdowns over a chosen period            |
-| Reports → AI Prediction    | `ReportsAIPrediction.jsx` | Forecast demand and revenue                                 |
 | Others → Settings          | `Settings.jsx`            | Preferences, theme/language, and the audit log panel        |
 | Others → Backup & Recovery | `BackupRecovery.jsx`      | Database export and restore                                 |
 
@@ -37,9 +35,11 @@ mirrors it to the URL hash) rather than react-router, so the view ids in
 ## Folder structure
 
 ```
-romdoul-cafe-system/
+mlu-cafe-system/
 ├── package.json              # Convenience scripts that delegate to backend/ and frontend/
 ├── README.md
+├── THESIS_DIAGRAMS.md        # System diagrams as tables + Mermaid source
+├── THESIS_DIAGRAMS.drawio    # The same diagrams drawn, for app.diagrams.net
 │
 ├── backend/                  # Express + MySQL API
 │   ├── server.js             # Entry point — starts the API and mounts all routes
@@ -51,8 +51,8 @@ romdoul-cafe-system/
 │       ├── config/           # env.js (validated env vars), store.js (business constants)
 │       ├── constants/        # Permission ids shared with the frontend
 │       ├── middleware/       # JWT auth / route guards
-│       ├── scripts/          # Sales seeders + predict.py (ML forecasting)
-│       └── utils/            # Domain logic: alerts, backups, audit log, recipes, AI signals
+│       ├── scripts/          # Sales seeders
+│       └── utils/            # Domain logic: alerts, backups, audit log
 │
 └── frontend/                 # React + Vite single-page app
     ├── index.html
@@ -60,7 +60,7 @@ romdoul-cafe-system/
     ├── .env.example          # Copy to .env and fill in
     ├── public/
     │   ├── favicon.svg
-    │   ├── icons.svg
+    │   ├── logo/             # Brand marks used by the login screen and sidebar
     │   └── menu-images/      # Menu item photos served at /menu-images/<file>
     └── src/
         ├── main.jsx          # React entry point + global providers
@@ -72,9 +72,8 @@ romdoul-cafe-system/
         │   ├── common/       # App shell: DashboardLayout, Sidebar, NotificationBell
         │   ├── ui/           # Reusable widgets: modals, toggles, filter bars
         │   ├── alerts/       # Alert centre
-        │   ├── dashboard/    # Daily AI briefing card
         │   ├── finance/      # Expense tracker
-        │   ├── menu/         # Menu item image + recipe modal
+        │   ├── menu/         # Menu item image
         │   ├── pos/          # Payment module + receipt modal
         │   └── security/     # Audit log panel
         ├── context/          # Global state: Auth, POS/cart, Alerts, Notifications, Settings, Theme
@@ -91,14 +90,13 @@ romdoul-cafe-system/
 
 - **Node.js 18+** and npm
 - **MySQL 8** (Laragon, XAMPP, or a standalone server)
-- **Python 3** *(optional)* — only needed for the ML prediction endpoint
 
 ### 1. Start the database
 
 Start MySQL (in Laragon, click **Start All**), then create an empty database:
 
 ```sql
-CREATE DATABASE romduol_cafe_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE mlu_kitchen_cafe_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 You do not need to import any tables by hand — the backend applies the SQL files in
@@ -122,7 +120,7 @@ or `JWT_SECRET` is missing:
 | `DB_HOST`      | MySQL host, e.g. `127.0.0.1`                                   |
 | `DB_USER`      | MySQL user, e.g. `root`                                        |
 | `DB_PASSWORD`  | MySQL password (blank on a default Laragon install)            |
-| `DB_NAME`      | Database name, e.g. `romduol_cafe_db`                          |
+| `DB_NAME`      | Database name, e.g. `mlu_kitchen_cafe_db`                      |
 | `JWT_SECRET`   | Long random string used to sign login tokens — **change this** |
 | `FRONTEND_URL` | Allowed CORS origin, e.g. `http://localhost:5173`              |
 
@@ -134,7 +132,7 @@ VITE_API_URL=http://localhost:5500/api
 ```
 
 The remaining variables in `backend/.env.example` are optional and documented inline
-(weather/FX signals for AI forecasting, Python interpreter path, cache TTLs).
+(SMTP, rate limits, MySQL bin path, alert cache TTL).
 
 ### 3. Install dependencies
 
@@ -208,7 +206,7 @@ knowing when you operate or extend it:
 
 **SQL injection.** Every query uses parameterized placeholders (`?`) with bound values —
 user input is never concatenated or interpolated into SQL. The few places that build SQL
-fragments dynamically (`orderTargets.js`, `recipeInventory.js`, `kitchenOrders.js`) only
+fragments dynamically (`orderTargets.js`) only
 ever interpolate hardcoded developer strings, never request data. Keep it that way: if you
 need a dynamic column or sort order, map the input through an allowlist rather than
 inlining it.
@@ -221,7 +219,18 @@ expire after `JWT_EXPIRES_IN` (default `8h`); the verifier pins the algorithm an
 the user from the database on every request, so deleting or changing an account takes
 effect immediately instead of at token expiry.
 
-**Rate limiting.** `/api/auth/login` allows `LOGIN_ATTEMPT_LIMIT` failed attempts (default
+**Accounts.** There is no public sign-up. `/api/auth/register`, `/api/auth/signup`,
+`/api/register`, and `/api/signup` all return 403. New staff are created only by an
+administrator in User Management. The Admin recovery inbox is `ADMIN_EMAIL`
+(default `antagonistslayer9000@gmail.com`).
+
+**Password reset.** `POST /api/auth/forgot-password` takes a username. If the account is
+the administrator, a temporary password is emailed to `ADMIN_EMAIL` (or written to
+`backend/logs/mail.log` when SMTP is not configured). If the account is staff, the
+password is rotated and an unread security alert is created for every Admin user so they
+can copy the temporary password from the dashboard bell and help the staff member.
+
+**Rate limiting.** `/api/auth/login` and `/api/auth/forgot-password` allow `LOGIN_ATTEMPT_LIMIT` failed attempts (default
 10) per IP per 15 minutes; successful logins are not counted, so a busy till is never
 locked out by normal use. The rest of `/api` and the backup/restore endpoints have their
 own broader ceilings. Limits are held in memory, which is correct for a single instance —

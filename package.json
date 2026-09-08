@@ -1,8 +1,8 @@
 {
-  "name": "romdoul-cafe-system",
+  "name": "mlu-kitchen-cafe-system",
   "version": "1.0.0",
   "private": true,
-  "description": "Romdoul Restaurant & Cafe management system — React + Vite frontend and Express + MySQL backend.",
+  "description": "Mlu Kitchen & Cafe Siem Reap management system — React + Vite frontend and Express + MySQL backend.",
   "license": "ISC",
   "scripts": {
     "install:all": "npm --prefix backend install && npm --prefix frontend install",

@@ -2,11 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import { Bell } from 'lucide-react'
 import AlertCenter from '../alerts/AlertCenter'
 import { useAlerts } from '../../hooks/useAlerts'
+import { useAuth } from '../../context/AuthContext'
 
 export default function NotificationBell({ onNavigate }) {
-  const { alerts, counts, badgeCount, isLoading, error, refresh, lowStockAlertsEnabled, aiForecastUpdatesEnabled } =
-    useAlerts()
-  const showNotifications = lowStockAlertsEnabled || aiForecastUpdatesEnabled
+  const { isAdmin } = useAuth()
+  const {
+    alerts,
+    counts,
+    badgeCount,
+    isLoading,
+    error,
+    refresh,
+    markNotificationRead,
+    lowStockAlertsEnabled,
+  } = useAlerts()
+  const hasSecurityAlerts = alerts.some((alert) => alert.category === 'password_reset')
+  const hasReservationAlerts = alerts.some((alert) => alert.category === 'reservation')
+  const showNotifications = isAdmin || hasSecurityAlerts || hasReservationAlerts || lowStockAlertsEnabled
   const [isOpen, setIsOpen] = useState(false)
   const panelRef = useRef(null)
   const buttonRef = useRef(null)
@@ -37,7 +49,7 @@ export default function NotificationBell({ onNavigate }) {
   }, [isOpen])
 
   const handleAction = (alert) => {
-    const target = alert?.action?.navigateTo || 'inventory'
+    const target = alert?.action?.navigateTo || (alert?.category === 'password_reset' ? 'users' : alert?.category === 'reservation' ? 'reservations' : 'inventory')
     onNavigate?.(target)
     setIsOpen(false)
   }
@@ -75,8 +87,9 @@ export default function NotificationBell({ onNavigate }) {
             isLoading={isLoading}
             error={error}
             onAction={handleAction}
+            onDismiss={markNotificationRead}
             onViewAll={() => {
-              onNavigate?.('inventory')
+              onNavigate?.(hasSecurityAlerts ? 'users' : hasReservationAlerts ? 'reservations' : 'inventory')
               setIsOpen(false)
             }}
             variant="panel"

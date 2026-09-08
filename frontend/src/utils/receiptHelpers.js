@@ -1,5 +1,6 @@
 import { apiFetch } from '../services/apiClient'
 import { formatOrderDate, formatTime12Hour } from './dateTimeFormat'
+import { getFloorTableLabel } from '../data/tables'
 
 function normalizeItems(items = []) {
   return items.map((item, index) => {
@@ -10,6 +11,7 @@ function normalizeItems(items = []) {
     return {
       id: item.id ?? item.menu_item_id ?? index,
       name: item.name,
+      notes: item.notes || '',
       qty,
       unitPrice,
       lineTotal,
@@ -49,7 +51,7 @@ function formatSource(order) {
     return 'Take Out'
   }
   if (order.target_id != null) {
-    return `Table ${order.target_id}`
+    return getFloorTableLabel(order.target_id)
   }
   return '—'
 }
@@ -64,8 +66,8 @@ export function toReceiptTransaction(order) {
     order.subtotal != null
       ? Number.parseFloat(order.subtotal)
       : items.reduce((sum, item) => sum + item.lineTotal, 0)
-  const tax = order.tax != null ? Number.parseFloat(order.tax) : subtotal * 0.1
-  const total = order.total != null ? Number.parseFloat(order.total) : subtotal + tax
+  const tax = 0
+  const total = subtotal
 
   return {
     id: order.id ?? order.invoice_id ?? '—',
@@ -87,7 +89,7 @@ export async function fetchReceiptTransaction(order) {
   }
 
   try {
-    const response = await apiFetch('/orders/history?days=365')
+    const response = await apiFetch('/orders/history?days=730')
     if (!response.ok) throw new Error('Failed to load order history')
     const rows = await response.json()
     const match = rows.find(
@@ -101,7 +103,7 @@ export async function fetchReceiptTransaction(order) {
       return toReceiptTransaction({
         id: match.invoice_id || order.id,
         date: match.date || order.date,
-        time: match.time || order.time,
+        time: formatTime12Hour(match.time || order.time),
         source: order.source,
         payment: match.payment_method || match.payment_type,
         subtotal: match.subtotal,

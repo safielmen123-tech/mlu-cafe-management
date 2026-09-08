@@ -1,12 +1,13 @@
 import {
   AlertTriangle,
   Bell,
-  Brain,
+  CalendarClock,
   CheckCircle2,
-  DollarSign,
+  Copy,
+  KeyRound,
   Package,
-  Sparkles,
 } from 'lucide-react'
+import { useState } from 'react'
 
 const SEVERITY_STYLES = {
   critical: {
@@ -23,30 +24,52 @@ const SEVERITY_STYLES = {
     iconBg: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
     Icon: AlertTriangle,
   },
-  ai_suggestion: {
-    label: 'AI Suggestion',
+  password_reset: {
+    label: 'Security',
+    badge: 'bg-violet-100 text-violet-900 ring-violet-200 dark:bg-violet-950/50 dark:text-violet-200 dark:ring-violet-800/60',
+    border: 'border-l-violet-500',
+    iconBg: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
+    Icon: KeyRound,
+  },
+  info: {
+    label: 'Reminder',
     badge:
-      'border border-emerald-500/30 bg-emerald-500/10 text-emerald-900 ring-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-500/30',
-    border: 'border-l-sky-500 dark:border-l-violet-400',
-    iconBg: 'bg-sky-500/15 text-sky-700 dark:bg-violet-500/15 dark:text-violet-300',
-    Icon: Brain,
+      'bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800/50',
+    border: 'border-l-sky-500',
+    iconBg: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+    Icon: CalendarClock,
+  },
+  reservation: {
+    label: 'Reservation',
+    badge:
+      'bg-violet-50 text-violet-800 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-800/50',
+    border: 'border-l-violet-500',
+    iconBg: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
+    Icon: CalendarClock,
   },
 }
 
 const CATEGORY_ICONS = {
   stock: Package,
-  ai_suggestion: Sparkles,
-  margin: DollarSign,
+  password_reset: KeyRound,
+  reservation: CalendarClock,
+}
+
+function categoryLabel(category) {
+  if (category === 'password_reset') return 'Security'
+  if (category === 'reservation') return 'Reservation'
+  return category
 }
 
 function formatAlertTime(timestamp) {
   if (!timestamp) return ''
   try {
-    return new Date(timestamp).toLocaleString(undefined, {
+    return new Date(timestamp).toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
-      hour: '2-digit',
+      hour: 'numeric',
       minute: '2-digit',
+      hour12: true,
     })
   } catch {
     return timestamp
@@ -64,10 +87,23 @@ export function AlertSeverityBadge({ severity }) {
   )
 }
 
-export function AlertCard({ alert, onAction, compact = false }) {
-  const severity = SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.warning
+export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
+  const severity = SEVERITY_STYLES[alert.category] || SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.warning
   const SeverityIcon = severity.Icon
   const CategoryIcon = CATEGORY_ICONS[alert.category] || Bell
+  const temporaryPassword = alert.meta?.temporaryPassword
+  const [copied, setCopied] = useState(false)
+
+  const copyPassword = async () => {
+    if (!temporaryPassword) return
+    try {
+      await navigator.clipboard.writeText(temporaryPassword)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
 
   return (
     <article
@@ -83,25 +119,75 @@ export function AlertCard({ alert, onAction, compact = false }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <AlertSeverityBadge severity={alert.severity} />
+            <AlertSeverityBadge severity={alert.category === 'password_reset' ? 'password_reset' : alert.category === 'reservation' ? 'reservation' : alert.severity} />
             <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <CategoryIcon className="h-3 w-3" />
-              {alert.category === 'ai_suggestion' ? 'AI' : alert.category}
+              {categoryLabel(alert.category)}
             </span>
           </div>
           <h4 className="mt-1.5 text-sm font-semibold leading-snug text-foreground">{alert.title}</h4>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{alert.message}</p>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] text-muted-foreground/80">{formatAlertTime(alert.timestamp)}</p>
-            {alert.action?.label && (
+          {alert.category === 'password_reset' && (alert.meta?.displayName || alert.meta?.username) ? (
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <div>
+                <dt className="text-muted-foreground">Staff</dt>
+                <dd className="font-medium text-foreground">{alert.meta.displayName || alert.meta.username}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Username</dt>
+                <dd className="font-medium text-foreground">{alert.meta.username}</dd>
+              </div>
+              {alert.meta.role ? (
+                <div>
+                  <dt className="text-muted-foreground">Role</dt>
+                  <dd className="font-medium text-foreground">{alert.meta.role}</dd>
+                </div>
+              ) : null}
+              {alert.meta.email ? (
+                <div>
+                  <dt className="text-muted-foreground">Email</dt>
+                  <dd className="font-medium text-foreground">{alert.meta.email}</dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
+          {temporaryPassword ? (
+            <div className="mt-2 flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 dark:border-violet-800/60 dark:bg-violet-950/40">
+              <code className="min-w-0 flex-1 truncate font-mono text-xs text-violet-900 dark:text-violet-100">
+                {temporaryPassword}
+              </code>
               <button
                 type="button"
-                onClick={() => onAction?.(alert)}
-                className="rounded-lg bg-forest-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-forest-500 dark:bg-forest-500 dark:hover:bg-forest-400"
+                onClick={copyPassword}
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-violet-800 hover:bg-violet-100 dark:text-violet-200 dark:hover:bg-violet-900/50"
               >
-                {alert.action.label}
+                <Copy className="h-3 w-3" />
+                {copied ? 'Copied' : 'Copy'}
               </button>
-            )}
+            </div>
+          ) : null}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-muted-foreground/80">{formatAlertTime(alert.timestamp)}</p>
+            <div className="flex items-center gap-2">
+              {alert.notificationId && onDismiss ? (
+                <button
+                  type="button"
+                  onClick={() => onDismiss(alert)}
+                  className="rounded-lg px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-slate-100 dark:hover:bg-zinc-800"
+                >
+                  Mark handled
+                </button>
+              ) : null}
+              {alert.action?.label && (
+                <button
+                  type="button"
+                  onClick={() => onAction?.(alert)}
+                  className="rounded-lg bg-forest-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-forest-500 dark:bg-forest-500 dark:hover:bg-forest-400"
+                >
+                  {alert.action.label}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -119,6 +205,7 @@ export default function AlertCenter({
   isLoading = false,
   error = null,
   onAction,
+  onDismiss,
   onViewAll,
   variant = 'panel',
   maxItems,
@@ -144,17 +231,17 @@ export default function AlertCenter({
           <div className="flex items-center gap-2">
             <Bell className="h-4 w-4 text-forest-600 dark:text-forest-400" />
             <p className="text-heading text-sm font-semibold">
-              {isWidget ? 'Alert & AI Advisory Center' : 'Alerts & Advisories'}
+              {isWidget ? 'Alert Center' : 'Alerts'}
             </p>
           </div>
           <p className="text-muted mt-0.5 text-xs">
             {isLoading
-              ? 'Scanning inventory, weather, FX, and demand...'
+              ? 'Scanning inventory and reservations...'
               : error
                 ? error
                 : total === 0
                   ? 'No active alerts — operations look stable'
-                  : `${total} active · ${counts?.critical || 0} critical · ${counts?.warning || 0} warning · ${counts?.ai_suggestion || 0} AI`}
+                  : `${total} active · ${counts?.critical || 0} critical · ${counts?.warning || 0} warning`}
           </p>
         </div>
         {isWidget && total > 0 && (
@@ -167,11 +254,6 @@ export default function AlertCenter({
             {(counts?.warning || 0) > 0 && (
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                 {counts.warning} Warning
-              </span>
-            )}
-            {(counts?.ai_suggestion || 0) > 0 && (
-              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-900 dark:bg-indigo-950/50 dark:text-sky-200">
-                {counts.ai_suggestion} AI
               </span>
             )}
           </div>
@@ -190,7 +272,7 @@ export default function AlertCenter({
             </div>
             <p className="text-foreground text-sm font-medium">All clear</p>
             <p className="text-muted mt-1 text-xs">
-              Stock, margins, and market signals are within thresholds.
+              Stock levels are within thresholds.
             </p>
           </div>
         ) : (
@@ -200,6 +282,7 @@ export default function AlertCenter({
                 <AlertCard
                   alert={alert}
                   onAction={onAction}
+                  onDismiss={onDismiss}
                   compact={!isWidget}
                 />
               </li>
@@ -215,7 +298,7 @@ export default function AlertCenter({
             onClick={onViewAll}
             className="text-sm font-semibold text-primary hover:underline"
           >
-            View Inventory & Stock →
+            View details →
           </button>
         </div>
       )}

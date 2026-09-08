@@ -1,7 +1,7 @@
 {
-  "name": "romduol-cafe-backend",
+  "name": "mlu-kitchen-cafe-backend",
   "version": "1.0.0",
-  "description": "Backend API for Romdoul Restaurant / Cafe Management System",
+  "description": "Backend API for Mlu Kitchen & Cafe Siem Reap Management System",
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
@@ -11,6 +11,7 @@
     "seed:sales": "node scripts/seed-sales-history.js",
     "seed:sales:year": "node src/scripts/seedSalesHistory.js",
     "seed:12months": "node src/scripts/seed12MonthsSales.js",
+    "seed:expenses": "node src/scripts/seedExpenses.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -27,6 +28,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
     "mysql2": "^3.22.5",
+    "nodemailer": "^9.0.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

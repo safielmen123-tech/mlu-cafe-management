@@ -79,7 +79,7 @@ export default function AuditLogPanel() {
                 const created = log.created_at ? new Date(log.created_at) : null
                 const date = created ? created.toISOString().slice(0, 10) : ''
                 const time = created
-                  ? created.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                  ? created.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
                   : ''
                 return (
                   <tr key={log.id} className="table-row">
