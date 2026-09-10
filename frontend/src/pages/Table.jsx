@@ -16,6 +16,19 @@ function getFloorStatus(bill, reservation) {
   return 'empty'
 }
 
+function floorTableDisplayName(bill, t) {
+  if (!bill) return t('tables.table')
+  if (bill.isTakeOut || bill.id === 'takeout' || bill.section === 'takeout') {
+    return t('tables.takeOut')
+  }
+  if (bill.section === 'vip' || String(bill.name || '').startsWith('VIP')) {
+    const match = String(bill.name || '').match(/(\d+)/)
+    return t('tables.vipRoomNumber', { number: match ? match[1] : bill.id })
+  }
+  const match = String(bill.name || '').match(/(\d+)/)
+  return t('tables.tableNumber', { number: match ? match[1] : bill.id })
+}
+
 function ReservationPreview({
   reservation,
   busy,
@@ -25,6 +38,7 @@ function ReservationPreview({
   onOpenOrder,
   onCancel,
 }) {
+  const { t } = useTranslation()
   const panelRef = useModalKeyboard({ isOpen: Boolean(reservation), onEscape: onClose, primaryActionMode: 'never' })
   const [confirmCancel, setConfirmCancel] = useState(false)
 
@@ -32,10 +46,13 @@ function ReservationPreview({
 
   const canCheckIn = canCheckInReservation(reservation)
   const isSeated = reservation.status === SEATED_STATUS
+  const statusMeta = isSeated
+    ? { labelKey: 'statuses.seated' }
+    : { labelKey: 'statuses.reserved' }
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <button type="button" aria-label="Close reservation preview" className="absolute inset-0 cursor-default" onClick={onClose} />
+      <button type="button" aria-label={t('a11y.closeReservationPreview')} className="absolute inset-0 cursor-default" onClick={onClose} />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -50,28 +67,35 @@ function ReservationPreview({
               <p className={`text-xs font-semibold uppercase tracking-wide ${
                 isSeated ? 'text-emerald-700 dark:text-emerald-300' : 'text-violet-700 dark:text-violet-300'
               }`}>
-                {isSeated ? 'Seated' : 'Reserved'}
+                {t(statusMeta.labelKey)}
               </p>
               <h4 id="reserved-table-title" className="text-heading mt-1 text-lg font-semibold">
-                {reservation.table_name}
+                {floorTableDisplayName(
+                  {
+                    id: reservation.table_id,
+                    name: reservation.table_name,
+                    section: String(reservation.table_name || '').startsWith('VIP') ? 'vip' : 'standard',
+                  },
+                  t,
+                )}
               </h4>
             </div>
             <button
               type="button"
               onClick={onClose}
               className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-olive-50 dark:hover:bg-zinc-800"
-              aria-label="Close"
+              aria-label={t('a11y.close')}
             >
               <X className="h-4 w-4" />
             </button>
           </div>
           <dl className="space-y-3 text-sm">
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">Customer Name</dt>
+              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.customerName')}</dt>
               <dd className="mt-0.5 font-medium">{reservation.customer_name}</dd>
             </div>
             <div>
-              <dt className="text-muted text-xs uppercase tracking-wide">Time</dt>
+              <dt className="text-muted text-xs uppercase tracking-wide">{t('tables.time')}</dt>
               <dd className="mt-0.5 font-medium">
                 {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
               </dd>
@@ -79,20 +103,20 @@ function ReservationPreview({
             <div className="flex gap-6">
               <div>
                 <dt className="text-muted inline-flex items-center gap-1 text-xs uppercase tracking-wide">
-                  <Users className="h-3 w-3" /> Guest Count
+                  <Users className="h-3 w-3" /> {t('tables.guestCount')}
                 </dt>
                 <dd className="mt-0.5 font-medium tabular-nums">{reservation.guest_count}</dd>
               </div>
               <div>
                 <dt className="text-muted inline-flex items-center gap-1 text-xs uppercase tracking-wide">
-                  <Phone className="h-3 w-3" /> Contact Number
+                  <Phone className="h-3 w-3" /> {t('tables.contactNumber')}
                 </dt>
                 <dd className="mt-0.5 font-medium">{reservation.phone}</dd>
               </div>
             </div>
             {reservation.notes ? (
               <div>
-                <dt className="text-muted text-xs uppercase tracking-wide">Notes</dt>
+                <dt className="text-muted text-xs uppercase tracking-wide">{t('common.notes')}</dt>
                 <dd className="mt-0.5 text-sm">{reservation.notes}</dd>
               </div>
             ) : null}
@@ -109,7 +133,7 @@ function ReservationPreview({
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <UserCheck className="h-4 w-4" />
-                {busy ? 'Checking in…' : 'Check In / Mark Arrived'}
+                {busy ? t('tables.checkingIn') : t('tables.checkInArrived')}
               </button>
             ) : null}
             <button
@@ -119,7 +143,7 @@ function ReservationPreview({
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-forest-300/70 bg-white py-2.5 text-sm font-semibold text-forest-800 hover:bg-forest-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-forest-700/50 dark:bg-obsidian-850 dark:text-mint-100 dark:hover:bg-forest-950/30"
             >
               <UtensilsCrossed className="h-4 w-4" />
-              Open Order Ticket
+              {t('tables.openOrderTicket')}
             </button>
             {confirmCancel ? (
               <div className="flex gap-2">
@@ -129,7 +153,7 @@ function ReservationPreview({
                   onClick={() => setConfirmCancel(false)}
                   className="btn-secondary flex-1 py-2 text-sm"
                 >
-                  Keep booking
+                  {t('tables.keepBooking')}
                 </button>
                 <button
                   type="button"
@@ -137,7 +161,7 @@ function ReservationPreview({
                   onClick={onCancel}
                   className="flex-1 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-60"
                 >
-                  Confirm cancel
+                  {t('tables.confirmCancel')}
                 </button>
               </div>
             ) : (
@@ -147,7 +171,7 @@ function ReservationPreview({
                 onClick={() => setConfirmCancel(true)}
                 className="w-full rounded-xl py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
               >
-                Cancel Booking
+                {t('tables.cancelBooking')}
               </button>
             )}
           </div>
@@ -158,6 +182,7 @@ function ReservationPreview({
 }
 
 function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
+  const { t } = useTranslation()
   const floorStatus = getFloorStatus(bill, reservation)
   const meta = TABLE_STATUS_META[floorStatus]
   const isEmpty = floorStatus === 'empty'
@@ -190,7 +215,7 @@ function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
         <div>
           <p className={`flex items-center gap-1.5 text-lg font-bold ${isEmpty ? 'text-emerald-700 dark:text-emerald-400' : 'text-heading'}`}>
             {isVip ? <Crown className="h-4 w-4 text-violet-600 dark:text-violet-300" /> : null}
-            {bill.name}
+            {floorTableDisplayName(bill, t)}
           </p>
           {!isEmpty && !isReserved && bill.orderSummary && hasItems && (
             <p className="text-muted mt-1 line-clamp-2 text-xs">{bill.orderSummary}</p>
@@ -202,12 +227,12 @@ function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
           )}
           {isActive && reservation && !hasItems && (
             <p className="mt-1 line-clamp-2 text-xs text-amber-800 dark:text-amber-200">
-              {reservation.customer_name} · Seated
+              {reservation.customer_name} · {t('statuses.seated')}
             </p>
           )}
         </div>
         <span className={`shrink-0 cursor-default select-none rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${meta.badge}`}>
-          {meta.label}
+          {t(meta.labelKey)}
         </span>
       </div>
 
@@ -218,13 +243,13 @@ function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
           </p>
         )}
         {isEmpty && (
-          <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Available</p>
+          <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">{t('statuses.available')}</p>
         )}
         {isReserved && (
-          <p className="text-sm font-medium text-violet-700 dark:text-violet-300">Tap for reservation details</p>
+          <p className="text-sm font-medium text-violet-700 dark:text-violet-300">{t('tables.tapReservationDetails')}</p>
         )}
         {isActive && reservation && !hasItems && (
-          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Guest seated — tap to open ticket</p>
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('tables.guestSeatedOpenTicket')}</p>
         )}
 
         {isActive && hasItems && (
@@ -236,7 +261,7 @@ function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
             }}
             className="mt-4 inline-flex w-full cursor-pointer select-none items-center justify-center gap-2 rounded-xl border border-forest-300/70 bg-white py-2.5 text-sm font-semibold text-forest-800 hover:bg-forest-50 dark:border-forest-700/50 dark:bg-obsidian-850 dark:text-mint-100 dark:hover:bg-forest-950/30"
           >
-            Send to Cashier Checkout
+            {t('tables.sendToCheckout')}
             <ArrowRight className="h-4 w-4" />
           </button>
         )}
@@ -246,6 +271,7 @@ function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
 }
 
 function TakeOutCard({ bill, onSendToCheckout }) {
+  const { t } = useTranslation()
   const floorStatus = getFloorStatus(bill)
   const meta = TABLE_STATUS_META[floorStatus]
   const isEmpty = floorStatus === 'empty'
@@ -267,14 +293,14 @@ function TakeOutCard({ bill, onSendToCheckout }) {
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h4 className="text-heading text-xl font-bold">Take Out</h4>
+              <h4 className="text-heading text-xl font-bold">{t('tables.takeOut')}</h4>
               <span className={`cursor-default select-none rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${meta.badge}`}>
-                {meta.label}
+                {t(meta.labelKey)}
               </span>
             </div>
             <p className="text-muted mt-1 text-sm">
               {isEmpty
-                ? 'No active take-out tickets — assign orders from the Order tab'
+                ? t('tables.noTakeOutTickets')
                 : bill.orderSummary}
             </p>
           </div>
@@ -292,7 +318,7 @@ function TakeOutCard({ bill, onSendToCheckout }) {
               onClick={() => onSendToCheckout(bill)}
               className="btn-primary inline-flex shrink-0 items-center gap-2 px-5 py-2.5 text-sm"
             >
-              Send to Cashier Checkout
+              {t('tables.sendToCheckout')}
               <ArrowRight className="h-4 w-4" />
             </button>
           )}
@@ -373,12 +399,12 @@ export default function Table() {
     try {
       const response = await apiFetch(`/reservations/${preview.id}/check-in`, { method: 'POST' })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.message || 'Failed to check in')
+      if (!response.ok) throw new Error(data.message || t('tables.errors.checkIn'))
       setPreview(data)
       await loadFloorReservations()
       refreshAlerts?.()
     } catch (err) {
-      setPreviewError(err.message || 'Failed to check in')
+      setPreviewError(err.message || t('tables.errors.checkIn'))
     } finally {
       setPreviewBusy(false)
     }
@@ -392,14 +418,14 @@ export default function Table() {
       if (canCheckInReservation(preview)) {
         const response = await apiFetch(`/reservations/${preview.id}/check-in`, { method: 'POST' })
         const data = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(data.message || 'Failed to check in')
+        if (!response.ok) throw new Error(data.message || t('tables.errors.checkIn'))
         refreshAlerts?.()
       }
       const tableId = preview.table_id
       setPreview(null)
       openOrderFor(tableId)
     } catch (err) {
-      setPreviewError(err.message || 'Failed to open order ticket')
+      setPreviewError(err.message || t('tables.errors.openOrder'))
     } finally {
       setPreviewBusy(false)
     }
@@ -415,12 +441,12 @@ export default function Table() {
         body: JSON.stringify({ status: 'Canceled' }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.message || 'Failed to cancel booking')
+      if (!response.ok) throw new Error(data.message || t('tables.errors.cancelBooking'))
       setPreview(null)
       await loadFloorReservations()
       refreshAlerts?.()
     } catch (err) {
-      setPreviewError(err.message || 'Failed to cancel booking')
+      setPreviewError(err.message || t('tables.errors.cancelBooking'))
     } finally {
       setPreviewBusy(false)
     }
@@ -430,19 +456,17 @@ export default function Table() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-heading text-lg">{t('nav.table')}</h3>
-          <p className="text-muted text-sm">
-            Floor layout and live table status monitoring
-          </p>
+          <h3 className="page-title">{t('nav.table')}</h3>
+          <p className="page-subtitle">{t('tables.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="badge-olive inline-flex items-center gap-2 self-start px-3 py-1.5 text-sm">
             <LayoutGrid className="h-4 w-4" />
-            {activeCount} active bill(s)
+            {t('tables.activeBills', { count: activeCount })}
           </div>
           {reservedCount > 0 && (
             <div className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-800 ring-1 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-800/50">
-              {reservedCount} reserved now
+              {t('tables.reservedNow', { count: reservedCount })}
             </div>
           )}
         </div>
@@ -453,7 +477,7 @@ export default function Table() {
       </div>
 
       <div>
-        <h4 className="text-heading mb-3 text-sm font-semibold uppercase tracking-wide">Standard tables</h4>
+        <h4 className="text-heading mb-3 text-sm font-semibold uppercase tracking-wide">{t('tables.standardTables')}</h4>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {standardTables.map((table) => (
             <TableCard
@@ -468,7 +492,7 @@ export default function Table() {
       </div>
 
       <div>
-        <h4 className="text-heading mb-3 text-sm font-semibold uppercase tracking-wide">VIP rooms</h4>
+        <h4 className="text-heading mb-3 text-sm font-semibold uppercase tracking-wide">{t('tables.vipRooms')}</h4>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {vipTables.map((table) => (
             <TableCard
@@ -483,12 +507,12 @@ export default function Table() {
       </div>
 
       <div className="surface-inset flex flex-wrap items-center gap-4 px-5 py-4">
-        <p className="text-muted text-xs font-semibold uppercase tracking-wider">Status legend</p>
+        <p className="text-muted text-xs font-semibold uppercase tracking-wider">{t('tables.statusLegend')}</p>
         {FLOOR_STATUS_KEYS.map((key) => {
           const meta = TABLE_STATUS_META[key]
           return (
             <span key={key} className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${meta.badge}`}>
-              {meta.label}
+              {t(meta.labelKey)}
             </span>
           )
         })}

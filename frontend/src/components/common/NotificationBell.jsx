@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Bell } from 'lucide-react'
 import AlertCenter from '../alerts/AlertCenter'
 import { useAlerts } from '../../hooks/useAlerts'
 import { useAuth } from '../../context/AuthContext'
 
 export default function NotificationBell({ onNavigate }) {
+  const { t } = useTranslation()
   const { isAdmin } = useAuth()
   const {
     alerts,
@@ -63,7 +65,11 @@ export default function NotificationBell({ onNavigate }) {
           setIsOpen((prev) => !prev)
           if (!isOpen) refresh()
         }}
-        aria-label={`Notifications${badgeCount ? `, ${badgeCount} active alerts` : ''}`}
+        aria-label={
+          badgeCount
+            ? t('a11y.notificationsActive', { count: badgeCount })
+            : t('a11y.notifications')
+        }
         aria-expanded={isOpen}
         aria-haspopup="true"
         className="relative flex min-h-11 min-w-11 items-center justify-center rounded-full border border-border/50 bg-card/50 text-foreground backdrop-blur-sm transition-all hover:border-border hover:bg-card active:scale-95 dark:bg-card/40"

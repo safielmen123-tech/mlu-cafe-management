@@ -4,24 +4,46 @@ export function getCurrentMonthKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
-export function formatMonthLabel(monthKey) {
+/** Build `/orders/history` query string. Accepts days number or `{ days | month }`. */
+export function buildSalesHistoryQuery(options) {
+  if (typeof options === 'number') {
+    return `days=${options}`
+  }
+
+  if (options?.month && options.month !== 'all') {
+    return `month=${encodeURIComponent(options.month)}`
+  }
+
+  if (options?.days) {
+    return `days=${options.days}`
+  }
+
+  return `month=${encodeURIComponent(getCurrentMonthKey())}`
+}
+
+export function formatMonthLabel(monthKey, locale = 'en-US') {
   const [year, month] = monthKey.split('-').map(Number)
   if (!year || !month) return monthKey
-  return new Date(year, month - 1, 1).toLocaleDateString('en-US', {
+  return new Date(year, month - 1, 1).toLocaleDateString(locale, {
     month: 'long',
     year: 'numeric',
   })
 }
 
-export function buildMonthFilterOptions(lookbackMonths = 6, referenceDate = new Date()) {
-  const options = [{ value: 'all', label: 'All months in range' }]
+export function buildMonthFilterOptions(
+  lookbackMonths = 6,
+  referenceDate = new Date(),
+  locale = 'en-US',
+  allMonthsLabel = 'All months in range',
+) {
+  const options = [{ value: 'all', label: allMonthsLabel }]
 
   for (let i = 0; i < lookbackMonths; i += 1) {
     const date = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1)
     const value = getCurrentMonthKey(date)
     options.push({
       value,
-      label: formatMonthLabel(value),
+      label: formatMonthLabel(value, locale),
     })
   }
 
@@ -92,19 +114,22 @@ export function buildDailySalesForMonth(orders, monthKey) {
 }
 
 export function buildMonthlyTotalsChart(orders, monthOptions) {
-  const monthKeys = monthOptions.filter((option) => option.value !== 'all').map((option) => option.value)
+  const monthEntries = monthOptions.filter((option) => option.value !== 'all')
+  const labelByKey = Object.fromEntries(monthEntries.map((option) => [option.value, option.label]))
 
-  return monthKeys
-    .map((monthKey) => {
+  return monthEntries
+    .map((option) => {
+      const monthKey = option.value
       const monthOrders = filterOrdersByMonth(orders, monthKey)
       const revenue = monthOrders.reduce(
         (sum, order) => sum + Number.parseFloat(order.total || 0),
         0,
       )
+      const fullLabel = labelByKey[monthKey] || formatMonthLabel(monthKey)
       return {
         monthKey,
-        label: formatMonthLabel(monthKey).split(' ')[0],
-        fullLabel: formatMonthLabel(monthKey),
+        label: fullLabel.split(' ')[0],
+        fullLabel,
         revenue: Math.round(revenue * 100) / 100,
         orders: monthOrders.length,
       }

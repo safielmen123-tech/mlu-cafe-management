@@ -80,51 +80,27 @@ async function notifyRecipients(db, recipients, { type, title, message, meta }) 
   }
 }
 
+/** Clear legacy 3-day alerts — reminders are only sent 1 day ahead now. */
+async function dismissLegacyThreeDayAlerts(db) {
+  try {
+    await db.execute(
+      `UPDATE admin_notifications SET is_read = 1 WHERE type = 'reservation_3d' AND is_read = 0`,
+    )
+  } catch {
+    // Schema may not exist yet on first boot; ignore.
+  }
+}
+
 async function runReminderPass(db) {
   await ensureReservationsSchema(db)
+  await dismissLegacyThreeDayAlerts(db)
 
   const recipients = await listReminderRecipients(db)
   if (!recipients.length) return { created: 0 }
 
   const today = formatDate(new Date())
-  const inThreeDays = addDaysIso(today, 3)
   const tomorrow = addDaysIso(today, 1)
   let created = 0
-
-  const [threeDayRows] = await db.execute(
-    `
-    SELECT r.id, r.customer_name, r.phone, r.reservation_date, r.time_slot, r.guest_count,
-           r.table_id, t.table_name
-    FROM reservations r
-    JOIN tables t ON t.id = r.table_id
-    WHERE r.reservation_date = ?
-      AND r.status IN ('Pending', 'Confirmed', 'Reserved')
-      AND r.reminder_3d_sent = 0
-    `,
-    [inThreeDays],
-  )
-
-  for (const row of threeDayRows) {
-    const date = formatDate(row.reservation_date)
-    const tableName = row.table_name || `Table ${row.table_id}`
-    await notifyRecipients(db, recipients, {
-      type: 'reservation_3d',
-      title: 'Reservation in 3 days',
-      message: `Upcoming reservation for ${row.customer_name} at ${tableName} on ${date} (${slotLabel(row.time_slot)}).`,
-      meta: {
-        reservationId: row.id,
-        customerName: row.customer_name,
-        phone: row.phone,
-        tableId: row.table_id,
-        tableName,
-        guestCount: row.guest_count,
-        reservationDate: date,
-        timeSlot: String(row.time_slot).slice(0, 5),
-      },
-    })
-    await db.execute('UPDATE reservations SET reminder_3d_sent = 1 WHERE id = ? AND reminder_3d_sent = 0', [row.id])
-    created += 1
-  }
 
   const [oneDayRows] = await db.execute(
     `
@@ -133,18 +109,19 @@ async function runReminderPass(db) {
     FROM reservations r
     JOIN tables t ON t.id = r.table_id
     WHERE r.reservation_date = ?
-      AND r.status IN ('Pending', 'Confirmed', 'Reserved')
+      AND r.status IN ('Pending', 'Confirmed', 'Paid', 'Reserved')
       AND r.reminder_1d_sent = 0
     `,
     [tomorrow],
   )
 
   for (const row of oneDayRows) {
+    const date = formatDate(row.reservation_date)
     const tableName = row.table_name || `Table ${row.table_id}`
     await notifyRecipients(db, recipients, {
       type: 'reservation_1d',
-      title: 'Tomorrow: upcoming reservation',
-      message: `Tomorrow: Upcoming reservation for ${row.customer_name} at ${tableName}.`,
+      title: 'Reservation tomorrow',
+      message: `Tomorrow: reservation for ${row.customer_name} at ${tableName} on ${date} (${slotLabel(row.time_slot)}).`,
       meta: {
         reservationId: row.id,
         customerName: row.customer_name,
@@ -152,7 +129,7 @@ async function runReminderPass(db) {
         tableId: row.table_id,
         tableName,
         guestCount: row.guest_count,
-        reservationDate: formatDate(row.reservation_date),
+        reservationDate: date,
         timeSlot: String(row.time_slot).slice(0, 5),
       },
     })

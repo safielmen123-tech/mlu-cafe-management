@@ -6,14 +6,35 @@ import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 import MenuItemImage from '../components/menu/MenuItemImage'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
+import { formatMenuPrice, isDrinkMenuCategory } from '../utils/drinkOptions'
 
-const CATEGORIES = ['Coffee', 'Bakery', 'Cold Drinks', 'Food']
+const CATEGORIES = ['Coffee', 'Tea', 'Cold Drinks', 'Beer', 'Starters', 'Mains', 'Soup', 'Vegetable', 'Dessert']
+
+const CATEGORY_KEYS = {
+  All: 'all',
+  Coffee: 'coffee',
+  Tea: 'tea',
+  'Cold Drinks': 'coldDrinks',
+  Beer: 'beer',
+  Starters: 'starters',
+  Mains: 'mains',
+  Soup: 'soup',
+  Vegetable: 'vegetable',
+  Dessert: 'dessert',
+}
 
 const EMPTY_FORM = {
   name: '',
   category: 'Coffee',
   price: '',
+  hot_price: '',
+  iced_price: '',
   image_url: '',
+}
+
+function categoryLabel(category, t) {
+  const key = CATEGORY_KEYS[category]
+  return key ? t(`menuAdmin.categories.${key}`) : category
 }
 
 export default function MenuManagement() {
@@ -75,7 +96,9 @@ export default function MenuManagement() {
     setForm({
       name: item.name,
       category: item.category,
-      price: item.price.toString(),
+      price: item.price != null ? String(item.price) : '',
+      hot_price: item.hot_price != null ? String(item.hot_price) : '',
+      iced_price: item.iced_price != null ? String(item.iced_price) : '',
       image_url: item.image_url || '',
     })
     setShowDetailsModal(true)
@@ -83,19 +106,34 @@ export default function MenuManagement() {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    if (!form.name || !form.price) return
+    if (!form.name) return
+
+    const drink = isDrinkMenuCategory(form.category)
+    if (drink && form.hot_price === '' && form.iced_price === '') {
+      alert(t('menuAdmin.errors.servingPrice'))
+      return
+    }
+    if (!drink && !form.price) return
+
+    const payload = {
+      name: form.name,
+      category: form.category,
+      image_url: form.image_url.trim() || null,
+    }
+
+    if (drink) {
+      payload.hot_price = form.hot_price === '' ? null : parseFloat(form.hot_price)
+      payload.iced_price = form.iced_price === '' ? null : parseFloat(form.iced_price)
+    } else {
+      payload.price = parseFloat(form.price)
+    }
 
     if (isEditing) {
       try {
         const response = await apiFetch(`/menu/${editingId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: form.name,
-            category: form.category,
-            price: parseFloat(form.price),
-            image_url: form.image_url.trim() || null,
-          }),
+          body: JSON.stringify(payload),
         })
 
         const data = await response.json()
@@ -104,7 +142,7 @@ export default function MenuManagement() {
           fetchMenu()
           handleCloseDetailsModal()
         } else {
-          alert(data.message || 'Failed to update item')
+          alert(data.message || t('menuAdmin.errors.update'))
         }
       } catch (error) {
         console.error('Error updating item:', error)
@@ -114,12 +152,7 @@ export default function MenuManagement() {
         const response = await apiFetch('/menu', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: form.name,
-            category: form.category,
-            price: parseFloat(form.price),
-            image_url: form.image_url.trim() || null,
-          }),
+          body: JSON.stringify(payload),
         })
 
         const data = await response.json()
@@ -128,7 +161,7 @@ export default function MenuManagement() {
           fetchMenu()
           handleCloseDetailsModal()
         } else {
-          alert(data.message || 'Failed to save item')
+          alert(data.message || t('menuAdmin.errors.save'))
         }
       } catch (error) {
         console.error('Error adding item:', error)
@@ -146,7 +179,7 @@ export default function MenuManagement() {
         setItems((prev) => prev.filter((item) => item.id !== id))
       } else {
         const data = await response.json()
-        alert(data.message || 'Failed to delete item')
+        alert(data.message || t('menuAdmin.errors.delete'))
       }
     } catch (error) {
       console.error('Error deleting item:', error)
@@ -190,7 +223,7 @@ export default function MenuManagement() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="page-title">{t('nav.menuManagement')}</h3>
-          <p className="page-subtitle">Menu items and pricing</p>
+          <p className="page-subtitle">{t('menuAdmin.subtitle')}</p>
         </div>
         <button
           type="button"
@@ -198,7 +231,7 @@ export default function MenuManagement() {
           className="btn-primary inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm"
         >
           <Plus className="h-4 w-4" />
-          Add New Item
+          {t('menuAdmin.addNewItem')}
         </button>
       </div>
 
@@ -212,7 +245,7 @@ export default function MenuManagement() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
           <input
             type="search"
-            placeholder="Search menu items..."
+            placeholder={t('menuAdmin.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-field pl-10"
@@ -228,7 +261,7 @@ export default function MenuManagement() {
                 activeCategory === category ? 'tab-pill-active' : 'tab-pill-inactive'
               }`}
             >
-              {category}
+              {categoryLabel(category, t)}
             </button>
           ))}
         </div>
@@ -236,12 +269,12 @@ export default function MenuManagement() {
 
       {usingFallbackMenu && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
-          Showing offline menu data. Reconnect the backend to sync live items.
+          {t('menuAdmin.offlineData')}
         </div>
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-        {filtered.map((item) => (
+        {filtered.map((item, index) => (
             <div
               key={item.id}
               className="surface-card flex flex-col p-5 transition-colors hover:border-olive-300"
@@ -250,15 +283,16 @@ export default function MenuManagement() {
                 <MenuItemImage
                   imageUrl={item.image_url}
                   alt={item.name}
+                  eager={index < 8}
                   className="h-14 w-14 shrink-0 rounded-2xl border border-slate-100 object-cover ring-1 ring-border dark:border-zinc-800"
                 />
                 <div className="flex flex-wrap items-center justify-end gap-1">
-                  <span className="badge-olive mr-1">{item.category}</span>
+                  <span className="badge-olive mr-1">{categoryLabel(item.category, t)}</span>
                   <button
                     type="button"
                     onClick={() => handleEditClick(item)}
                     className="rounded-full p-2 text-olive-400 transition hover:bg-olive-50 hover:text-forest-600 dark:hover:bg-olive-900/40 dark:hover:text-forest-300"
-                    title="Edit item details"
+                    title={t('menuAdmin.editItemDetails')}
                   >
                     <Pencil className="h-4 w-4" />
                   </button>
@@ -266,7 +300,7 @@ export default function MenuManagement() {
                     type="button"
                     onClick={() => requestDeleteMenuItem(item)}
                     className="rounded-lg p-2 text-stone-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40 dark:hover:text-red-300"
-                    title="Delete item"
+                    title={t('menuAdmin.deleteItem')}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -275,7 +309,7 @@ export default function MenuManagement() {
 
               <h4 className="text-heading mt-4 text-lg">{item.name}</h4>
               <p className="mt-1 text-2xl font-bold text-forest-600 dark:text-forest-400">
-                ${Number(item.price).toFixed(2)}
+                {formatMenuPrice(item)}
               </p>
             </div>
         ))}
@@ -291,13 +325,13 @@ export default function MenuManagement() {
 
       {!isLoadingMenu && items.length === 0 && (
         <div className="surface-card border-dashed py-12 text-center">
-          <p className="text-muted">No menu items loaded. Make sure your backend server is online.</p>
+          <p className="text-muted">{t('menuAdmin.noItemsLoaded')}</p>
         </div>
       )}
 
       {items.length > 0 && filtered.length === 0 && (
         <div className="surface-card border-dashed py-12 text-center">
-          <p className="text-muted">No items match your search or filter.</p>
+          <p className="text-muted">{t('menuAdmin.noMatches')}</p>
         </div>
       )}
     </div>
@@ -306,7 +340,7 @@ export default function MenuManagement() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overscroll-contain">
           <button
             type="button"
-            aria-label="Close modal"
+            aria-label={t('a11y.closeModal')}
             className="absolute inset-0 cursor-default"
             onClick={handleCloseDetailsModal}
           />
@@ -319,7 +353,7 @@ export default function MenuManagement() {
           >
             <div className="flex items-center justify-between">
               <h3 className="text-heading text-lg">
-                {isEditing ? 'Modify Menu Item' : 'Add New Menu Item'}
+                {isEditing ? t('menuAdmin.modifyItem') : t('menuAdmin.addMenuItem')}
               </h3>
               <button
                 type="button"
@@ -333,7 +367,7 @@ export default function MenuManagement() {
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               <div>
                 <label htmlFor="item-name" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                  Item Name
+                  {t('menuAdmin.itemName')}
                 </label>
                 <input
                   id="item-name"
@@ -341,32 +375,69 @@ export default function MenuManagement() {
                   required
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Caramel Macchiato"
+                  placeholder={t('menuAdmin.namePlaceholder')}
                   className="input-field"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="item-category" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+                  {t('common.category')}
+                </label>
+                <select
+                  id="item-category"
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className="input-field"
+                >
+                  {CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {categoryLabel(cat, t)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {isDrinkMenuCategory(form.category) ? (
                 <div>
-                  <label htmlFor="item-category" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                    Category
-                  </label>
-                  <select
-                    id="item-category"
-                    value={form.category}
-                    onChange={(e) => setForm({ ...form, category: e.target.value })}
-                    className="input-field"
-                  >
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="item-hot-price" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+                        {t('menuAdmin.hotPrice')}
+                      </label>
+                      <input
+                        id="item-hot-price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.hot_price}
+                        onChange={(e) => setForm({ ...form, hot_price: e.target.value })}
+                        placeholder={t('menuAdmin.priceNotSold')}
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="item-iced-price" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
+                        {t('menuAdmin.icedPrice')}
+                      </label>
+                      <input
+                        id="item-iced-price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.iced_price}
+                        onChange={(e) => setForm({ ...form, iced_price: e.target.value })}
+                        placeholder={t('menuAdmin.priceNotSold')}
+                        className="input-field"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-muted mt-1.5 text-xs">{t('menuAdmin.servingPriceHelp')}</p>
                 </div>
+              ) : (
                 <div>
                   <label htmlFor="item-price" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                    Price ($)
+                    {t('menuAdmin.priceLabel')}
                   </label>
                   <input
                     id="item-price"
@@ -380,11 +451,11 @@ export default function MenuManagement() {
                     className="input-field"
                   />
                 </div>
-              </div>
+              )}
 
               <div>
                 <label htmlFor="item-image-url" className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                  Image URL / Path
+                  {t('menuAdmin.imagePath')}
                 </label>
                 <div className="flex items-start gap-4">
                   <input
@@ -392,30 +463,29 @@ export default function MenuManagement() {
                     type="text"
                     value={form.image_url}
                     onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-                    placeholder="/menu-images/espresso.jpg"
+                    placeholder={t('menuAdmin.imagePathPlaceholder')}
                     className="input-field min-w-0 flex-1"
                   />
                   <MenuItemImage
                     imageUrl={form.image_url}
-                    alt={form.name ? `${form.name} preview` : 'Menu item preview'}
+                    alt={
+                      form.name
+                        ? t('menuAdmin.namedPreview', { name: form.name })
+                        : t('menuAdmin.itemPreview')
+                    }
                     className="h-20 w-20 shrink-0 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
                     fallbackClassName="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-800"
                   />
                 </div>
-                <p className="text-muted mt-1.5 text-xs">
-                  Place files in <code className="text-xs">frontend/public/menu-images/</code> and use
-                  paths like <code className="text-xs">/menu-images/your-photo.jpg</code>. Then run{' '}
-                  <code className="text-xs">npm run images:thumbs</code> in the frontend folder so Order
-                  and this page use a small preview instead of the full photo.
-                </p>
+                <p className="text-muted mt-1.5 text-xs">{t('menuAdmin.imageHelp')}</p>
               </div>
 
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={handleCloseDetailsModal} className="btn-secondary flex-1 py-2.5 text-sm">
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button type="submit" className="btn-primary flex-1 py-2.5 text-sm">
-                  {isEditing ? 'Save Changes' : 'Add Item'}
+                  {isEditing ? t('common.saveChanges') : t('menuAdmin.addItem')}
                 </button>
               </div>
             </form>
@@ -425,12 +495,12 @@ export default function MenuManagement() {
 
       <ConfirmDeleteModal
         isOpen={Boolean(menuDeleteTarget)}
-        title="Delete menu item?"
-        message="This will permanently remove the item from your menu. This action cannot be undone."
+        title={t('menuAdmin.deleteTitle')}
+        message={t('menuAdmin.deleteMessage')}
         itemName={menuDeleteTarget?.name}
         onCancel={() => setMenuDeleteTarget(null)}
         onConfirm={confirmDeleteMenuItem}
-        confirmLabel="Yes, Delete"
+        confirmLabel={t('common.deleteConfirm')}
       />
     </>
   )

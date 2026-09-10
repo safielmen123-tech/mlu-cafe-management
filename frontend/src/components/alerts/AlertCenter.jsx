@@ -8,31 +8,32 @@ import {
   Package,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 const SEVERITY_STYLES = {
   critical: {
-    label: 'Critical',
+    labelKey: 'statuses.critical',
     badge: 'bg-red-100 text-red-800 ring-red-200 dark:bg-red-950/50 dark:text-red-200 dark:ring-red-800/60',
     border: 'border-l-red-500',
     iconBg: 'bg-red-500/15 text-red-600 dark:text-red-300',
     Icon: AlertTriangle,
   },
   warning: {
-    label: 'Warning',
+    labelKey: 'statuses.warning',
     badge: 'bg-amber-100 text-amber-900 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-800/50',
     border: 'border-l-amber-400',
     iconBg: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
     Icon: AlertTriangle,
   },
   password_reset: {
-    label: 'Security',
+    labelKey: 'statuses.security',
     badge: 'bg-violet-100 text-violet-900 ring-violet-200 dark:bg-violet-950/50 dark:text-violet-200 dark:ring-violet-800/60',
     border: 'border-l-violet-500',
     iconBg: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
     Icon: KeyRound,
   },
   info: {
-    label: 'Reminder',
+    labelKey: 'statuses.reminder',
     badge:
       'bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800/50',
     border: 'border-l-sky-500',
@@ -40,7 +41,7 @@ const SEVERITY_STYLES = {
     Icon: CalendarClock,
   },
   reservation: {
-    label: 'Reservation',
+    labelKey: 'alerts.category.reservation',
     badge:
       'bg-violet-50 text-violet-800 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-800/50',
     border: 'border-l-violet-500',
@@ -55,16 +56,17 @@ const CATEGORY_ICONS = {
   reservation: CalendarClock,
 }
 
-function categoryLabel(category) {
-  if (category === 'password_reset') return 'Security'
-  if (category === 'reservation') return 'Reservation'
+function categoryLabel(t, category) {
+  if (category === 'password_reset') return t('alerts.category.security')
+  if (category === 'reservation') return t('alerts.category.reservation')
   return category
 }
 
-function formatAlertTime(timestamp) {
+function formatAlertTime(timestamp, language) {
   if (!timestamp) return ''
   try {
-    return new Date(timestamp).toLocaleString('en-US', {
+    const locale = language === 'km' ? 'km-KH' : 'en-US'
+    return new Date(timestamp).toLocaleString(locale, {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
@@ -77,17 +79,19 @@ function formatAlertTime(timestamp) {
 }
 
 export function AlertSeverityBadge({ severity }) {
+  const { t } = useTranslation()
   const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.warning
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${style.badge}`}
     >
-      {style.label}
+      {t(style.labelKey)}
     </span>
   )
 }
 
 export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
+  const { t, i18n } = useTranslation()
   const severity = SEVERITY_STYLES[alert.category] || SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.warning
   const SeverityIcon = severity.Icon
   const CategoryIcon = CATEGORY_ICONS[alert.category] || Bell
@@ -122,7 +126,7 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
             <AlertSeverityBadge severity={alert.category === 'password_reset' ? 'password_reset' : alert.category === 'reservation' ? 'reservation' : alert.severity} />
             <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <CategoryIcon className="h-3 w-3" />
-              {categoryLabel(alert.category)}
+              {categoryLabel(t, alert.category)}
             </span>
           </div>
           <h4 className="mt-1.5 text-sm font-semibold leading-snug text-foreground">{alert.title}</h4>
@@ -130,22 +134,22 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
           {alert.category === 'password_reset' && (alert.meta?.displayName || alert.meta?.username) ? (
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
               <div>
-                <dt className="text-muted-foreground">Staff</dt>
+                <dt className="text-muted-foreground">{t('alerts.staff')}</dt>
                 <dd className="font-medium text-foreground">{alert.meta.displayName || alert.meta.username}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Username</dt>
+                <dt className="text-muted-foreground">{t('alerts.username')}</dt>
                 <dd className="font-medium text-foreground">{alert.meta.username}</dd>
               </div>
               {alert.meta.role ? (
                 <div>
-                  <dt className="text-muted-foreground">Role</dt>
+                  <dt className="text-muted-foreground">{t('alerts.role')}</dt>
                   <dd className="font-medium text-foreground">{alert.meta.role}</dd>
                 </div>
               ) : null}
               {alert.meta.email ? (
                 <div>
-                  <dt className="text-muted-foreground">Email</dt>
+                  <dt className="text-muted-foreground">{t('alerts.email')}</dt>
                   <dd className="font-medium text-foreground">{alert.meta.email}</dd>
                 </div>
               ) : null}
@@ -162,12 +166,12 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-violet-800 hover:bg-violet-100 dark:text-violet-200 dark:hover:bg-violet-900/50"
               >
                 <Copy className="h-3 w-3" />
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? t('alerts.copied') : t('alerts.copy')}
               </button>
             </div>
           ) : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] text-muted-foreground/80">{formatAlertTime(alert.timestamp)}</p>
+            <p className="text-[11px] text-muted-foreground/80">{formatAlertTime(alert.timestamp, i18n.language)}</p>
             <div className="flex items-center gap-2">
               {alert.notificationId && onDismiss ? (
                 <button
@@ -175,7 +179,7 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
                   onClick={() => onDismiss(alert)}
                   className="rounded-lg px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-slate-100 dark:hover:bg-zinc-800"
                 >
-                  Mark handled
+                  {t('alerts.markHandled')}
                 </button>
               ) : null}
               {alert.action?.label && (
@@ -210,6 +214,7 @@ export default function AlertCenter({
   variant = 'panel',
   maxItems,
 }) {
+  const { t } = useTranslation()
   const visibleAlerts = maxItems ? alerts.slice(0, maxItems) : alerts
   const total = counts?.total ?? alerts.length
   const isWidget = variant === 'widget'
@@ -231,29 +236,33 @@ export default function AlertCenter({
           <div className="flex items-center gap-2">
             <Bell className="h-4 w-4 text-forest-600 dark:text-forest-400" />
             <p className="text-heading text-sm font-semibold">
-              {isWidget ? 'Alert Center' : 'Alerts'}
+              {isWidget ? t('alerts.centerTitle') : t('alerts.title')}
             </p>
           </div>
           <p className="text-muted mt-0.5 text-xs">
             {isLoading
-              ? 'Scanning inventory and reservations...'
+              ? t('alerts.scanning')
               : error
                 ? error
                 : total === 0
-                  ? 'No active alerts — operations look stable'
-                  : `${total} active · ${counts?.critical || 0} critical · ${counts?.warning || 0} warning`}
+                  ? t('alerts.noneActive')
+                  : t('alerts.summary', {
+                      total,
+                      critical: counts?.critical || 0,
+                      warning: counts?.warning || 0,
+                    })}
           </p>
         </div>
         {isWidget && total > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {(counts?.critical || 0) > 0 && (
               <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-800 dark:bg-red-950/50 dark:text-red-200">
-                {counts.critical} Critical
+                {t('alerts.criticalCount', { count: counts.critical })}
               </span>
             )}
             {(counts?.warning || 0) > 0 && (
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                {counts.warning} Warning
+                {t('alerts.warningCount', { count: counts.warning })}
               </span>
             )}
           </div>
@@ -263,16 +272,16 @@ export default function AlertCenter({
       <div className={`overflow-y-auto ${isWidget ? 'max-h-96 px-4 py-3' : 'max-h-80'}`}>
         {isLoading ? (
           <div className="px-4 py-8 text-center">
-            <p className="text-muted text-sm">Loading alerts...</p>
+            <p className="text-muted text-sm">{t('alerts.loading')}</p>
           </div>
         ) : total === 0 ? (
           <div className="px-4 py-8 text-center">
             <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10">
               <CheckCircle2 className="h-5 w-5 text-emerald-500" />
             </div>
-            <p className="text-foreground text-sm font-medium">All clear</p>
+            <p className="text-foreground text-sm font-medium">{t('alerts.allClear')}</p>
             <p className="text-muted mt-1 text-xs">
-              Stock levels are within thresholds.
+              {t('alerts.stockStable')}
             </p>
           </div>
         ) : (
@@ -298,7 +307,7 @@ export default function AlertCenter({
             onClick={onViewAll}
             className="text-sm font-semibold text-primary hover:underline"
           >
-            View details →
+            {t('alerts.viewDetails')}
           </button>
         </div>
       )}

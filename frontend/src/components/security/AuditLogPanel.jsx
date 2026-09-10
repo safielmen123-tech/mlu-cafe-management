@@ -1,29 +1,32 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Shield } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../../services/apiClient'
 import { formatDateTimeDisplay } from '../../utils/dateTimeFormat'
 
 export default function AuditLogPanel() {
+  const { t, i18n } = useTranslation()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
 
   const loadLogs = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
       const res = await apiFetch('/audit-logs?limit=200')
-      if (!res.ok) throw new Error('Failed to load audit logs')
+      if (!res.ok) throw new Error(t('audit.errors.load'))
       const data = await res.json()
       setLogs(Array.isArray(data) ? data : [])
     } catch (err) {
       console.error(err)
-      setError('Could not load security history.')
+      setError(t('audit.errors.couldNotLoad'))
       setLogs([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadLogs()
@@ -36,10 +39,8 @@ export default function AuditLogPanel() {
           <Shield className="h-5 w-5" />
         </div>
         <div>
-          <h4 className="text-heading font-semibold">Audit Logs / Security History</h4>
-          <p className="text-muted text-sm">
-            Administrator-only trail of logins, orders, menu edits, and payments
-          </p>
+          <h4 className="text-heading font-semibold">{t('audit.title')}</h4>
+          <p className="text-muted text-sm">{t('audit.subtitle')}</p>
         </div>
       </div>
 
@@ -53,25 +54,25 @@ export default function AuditLogPanel() {
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead>
             <tr className="table-head">
-              <th className="px-4 py-3">Timestamp</th>
-              <th className="px-4 py-3">User</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Module</th>
-              <th className="px-4 py-3">Action</th>
-              <th className="px-4 py-3">Description</th>
+              <th className="px-4 py-3">{t('audit.timestamp')}</th>
+              <th className="px-4 py-3">{t('audit.user')}</th>
+              <th className="px-4 py-3">{t('audit.role')}</th>
+              <th className="px-4 py-3">{t('audit.module')}</th>
+              <th className="px-4 py-3">{t('audit.action')}</th>
+              <th className="px-4 py-3">{t('audit.description')}</th>
             </tr>
           </thead>
           <tbody className="table-divider">
             {loading ? (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-muted">
-                  Loading audit logs…
+                  {t('audit.loading')}
                 </td>
               </tr>
             ) : logs.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-muted">
-                  No audit events recorded yet.
+                  {t('audit.empty')}
                 </td>
               </tr>
             ) : (
@@ -79,7 +80,11 @@ export default function AuditLogPanel() {
                 const created = log.created_at ? new Date(log.created_at) : null
                 const date = created ? created.toISOString().slice(0, 10) : ''
                 const time = created
-                  ? created.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                  ? created.toLocaleTimeString(dateLocale, {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    })
                   : ''
                 return (
                   <tr key={log.id} className="table-row">

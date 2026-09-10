@@ -25,8 +25,6 @@ import {
 
   Layers,
 
-  BarChart3,
-
   Users,
 
   Settings,
@@ -83,13 +81,11 @@ const menuNavigationItem = {
 
 
 
-const reportsSubItems = [
-
-  { id: 'reports_analysis', labelKey: 'nav.analysis', icon: BarChart3 },
-
-]
-
-
+const reportsNavigationItem = {
+  id: 'reports_analysis',
+  labelKey: 'nav.reports',
+  icon: FileBarChart,
+}
 
 const othersSubItems = [
 
@@ -289,56 +285,31 @@ function NavFolder({
 
 export default function Sidebar({ activePage, onNavigate, mobileOpen = false, onMobileClose }) {
 
-  const { user, logout } = useAuth()
+  const { t } = useTranslation()
 
-  const [reportsExpanded, setReportsExpanded] = useState(false)
+  const { user, logout } = useAuth()
 
   const [othersExpanded, setOthersExpanded] = useState(false)
 
-
-
   const visiblePrimaryItems = useMemo(
-
     () => filterAccessibleNavItems(primaryNavigationItems, user),
-
     [user],
-
   )
-
-
 
   const canAccessMenu = canAccessView(user, 'menu')
-
-  const visibleReportsItems = useMemo(
-
-    () => filterAccessibleNavItems(reportsSubItems, user),
-
-    [user],
-
-  )
-
+  const canAccessReports = canAccessView(user, 'reports_analysis')
   const visibleOthersItems = useMemo(
-
     () => filterAccessibleNavItems(othersSubItems, user),
-
     [user],
-
   )
-
-
-
-  const isReportsChildActive = visibleReportsItems.some((item) => item.id === activePage)
 
   const isOthersChildActive = visibleOthersItems.some((item) => item.id === activePage)
-
-
 
   // Reveal the group that owns the current page whenever navigation changes.
   const [syncedPage, setSyncedPage] = useState(null)
 
   if (syncedPage !== activePage) {
     setSyncedPage(activePage)
-    if (isReportsChildActive) setReportsExpanded(true)
     if (isOthersChildActive) setOthersExpanded(true)
   }
 
@@ -358,7 +329,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
     <aside
 
-      className={`fixed inset-y-0 left-0 z-50 flex h-screen w-[min(18rem,88vw)] flex-col border-r border-[#e5e5e7] bg-white/80 p-3 backdrop-blur-md transition-transform duration-300 ease-out dark:border-border dark:bg-card/90 sm:relative sm:z-auto sm:w-[4.5rem] sm:translate-x-0 sm:p-2 lg:w-60 lg:p-4 ${
+      className={`fixed inset-y-0 left-0 z-50 flex h-screen w-[min(18rem,88vw)] flex-col border-r border-cocoa-100 bg-white/90 p-3 backdrop-blur-md transition-transform duration-300 ease-out dark:border-border dark:bg-card/90 sm:relative sm:z-auto sm:w-[4.5rem] sm:translate-x-0 sm:p-2 lg:w-60 lg:p-4 ${
 
         mobileOpen ? 'translate-x-0' : '-translate-x-full sm:translate-x-0'
 
@@ -369,6 +340,8 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
       <div className="relative mb-2 flex w-full flex-col items-center justify-center gap-2 px-2 py-4">
 
         <BrandLogo
+
+          glow
 
           src={STORE.sidebarLogoUrl}
 
@@ -394,7 +367,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
           className="absolute right-2 top-1/2 flex min-h-10 min-w-10 -translate-y-1/2 items-center justify-center rounded-full text-olive-400 hover:bg-olive-50 sm:hidden"
 
-          aria-label="Close navigation menu"
+          aria-label={t('a11y.closeNavigationMenu')}
 
         >
 
@@ -442,26 +415,12 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
 
 
-        {visibleReportsItems.length > 0 && (
-
-          <NavFolder
-
-            labelKey="nav.reports"
-
-            folderIcon={FileBarChart}
-
-            activePage={activePage}
-
+        {canAccessReports && (
+          <SidebarNavButton
+            item={reportsNavigationItem}
+            isActive={activePage === reportsNavigationItem.id}
             onNavigate={handleNavigate}
-
-            items={visibleReportsItems}
-
-            expanded={reportsExpanded}
-
-            onToggleExpanded={() => setReportsExpanded((prev) => !prev)}
-
           />
-
         )}
 
 
@@ -512,7 +471,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
           <LogOut className="h-[1.125rem] w-[1.125rem] shrink-0" />
 
-          <span className="hidden max-sm:inline lg:inline">Sign Out</span>
+          <span className="hidden max-sm:inline lg:inline">{t('nav.signOut')}</span>
 
         </button>
 

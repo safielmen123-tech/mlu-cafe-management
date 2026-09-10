@@ -13,10 +13,9 @@ import { useTranslation } from 'react-i18next'
 
 import { useAuth } from '../context/AuthContext'
 import { apiDownload, apiUpload } from '../services/apiClient'
-import OperatingHoursNotice from '../components/common/OperatingHoursNotice'
 
-function buildPeriodOptions() {
-  const options = [{ value: 'all', label: 'All Time', month: null, year: null }]
+function buildPeriodOptions(locale, allTimeLabel) {
+  const options = [{ value: 'all', label: allTimeLabel, month: null, year: null }]
   const now = new Date()
 
   for (let offset = 0; offset < 24; offset += 1) {
@@ -24,7 +23,7 @@ function buildPeriodOptions() {
     const month = date.getMonth() + 1
     const year = date.getFullYear()
     const value = `${year}-${String(month).padStart(2, '0')}`
-    const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    const label = date.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
 
     options.push({ value, label, month, year })
   }
@@ -67,14 +66,14 @@ function OptionCard({ icon: Icon, title, description, badge, children, variant =
   )
 }
 
-function PeriodSelector({ value, onChange, id }) {
-  const options = useMemo(() => buildPeriodOptions(), [])
-  const selectedLabel = options.find((option) => option.value === value)?.label || 'All Time'
+function PeriodSelector({ value, onChange, id, options }) {
+  const { t } = useTranslation()
+  const selectedLabel = options.find((option) => option.value === value)?.label || t('dates.allTime')
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
       <label htmlFor={id} className="text-muted text-sm font-medium">
-        Export period
+        {t('backup.exportPeriod')}
       </label>
       <div className="relative min-w-[220px]">
         <CalendarRange className="text-muted pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
@@ -91,16 +90,22 @@ function PeriodSelector({ value, onChange, id }) {
           ))}
         </select>
       </div>
-      <span className="text-muted text-xs">Selected: {selectedLabel}</span>
+      <span className="text-muted text-xs">
+        {t('backup.selectedPeriod', { period: selectedLabel })}
+      </span>
     </div>
   )
 }
 
 export default function BackupRecovery() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { isAdmin } = useAuth()
   const fileInputRef = useRef(null)
-  const periodOptions = useMemo(() => buildPeriodOptions(), [])
+  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
+  const periodOptions = useMemo(
+    () => buildPeriodOptions(dateLocale, t('dates.allTime')),
+    [dateLocale, t],
+  )
 
   const [selectedPeriod, setSelectedPeriod] = useState('all')
   const [excelLoading, setExcelLoading] = useState(false)
@@ -111,7 +116,7 @@ export default function BackupRecovery() {
   const [errorMessage, setErrorMessage] = useState('')
 
   const selectedPeriodLabel =
-    periodOptions.find((option) => option.value === selectedPeriod)?.label || 'All Time'
+    periodOptions.find((option) => option.value === selectedPeriod)?.label || t('dates.allTime')
 
   const clearMessages = () => {
     setStatusMessage('')
@@ -128,9 +133,9 @@ export default function BackupRecovery() {
         'mlu-kitchen-cafe-business-data.xlsx',
         query,
       )
-      setStatusMessage(`Business data exported as ${filename}`)
+      setStatusMessage(t('backup.exportSuccess', { filename }))
     } catch (error) {
-      setErrorMessage(error.message || 'Failed to export business data')
+      setErrorMessage(error.message || t('backup.exportFailed'))
     } finally {
       setExcelLoading(false)
     }
@@ -142,9 +147,9 @@ export default function BackupRecovery() {
     try {
       const query = buildPeriodQuery(selectedPeriod)
       const filename = await apiDownload('/system/backup/sql', 'mlu-kitchen-cafe-database.sql', query)
-      setStatusMessage(`Database backup saved as ${filename}`)
+      setStatusMessage(t('backup.sqlSuccess', { filename }))
     } catch (error) {
-      setErrorMessage(error.message || 'Failed to create SQL backup')
+      setErrorMessage(error.message || t('backup.sqlFailed'))
     } finally {
       setSqlLoading(false)
     }
@@ -158,26 +163,24 @@ export default function BackupRecovery() {
 
   const handleRestore = async () => {
     if (!selectedFile) {
-      setErrorMessage('Please choose a .sql backup file first')
+      setErrorMessage(t('backup.chooseFileFirst'))
       return
     }
 
-    const confirmed = window.confirm(
-      'This will overwrite matching database records from the uploaded backup. Existing rows for the same period or primary keys will be replaced safely without duplicates. Continue?',
-    )
+    const confirmed = window.confirm(t('backup.restoreConfirm'))
     if (!confirmed) return
 
     clearMessages()
     setRestoreLoading(true)
     try {
       const result = await apiUpload('/system/backup/restore', 'sqlFile', selectedFile)
-      setStatusMessage(result.message || 'Database restored successfully')
+      setStatusMessage(result.message || t('backup.restoreSuccess'))
       setSelectedFile(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
     } catch (error) {
-      setErrorMessage(error.message || 'Failed to restore database')
+      setErrorMessage(error.message || t('backup.restoreFailed'))
     } finally {
       setRestoreLoading(false)
     }
@@ -187,13 +190,8 @@ export default function BackupRecovery() {
     <div className="space-y-6">
       <div>
         <h3 className="text-heading text-lg">{t('nav.backupRecovery')}</h3>
-        <p className="text-muted text-sm">
-          Export business data, create full or month-specific database backups, and restore safely
-          without duplicate rows
-        </p>
+        <p className="text-muted text-sm">{t('backup.subtitle')}</p>
       </div>
-
-      <OperatingHoursNotice />
 
       {(statusMessage || errorMessage) && (
         <div
@@ -210,15 +208,16 @@ export default function BackupRecovery() {
       <div className="grid gap-5 xl:grid-cols-2">
         <OptionCard
           icon={FileSpreadsheet}
-          title="Export Business Data (Excel)"
-          description="Download orders, payments, sales history, menu items, user accounts, inventory, and table data as a multi-sheet Excel workbook. Choose All Time or filter transactional sheets to a specific month."
-          badge="Excel / CSV-ready"
+          title={t('backup.exportExcelTitle')}
+          description={t('backup.exportExcelDescription')}
+          badge={t('backup.excelBadge')}
         >
           <div className="space-y-4">
             <PeriodSelector
               id="excel-period"
               value={selectedPeriod}
               onChange={setSelectedPeriod}
+              options={periodOptions}
             />
             <button
               type="button"
@@ -227,16 +226,18 @@ export default function BackupRecovery() {
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {excelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {excelLoading ? 'Preparing export…' : `Download Excel (${selectedPeriodLabel})`}
+              {excelLoading
+                ? t('backup.preparingExport')
+                : t('backup.downloadExcel', { period: selectedPeriodLabel })}
             </button>
           </div>
         </OptionCard>
 
         <OptionCard
           icon={Database}
-          title="System Database Backup (SQL)"
-          description="Generate a SQL backup for disaster recovery. All Time creates a full mysqldump with DROP TABLE rules. A specific month exports only that period's orders while safely updating reference tables."
-          badge={isAdmin ? 'Admin' : 'Admin only'}
+          title={t('backup.sqlTitle')}
+          description={t('backup.sqlDescription')}
+          badge={isAdmin ? t('backup.admin') : t('backup.adminOnly')}
         >
           {isAdmin ? (
             <div className="space-y-4">
@@ -244,6 +245,7 @@ export default function BackupRecovery() {
                 id="sql-period"
                 value={selectedPeriod}
                 onChange={setSelectedPeriod}
+                options={periodOptions}
               />
               <button
                 type="button"
@@ -252,20 +254,22 @@ export default function BackupRecovery() {
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {sqlLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <HardDrive className="h-4 w-4" />}
-                {sqlLoading ? 'Creating backup…' : `Download SQL (${selectedPeriodLabel})`}
+                {sqlLoading
+                  ? t('backup.creatingBackup')
+                  : t('backup.downloadSql', { period: selectedPeriodLabel })}
               </button>
             </div>
           ) : (
-            <p className="text-muted text-sm">Administrator access is required to create full SQL backups.</p>
+            <p className="text-muted text-sm">{t('backup.sqlAdminRequired')}</p>
           )}
         </OptionCard>
       </div>
 
       <OptionCard
         icon={Upload}
-        title="Restore Database"
-        description="Upload a previously exported .sql backup file. Full backups drop and recreate tables. Month-specific backups delete and replace only that period's orders, using REPLACE INTO to avoid duplicate key errors."
-        badge={isAdmin ? 'Safe overwrite' : 'Admin only'}
+        title={t('backup.restoreTitle')}
+        description={t('backup.restoreDescription')}
+        badge={isAdmin ? t('backup.safeOverwrite') : t('backup.adminOnly')}
         variant="danger"
       >
         {isAdmin ? (
@@ -289,17 +293,17 @@ export default function BackupRecovery() {
                 ) : (
                   <AlertTriangle className="h-4 w-4" />
                 )}
-                {restoreLoading ? 'Restoring…' : 'Restore from SQL File'}
+                {restoreLoading ? t('backup.restoring') : t('backup.restoreFromSql')}
               </button>
             </div>
             {selectedFile ? (
               <p className="text-muted text-sm">
-                Selected file: <span className="text-heading font-medium">{selectedFile.name}</span>
+                {t('backup.selectedFile', { filename: selectedFile.name })}
               </p>
             ) : null}
           </div>
         ) : (
-          <p className="text-muted text-sm">Administrator access is required to restore the database.</p>
+          <p className="text-muted text-sm">{t('backup.restoreAdminRequired')}</p>
         )}
       </OptionCard>
     </div>

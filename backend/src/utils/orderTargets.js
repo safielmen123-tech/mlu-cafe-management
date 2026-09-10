@@ -222,6 +222,52 @@ function parseMenuItemIdFromItem(item) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+function parseOptionalMoney(value) {
+  if (value == null || value === '') return null
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 0) return null
+  return Math.round(n * 100) / 100
+}
+
+function parseServingFromItem(item) {
+  const raw = String(item?.serving || item?.serving_type || '').trim().toLowerCase()
+  if (raw === 'hot' || raw === 'iced') return raw
+  const notes = String(item?.notes || item?.name || '')
+  if (/\bIced\b/i.test(notes)) return 'iced'
+  if (/\bHot\b/i.test(notes)) return 'hot'
+  return null
+}
+
+async function resolveLinePrice(db, item) {
+  const clientPrice = parseOptionalMoney(item?.price)
+  const menuId = parseMenuItemIdFromItem(item)
+  if (!menuId) return clientPrice ?? 0
+
+  const [rows] = await db.execute(
+    'SELECT price, hot_price, iced_price FROM menu_items WHERE id = ? LIMIT 1',
+    [menuId],
+  )
+  if (!rows[0]) return clientPrice ?? 0
+
+  const serving = parseServingFromItem(item)
+  if (serving === 'iced') {
+    const iced = parseOptionalMoney(rows[0].iced_price)
+    if (iced != null) return iced
+  }
+  if (serving === 'hot') {
+    const hot = parseOptionalMoney(rows[0].hot_price)
+    if (hot != null) return hot
+  }
+
+  const hot = parseOptionalMoney(rows[0].hot_price)
+  const iced = parseOptionalMoney(rows[0].iced_price)
+  if (hot != null && iced == null) return hot
+  if (iced != null && hot == null) return iced
+
+  const base = parseOptionalMoney(rows[0].price)
+  return base ?? clientPrice ?? 0
+}
+
 async function resolveMenuItemIdForInsert(db, item) {
   const parsed = parseMenuItemIdFromItem(item)
   if (parsed == null) {
@@ -234,7 +280,7 @@ async function resolveMenuItemIdForInsert(db, item) {
 
 async function insertOrderItem(db, orderId, item) {
   const quantity = Number(item.quantity)
-  const price = Number(item.price)
+  const price = await resolveLinePrice(db, item)
   const subtotal = quantity * price
   const menuItemId = await resolveMenuItemIdForInsert(db, item)
   const itemName =

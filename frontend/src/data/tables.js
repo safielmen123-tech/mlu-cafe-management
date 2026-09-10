@@ -42,18 +42,21 @@ export const floorTables = [
 export const TABLE_STATUS_META = {
   empty: {
     label: 'Empty',
+    labelKey: 'statuses.empty',
     badge:
       'bg-emerald-50 text-emerald-700 ring-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-700/50',
     card: 'border-emerald-300/80 bg-emerald-50/30 dark:border-emerald-700/40 dark:bg-emerald-950/15',
   },
   occupied: {
     label: 'Occupied',
+    labelKey: 'statuses.occupied',
     badge:
       'bg-amber-50 text-amber-800 ring-amber-300/80 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-700/50',
     card: 'border-amber-300/70 bg-amber-50/35 dark:border-amber-700/40 dark:bg-amber-950/20',
   },
   reserved: {
     label: 'Reserved',
+    labelKey: 'statuses.reserved',
     badge:
       'bg-violet-50 text-violet-800 ring-violet-300/80 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-700/50',
     card: 'border-violet-300/80 bg-violet-50/40 dark:border-violet-700/40 dark:bg-violet-950/20',
@@ -63,6 +66,7 @@ export const TABLE_STATUS_META = {
 /** Cashier queue badge — all open unbilled orders display as awaiting checkout */
 export const PAYMENT_QUEUE_STATUS = {
   label: 'Pending Bill',
+  labelKey: 'statuses.pendingBill',
   badge:
     'bg-orange-100 text-orange-900 ring-orange-400/80 dark:bg-orange-950/45 dark:text-orange-200 dark:ring-orange-600/50',
 }

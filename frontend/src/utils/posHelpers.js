@@ -38,6 +38,7 @@ export function mergeCartIntoItems(existingItems, cartItems) {
         menu_item_id: menuItemId,
         name: cartItem.name,
         notes,
+        serving: cartItem.serving || null,
         qty: addQty,
         quantity: addQty,
         unitPrice,

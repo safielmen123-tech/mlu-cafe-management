@@ -77,6 +77,11 @@ const env = {
     from: String(process.env.SMTP_FROM || process.env.ADMIN_EMAIL || 'antagonistslayer9000@gmail.com').trim(),
   },
   frontendUrl,
+  liveConditions: {
+    weatherLat: process.env.WEATHER_LAT,
+    weatherLon: process.env.WEATHER_LON,
+    weatherLocation: process.env.WEATHER_LOCATION,
+  },
   security: {
     allowedOrigins: parseOrigins(process.env.CORS_ALLOWED_ORIGINS, [frontendUrl]),
     // Only enable behind a real reverse proxy. If it is on without one, a client can

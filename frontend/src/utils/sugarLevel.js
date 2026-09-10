@@ -12,13 +12,19 @@ export const DEFAULT_SUGAR_LEVEL = '100%'
 const NON_DRINK_CATEGORIES = new Set([
   'food',
   'bakery',
+  'starters',
+  'mains',
+  'soup',
+  'vegetable',
+  'dessert',
+  'desserts',
   'cocktails',
   'cocktail',
   'pastry',
-  'dessert',
-  'desserts',
   'snack',
   'snacks',
+  'beer',
+  'beers',
 ])
 
 const DRINK_CATEGORIES = new Set([
@@ -50,15 +56,28 @@ export function needsSugarLevel(item) {
   if (!category) return false
   if (NON_DRINK_CATEGORIES.has(category)) return false
   if (category.includes('cocktail')) return false
+  if (category === 'cold drinks') {
+    return /^fresh\b/i.test(String(item?.name || ''))
+  }
   if (DRINK_CATEGORIES.has(category)) return true
   return DRINK_CATEGORY_PATTERN.test(category)
 }
 
 export function formatSugarNote(sugarLevel, extraNotes = '') {
+  return formatDrinkNotes({ sugarLevel, extraNotes })
+}
+
+export function formatDrinkNotes({ serving, sugarLevel, extraNotes = '', teaFlavor = '' } = {}) {
+  const parts = []
+  if (serving === 'iced') parts.push('Iced')
+  else if (serving === 'hot') parts.push('Hot')
+  const flavor = String(teaFlavor || '').trim()
+  if (flavor) parts.push(flavor)
   const level = String(sugarLevel || DEFAULT_SUGAR_LEVEL).trim() || DEFAULT_SUGAR_LEVEL
-  const sugarLabel = `Sugar: ${level}`
+  parts.push(`Sugar: ${level}`)
   const extra = String(extraNotes || '').trim()
-  return extra ? `${sugarLabel} · ${extra}` : sugarLabel
+  if (extra) parts.push(extra)
+  return parts.join(' · ')
 }
 
 export function formatItemDisplayName(baseName, notes) {

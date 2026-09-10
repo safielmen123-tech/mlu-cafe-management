@@ -1,4 +1,4 @@
-import { Bell, Clock, Moon, Palette, Shield } from 'lucide-react'
+import { Bell, Clock, Droplets, Palette, Shield } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import ThemeToggle from '../components/ui/ThemeToggle'
 import SettingToggle from '../components/ui/SettingToggle'
@@ -8,7 +8,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useSettings } from '../context/SettingsContext'
 import { useAuth } from '../context/AuthContext'
 import { isAdminRole } from '../utils/permissions'
-import { getSeasonForDate, STORE_SCHEDULE } from '../config/siteData'
+import { getSeasonForDate } from '../config/siteData'
 
 function SettingRow({ icon: Icon, label, description, children }) {
   return (
@@ -32,9 +32,9 @@ export default function Settings() {
   const { isDark } = useTheme()
   const { user } = useAuth()
   const {
-    isDarkCanvas,
+    isLiquidGlass,
     lowStockAlertsEnabled,
-    setIsDarkCanvas,
+    setIsLiquidGlass,
     setLowStockAlertsEnabled,
   } = useSettings()
 
@@ -54,15 +54,20 @@ export default function Settings() {
 
       <div className="space-y-4">
         <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
-          Store hours
+          {t('settings.storeHours')}
         </h4>
         <SettingRow
           icon={Clock}
-          label="Operating hours"
-          description={`${currentSeason.label} today (${currentSeason.hoursLabel}). Weekly off day: ${STORE_SCHEDULE.weeklyOffDay.label}.`}
+          label={t('settings.operatingHours')}
+          description={t('settings.operatingHoursDescription', {
+            season:
+              currentSeason.id === 'high' ? t('settings.highSeason') : t('settings.lowSeason'),
+            hours: currentSeason.hoursLabel,
+            offDay: t('settings.monday'),
+          })}
         >
           <span className="text-muted max-w-xs text-right text-sm font-medium">
-            {currentSeason.label}
+            {currentSeason.id === 'high' ? t('settings.highSeason') : t('settings.lowSeason')}
           </span>
         </SettingRow>
         <OperatingHoursNotice />
@@ -86,28 +91,28 @@ export default function Settings() {
                 ? t('settings.dark', { defaultValue: 'Dark' })
                 : t('settings.light', { defaultValue: 'Light' })}
             </span>
-            <ThemeToggle />
+            <ThemeToggle variant="switch" />
           </div>
         </SettingRow>
 
         <SettingRow
-          icon={Moon}
-          label={t('settings.darkCanvas', { defaultValue: 'Dark Canvas' })}
-          description={t('settings.darkCanvasDesc', {
+          icon={Droplets}
+          label={t('settings.liquidGlass', { defaultValue: 'Liquid Glass' })}
+          description={t('settings.liquidGlassDesc', {
             defaultValue:
-              'Dashboard uses deep backgrounds and glass-effect cards in dark mode for high contrast readability.',
+              'Frosted translucent panels with soft blur and subtle depth across the dashboard. Works with light and dark theme.',
           })}
         >
           <div className="flex items-center gap-3">
             <span className="text-muted text-sm">
-              {isDarkCanvas
+              {isLiquidGlass
                 ? t('settings.active', { defaultValue: 'Active' })
                 : t('settings.inactive', { defaultValue: 'Inactive' })}
             </span>
             <SettingToggle
-              enabled={isDarkCanvas}
-              onChange={setIsDarkCanvas}
-              ariaLabel="Toggle dark canvas high-contrast theme"
+              enabled={isLiquidGlass}
+              onChange={setIsLiquidGlass}
+              ariaLabel={t('a11y.toggleLiquidGlass')}
             />
           </div>
         </SettingRow>
@@ -134,7 +139,7 @@ export default function Settings() {
             <SettingToggle
               enabled={lowStockAlertsEnabled}
               onChange={setLowStockAlertsEnabled}
-              ariaLabel="Toggle low stock alerts"
+              ariaLabel={t('a11y.toggleLowStockAlerts')}
             />
           </div>
         </SettingRow>

@@ -1,137 +1,172 @@
 /**
- * Replaces the menu with the photographed Mlu Kitchen & Cafe Siem Reap menu.
+ * Replaces the live menu with the photographed Romduol boards.
+ * Coffee/Tea keep Hot/Iced prices. Cold drinks, beer, and food use one price.
+ * Dried fish (#10) and signature mocktails are skipped until photos are dropped.
  *
- * Safe to re-run. Order of operations matters:
- *   1. Backfill order_items.item_name from menu_items.name. The FK is ON DELETE SET NULL
- *      and reports read COALESCE(m.name, oi.item_name, 'Custom item'), so without this
- *      backfill, replacing menu rows would erase the item detail behind every past order.
- *   2. Widen the category ENUM. The UI already offers Cold Drinks / Food, but the column
- *      only allowed Coffee / Bakery, so those items could never be saved.
- *   3. Rename the photo files to url-safe kebab-case, then replace the menu rows.
+ * Copies photos from menu-photos/ (same filename as the dish in the app),
+ * then deletes leftover old menu images so only the current set remains.
  *
  * Usage: npm run seed:menu
  */
 const fs = require('fs')
 const path = require('path')
+const { spawnSync } = require('child_process')
 const pool = require('../db')
+const { ensureMenuItemsSchema, menuCategoryFieldSql } = require('../src/utils/menuItemsSchema')
 
 const IMAGE_DIR = path.join(__dirname, '..', '..', 'frontend', 'public', 'menu-images')
+const THUMB_DIR = path.join(IMAGE_DIR, 'thumbs')
+const PHOTO_SOURCE = path.join(__dirname, '..', '..', 'menu-photos')
 const PUBLIC_PREFIX = '/menu-images'
-
-// originalFile -> cleanFile, display name, category, price
-const MENU = [
-  ['Hot Americano.jpg', 'hot-americano.jpg', 'Hot Americano', 'Coffee', 2.0],
-  ['Hot Cappuchino.jpg', 'hot-cappuccino.jpg', 'Hot Cappuccino', 'Coffee', 2.5],
-  ['Hot latte.jpg', 'hot-latte.jpg', 'Hot Latte', 'Coffee', 2.75],
-  ['Hot Macha.jpg', 'hot-matcha.jpg', 'Hot Matcha', 'Coffee', 3.25],
-
-  ['Ice Americano.jpg', 'iced-americano.jpg', 'Iced Americano', 'Cold Drinks', 2.25],
-  ['Ice Cappuchino.jpg', 'iced-cappuccino.jpg', 'Iced Cappuccino', 'Cold Drinks', 2.75],
-  ['Ice latte.jpg', 'iced-latte.jpg', 'Iced Latte', 'Cold Drinks', 3.0],
-  ['Matcha Ice Latte.jpg', 'iced-matcha-latte.jpg', 'Iced Matcha Latte', 'Cold Drinks', 3.5],
-  ['Ice Lemon tea.jpg', 'iced-lemon-tea.jpg', 'Iced Lemon Tea', 'Cold Drinks', 2.95],
-  ['Blueberry Ice Tea.jpg', 'blueberry-iced-tea.jpg', 'Blueberry Iced Tea', 'Cold Drinks', 3.25],
-  ['Strawberry Lemon tea.jpg', 'strawberry-lemon-tea.jpg', 'Strawberry Lemon Tea', 'Cold Drinks', 3.35],
-  ['Ginger Aloe Tea.jpg', 'ginger-aloe-tea.jpg', 'Ginger Aloe Tea', 'Cold Drinks', 3.15],
-
-  ['Strawberry Cake.jpg', 'strawberry-cake.jpg', 'Strawberry Cake', 'Bakery', 3.95],
-  ['Vanila and Strawberry cupcake.jpg', 'vanilla-strawberry-cupcake.jpg', 'Vanilla & Strawberry Cupcake', 'Bakery', 3.25],
-  ['Chocolate Fountain.jpg', 'chocolate-fountain.jpg', 'Chocolate Fountain', 'Bakery', 4.75],
-  ['Morning Pancake.jpg', 'morning-pancake.jpg', 'Morning Pancake', 'Bakery', 4.25],
-  ['Regular Pancake with Honey.jpg', 'pancake-with-honey.jpg', 'Pancake with Honey', 'Bakery', 4.5],
-
-  ['Buddha Bowl.jpg', 'buddha-bowl.jpg', 'Buddha Bowl', 'Food', 7.5],
-  ['Healthy Meal.jpg', 'healthy-meal.jpg', 'Healthy Meal', 'Food', 6.75],
-  ['Diet Meal.jpg', 'diet-meal.jpg', 'Diet Meal', 'Food', 6.95],
-  ['Morning Protien Meal.jpg', 'morning-protein-meal.jpg', 'Morning Protein Meal', 'Food', 6.25],
-  ['Veggie Pizza.jpg', 'veggie-pizza.jpg', 'Veggie Pizza', 'Food', 8.25],
-  ['Susage Fried Rice.jpg', 'sausage-fried-rice.jpg', 'Sausage Fried Rice', 'Food', 5.95],
-  ['Sweet and Sour Chicken.jpg', 'sweet-and-sour-chicken.jpg', 'Sweet & Sour Chicken', 'Food', 7.5],
-  ['Korean Chicken Leg.jpg', 'korean-chicken-leg.jpg', 'Korean Chicken Leg', 'Food', 7.25],
-  ['Steam Chicken Traditional Style.jpg', 'steamed-chicken-traditional.jpg', 'Steamed Chicken (Traditional)', 'Food', 8.5],
-  ['Fish Sour and Spicy Soup.jpg', 'fish-sour-and-spicy-soup.jpg', 'Fish Sour & Spicy Soup', 'Food', 6.5],
-  ['Grilled Fish.jpg', 'grilled-fish.jpg', 'Grilled Fish', 'Food', 8.95],
-  ['Stir Fried Salmon.jpg', 'stir-fried-salmon.jpg', 'Stir Fried Salmon', 'Food', 9.5],
-  ['Salmon with Veggie.jpg', 'salmon-with-veggie.jpg', 'Salmon with Veggie', 'Food', 9.75],
-  ['Sasah Clam.jpg', 'sasah-clam.jpg', 'Sasah Clam', 'Food', 7.95],
-  ['Grilled Lamp.jpg', 'grilled-lamb.jpg', 'Grilled Lamb', 'Food', 10.5],
-  ['Steak with Fried.jpg', 'steak-with-fries.jpg', 'Steak with Fries', 'Food', 11.95],
-  ['Meat Grilled Set.jpg', 'meat-grilled-set.jpg', 'Meat Grilled Set', 'Food', 12.5],
-]
-
-const CATEGORIES = ['Coffee', 'Bakery', 'Cold Drinks', 'Food']
 const PHOTO_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 
-function normalizePhotoKey(filename) {
-  return path
-    .basename(filename, path.extname(filename))
-    .toLowerCase()
-    .replace(/&/g, 'and')
-    .replace(/[^a-z0-9]+/g, '')
+const DRINKS = [
+  { name: 'Espresso', category: 'Coffee', hot: 1.0, iced: null, file: 'espresso.jpg' },
+  { name: 'Americano', category: 'Coffee', hot: 1.0, iced: 1.5, file: 'americano.jpg' },
+  { name: 'Mocha', category: 'Coffee', hot: 2.5, iced: 3.0, file: 'mocha.jpg' },
+  { name: 'Cappuccino', category: 'Coffee', hot: 2.0, iced: 2.5, file: 'cappuccino.jpg' },
+  { name: 'Latte', category: 'Coffee', hot: 2.0, iced: 2.5, file: 'latte.jpg' },
+  { name: 'Chocolate', category: 'Coffee', hot: 2.0, iced: 2.5, file: 'chocolate.jpg' },
+  { name: 'Matcha', category: 'Coffee', hot: 2.75, iced: 3.0, file: 'matcha.jpg' },
+  { name: 'Matcha Espresso', category: 'Coffee', hot: 3.0, iced: 3.25, file: 'matcha-espresso.jpg' },
+  { name: 'Khmer Coffee', category: 'Coffee', hot: 1.25, iced: 1.5, file: 'khmer-coffee.jpg' },
+  { name: 'Passion W/ Milk', category: 'Coffee', hot: null, iced: 2.0, file: 'passion-with-milk.jpg' },
+  { name: 'Passion Soda', category: 'Coffee', hot: null, iced: 2.0, file: 'passion-soda.jpg' },
+  { name: 'Sero Milk', category: 'Coffee', hot: 1.5, iced: 1.5, file: 'sero-milk.jpg' },
+  { name: 'Red Milk Tea', category: 'Tea', hot: 1.25, iced: 1.5, file: 'red-milk-tea.jpg' },
+  { name: 'Green Milk Tea', category: 'Tea', hot: 1.25, iced: 1.5, file: 'green-milk-tea.jpg' },
+  { name: 'Butterfly Milk Tea', category: 'Tea', hot: 1.25, iced: 1.5, file: 'butterfly-milk-tea.jpg' },
+  { name: 'Green Lemon Tea', category: 'Tea', hot: 1.5, iced: 2.0, file: 'green-lemon-tea.jpg' },
+  { name: 'Tea W/ Honey & Lemon', category: 'Tea', hot: 1.75, iced: 2.25, file: 'tea-honey-lemon.jpg' },
+  { name: 'Lemon Tea W/ Syrup', category: 'Tea', hot: 1.5, iced: 2.0, file: 'lemon-tea-syrup.jpg' },
+  { name: 'Tea Selection', category: 'Tea', hot: 1.0, iced: 1.5, file: 'tea-selection.jpg' },
+]
+
+const COLD_DRINKS = [
+  { name: 'Fresh Lime', category: 'Cold Drinks', price: 1.5, file: 'fresh-lime.jpg' },
+  { name: 'Fresh Pineapple', category: 'Cold Drinks', price: 2.5, file: 'fresh-pineapple.jpg' },
+  { name: 'Fresh Watermelon', category: 'Cold Drinks', price: 2.5, file: 'fresh-watermelon.jpg' },
+  { name: 'Fresh Mango', category: 'Cold Drinks', price: 2.5, file: 'fresh-mango.jpg' },
+  { name: 'Fresh Coconut', category: 'Cold Drinks', price: 1.5, file: 'fresh-coconut.jpg' },
+  { name: 'Ginger Ale', category: 'Cold Drinks', price: 1.5, file: 'ginger-ale.jpg' },
+  { name: 'Tonic Water', category: 'Cold Drinks', price: 1.0, file: 'tonic-water.jpg' },
+  { name: 'Cambodia Water (S)', category: 'Cold Drinks', price: 0.5, file: 'cambodia-water.jpg' },
+  { name: 'Kulen Water (1.5L)', category: 'Cold Drinks', price: 2.0, file: 'kulen-water.jpg' },
+]
+
+const BEERS = [
+  { name: 'Cambodia', category: 'Beer', price: 1.5, file: 'cambodia-beer.jpg' },
+  { name: 'Tiger Crystal', category: 'Beer', price: 2.5, file: 'tiger-crystal.jpg' },
+  { name: 'Hanuman', category: 'Beer', price: 1.5, file: 'hanuman.jpg' },
+  { name: 'Hoegaarden', category: 'Beer', price: 3.5, file: 'hoegaarden.jpg' },
+  { name: 'Jinro', category: 'Beer', price: 4.0, file: 'jinro.jpg' },
+  { name: 'Corona', category: 'Beer', price: 2.5, file: 'corona.jpg' },
+  { name: 'Hanuman Black', category: 'Beer', price: 1.75, file: 'hanuman-black.jpg' },
+]
+
+const FOOD = [
+  { name: 'Cambodian Fish Cake', category: 'Starters', price: 3.0, file: 'cambodian-fish-cake.jpg' },
+  { name: 'Deep Fried Spring Rolls', category: 'Starters', price: 2.5, file: 'deep-fried-spring-rolls.jpg' },
+  { name: 'Chicken Satay', category: 'Starters', price: 3.0, file: 'chicken-satay.jpg' },
+  { name: 'Beef Satay', category: 'Starters', price: 3.5, file: 'beef-satay.jpg' },
+
+  { name: 'Fried Local Fish with Tamarind', category: 'Mains', price: 3.5, file: 'fried-local-fish-tamarind.jpg' },
+  { name: 'Hot Basil Chicken', category: 'Mains', price: 3.5, file: 'hot-basil-chicken.jpg' },
+  { name: 'Beef Lok Lak', category: 'Mains', price: 4.75, file: 'beef-lok-lak.jpg' },
+  { name: 'Chicken Ginger or Pork', category: 'Mains', price: 3.5, file: 'chicken-ginger-or-pork.jpg' },
+  { name: 'Chicken Wings or Breast', category: 'Mains', price: 3.75, file: 'chicken-wings.jpg' },
+  { name: 'Steamed Fish', category: 'Mains', price: 5.5, file: 'steamed-fish.jpg' },
+  { name: 'Red Snapper with Sour Sauce', category: 'Mains', price: 6.0, file: 'red-snapper-sour-sauce.jpg' },
+  { name: 'Fried Yellow Noodles', category: 'Mains', price: 3.0, file: 'fried-yellow-noodles.jpg' },
+  { name: 'Garlic and Egg Fried Rice', category: 'Mains', price: 2.5, file: 'garlic-egg-fried-rice.jpg' },
+  { name: 'Sweet and Sour Boneless Fish', category: 'Mains', price: 4.0, file: 'sweet-and-sour-boneless-fish.jpg' },
+
+  { name: 'Fish or Chicken Sour Soup', category: 'Soup', price: 3.5, file: 'fish-or-chicken-sour-soup.jpg' },
+  { name: 'Beef Sour Soup with Morning Glory', category: 'Soup', price: 4.0, file: 'beef-sour-soup-morning-glory.jpg' },
+  { name: 'Wintermelon Soup with Pork Ribs', category: 'Soup', price: 4.0, file: 'wintermelon-soup-pork-ribs.jpg' },
+
+  { name: 'Wok Fried Morning Glory', category: 'Vegetable', price: 3.0, file: 'wok-fried-morning-glory.jpg' },
+  { name: 'Mixed Vegetables', category: 'Vegetable', price: 3.5, file: 'mixed-vegetables.jpg' },
+  { name: 'Pok Choy with Oyster Sauce', category: 'Vegetable', price: 3.0, file: 'pok-choy-oyster-sauce.jpg' },
+
+  { name: 'Mixed Seasonal Fruit Platter', category: 'Dessert', price: 3.0, file: 'mixed-seasonal-fruit-platter.jpg' },
+  { name: 'Banana Sago in Coconut Milk', category: 'Dessert', price: 3.0, file: 'banana-sago-coconut-milk.jpg' },
+  { name: 'Sweet Corn with Coconut Milk', category: 'Dessert', price: 3.0, file: 'sweet-corn-coconut-milk.jpg' },
+  { name: 'Bean in Coconut Milk', category: 'Dessert', price: 3.0, file: 'bean-in-coconut-milk.jpg' },
+]
+
+function displayPrice(hot, iced) {
+  const offered = [hot, iced].filter((value) => value != null)
+  return Math.min(...offered)
 }
 
-function listPhotoFiles() {
-  return fs.readdirSync(IMAGE_DIR).filter((name) => {
-    if (name.startsWith('__tmp__')) return false
-    if (name.toLowerCase() === 'placeholder.jpg') return false
-    return PHOTO_EXTENSIONS.has(path.extname(name).toLowerCase())
-  })
-}
+function copyPhotos() {
+  if (!fs.existsSync(PHOTO_SOURCE)) {
+    throw new Error(`Photo drop folder is missing: ${PHOTO_SOURCE}`)
+  }
+  fs.mkdirSync(IMAGE_DIR, { recursive: true })
 
-function findPhotoOnDisk(original, clean, files) {
-  const wanted = new Set([
-    original.toLowerCase(),
-    clean.toLowerCase(),
-  ])
-  const wantedKeys = new Set([
-    normalizePhotoKey(original),
-    normalizePhotoKey(clean),
-  ])
-
-  const exact = files.find((name) => wanted.has(name.toLowerCase()))
-  if (exact) return exact
-
-  return files.find((name) => wantedKeys.has(normalizePhotoKey(name))) || null
-}
-
-function renamePhotos() {
-  let renamed = 0
   const missing = []
-  let files = listPhotoFiles()
-
-  for (const [original, clean] of MENU) {
-    const to = path.join(IMAGE_DIR, clean)
-    const match = findPhotoOnDisk(original, clean, files)
-
-    if (!match) {
-      missing.push(`${original} (expected ${clean})`)
+  const items = [...DRINKS, ...COLD_DRINKS, ...BEERS, ...FOOD]
+  for (const item of items) {
+    const from = path.join(PHOTO_SOURCE, item.file)
+    const to = path.join(IMAGE_DIR, item.file)
+    if (!fs.existsSync(from)) {
+      missing.push(`${item.name} (${item.file})`)
       continue
     }
-
-    if (match.toLowerCase() === clean.toLowerCase()) {
-      continue
-    }
-
-    const from = path.join(IMAGE_DIR, match)
-    // Two-step guards against case-insensitive collisions on Windows.
-    const temp = path.join(IMAGE_DIR, `__tmp__${clean}`)
-    fs.renameSync(from, temp)
-    fs.renameSync(temp, to)
-    renamed += 1
-    files = files.map((name) => (name === match ? clean : name))
+    fs.copyFileSync(from, to)
   }
 
   if (missing.length) {
-    throw new Error(`Missing photo file(s): ${missing.join(', ')}`)
+    throw new Error(`Missing photo file(s) in menu-photos: ${missing.join(', ')}`)
   }
 
-  return { renamed, missing }
+  return items.map((item) => item.file)
+}
+
+function removeOldPhotos(keepFiles) {
+  const keep = new Set(['placeholder.jpg', ...keepFiles.map((name) => name.toLowerCase())])
+  const removed = []
+
+  for (const name of fs.readdirSync(IMAGE_DIR)) {
+    const full = path.join(IMAGE_DIR, name)
+    if (fs.statSync(full).isDirectory()) continue
+    if (!PHOTO_EXTENSIONS.has(path.extname(name).toLowerCase())) continue
+    if (keep.has(name.toLowerCase())) continue
+    fs.unlinkSync(full)
+    removed.push(name)
+  }
+
+  if (fs.existsSync(THUMB_DIR)) {
+    const keepThumbs = new Set(
+      [...keep].map((name) => `${path.basename(name, path.extname(name)).toLowerCase()}.webp`),
+    )
+    for (const name of fs.readdirSync(THUMB_DIR)) {
+      if (path.extname(name).toLowerCase() !== '.webp') continue
+      if (keepThumbs.has(name.toLowerCase())) continue
+      fs.unlinkSync(path.join(THUMB_DIR, name))
+      removed.push(`thumbs/${name}`)
+    }
+  }
+
+  return removed
+}
+
+function buildThumbs() {
+  const script = path.join(__dirname, '..', '..', 'frontend', 'scripts', 'optimize-menu-thumbs.mjs')
+  const cwd = path.join(__dirname, '..', '..', 'frontend')
+  const result = spawnSync(process.execPath, [script], { cwd, stdio: 'inherit' })
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`Thumbnail script exited ${result.status}`)
+  }
 }
 
 async function main() {
   const db = pool
 
-  console.log('1/4  Backfilling order_items.item_name from menu_items…')
+  console.log('1/6  Backfilling order_items.item_name from menu_items…')
   const [backfill] = await db.query(`
     UPDATE order_items oi
     JOIN menu_items m ON m.id = oi.menu_item_id
@@ -148,36 +183,55 @@ async function main() {
     throw new Error(`Aborting: ${remaining.c} order line item(s) still have no preserved name.`)
   }
 
-  console.log('2/4  Widening menu_items.category…')
-  const enumValues = CATEGORIES.map((c) => `'${c}'`).join(',')
-  await db.query(`ALTER TABLE menu_items MODIFY category ENUM(${enumValues}) NOT NULL`)
-  console.log(`     categories: ${CATEGORIES.join(', ')}`)
+  console.log('2/6  Copying photos (typos in drop-folder names are mapped)…')
+  const keepFiles = copyPhotos()
+  console.log(`     copied ${keepFiles.length} photo(s)`)
 
-  console.log('3/4  Matching photos to url-safe file names…')
-  const { renamed } = renamePhotos()
-  console.log(`     renamed ${renamed} file(s); ${MENU.length} photo(s) ready`)
+  console.log('3/6  Ensuring categories and price columns…')
+  await ensureMenuItemsSchema(db)
 
-  console.log('4/4  Replacing menu items…')
+  console.log('4/6  Replacing the full menu…')
   await db.query('DELETE FROM menu_items')
-  await db.query('ALTER TABLE menu_items AUTO_INCREMENT = 1')
 
-  for (const [, clean, name, category, price] of MENU) {
-    const photoPath = path.join(IMAGE_DIR, clean)
-    if (!fs.existsSync(photoPath)) {
-      throw new Error(`Photo still missing after rename: ${clean}`)
-    }
+  for (const drink of DRINKS) {
     await db.query(
-      'INSERT INTO menu_items (name, category, price, image_url, is_available) VALUES (?, ?, ?, ?, 1)',
-      [name, category, price, `${PUBLIC_PREFIX}/${clean}`],
+      `INSERT INTO menu_items (name, category, price, hot_price, iced_price, image_url, is_available)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [
+        drink.name,
+        drink.category,
+        displayPrice(drink.hot, drink.iced),
+        drink.hot,
+        drink.iced,
+        `${PUBLIC_PREFIX}/${drink.file}`,
+      ],
     )
   }
 
-  const [[count]] = await db.query('SELECT COUNT(*) AS c FROM menu_items')
-  const [[withImg]] = await db.query('SELECT COUNT(*) AS c FROM menu_items WHERE image_url IS NOT NULL')
-  console.log(`\nDone. ${count.c} menu items, ${withImg.c} with photos.`)
+  for (const item of [...COLD_DRINKS, ...BEERS, ...FOOD]) {
+    await db.query(
+      `INSERT INTO menu_items (name, category, price, hot_price, iced_price, image_url, is_available)
+       VALUES (?, ?, ?, NULL, NULL, ?, 1)`,
+      [item.name, item.category, item.price, `${PUBLIC_PREFIX}/${item.file}`],
+    )
+  }
 
-  const [byCat] = await db.query('SELECT category, COUNT(*) AS c FROM menu_items GROUP BY category ORDER BY category')
-  byCat.forEach((r) => console.log(`  ${r.category}: ${r.c}`))
+  console.log('5/6  Removing leftover old menu images…')
+  const removed = removeOldPhotos(keepFiles)
+  console.log(`     deleted ${removed.length} old file(s)`)
+
+  console.log('6/6  Building POS thumbnails…')
+  buildThumbs()
+
+  const [[count]] = await db.query('SELECT COUNT(*) AS c FROM menu_items')
+  console.log(`\nDone. ${count.c} menu items. Dried fish and signature mocktails were skipped.`)
+
+  const [byCat] = await db.query(
+    `SELECT category, COUNT(*) AS c FROM menu_items
+     GROUP BY category
+     ORDER BY ${menuCategoryFieldSql()}`,
+  )
+  byCat.forEach((row) => console.log(`  ${row.category}: ${row.c}`))
 }
 
 main()

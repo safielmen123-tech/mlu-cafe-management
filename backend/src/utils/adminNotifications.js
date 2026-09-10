@@ -60,12 +60,13 @@ function toAlert(row) {
   const meta = parseMeta(row.meta)
   const type = String(row.type || '')
 
-  if (type === 'reservation_3d' || type === 'reservation_1d') {
+  if (type === 'reservation_1d' || type === 'reservation_3d') {
+    // reservation_3d is legacy; new reminders are 1 day only.
     return {
       id: `reservation-${row.id}`,
       notificationId: row.id,
       category: 'reservation',
-      severity: type === 'reservation_1d' ? 'warning' : 'info',
+      severity: 'warning',
       title: row.title,
       message: row.message,
       timestamp: row.created_at,
@@ -123,7 +124,9 @@ async function listUnreadUserAlerts(db, recipientUserId) {
   const [rows] = await db.execute(
     `SELECT id, recipient_user_id, type, title, message, meta, is_read, created_at
      FROM admin_notifications
-     WHERE recipient_user_id = ? AND is_read = 0
+     WHERE recipient_user_id = ?
+       AND is_read = 0
+       AND type <> 'reservation_3d'
      ORDER BY created_at DESC
      LIMIT 50`,
     [recipientUserId],

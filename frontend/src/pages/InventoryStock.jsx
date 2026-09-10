@@ -23,6 +23,13 @@ const barColors = {
   'Out of Stock': 'from-red-400 to-red-500',
 }
 
+const STATUS_I18N_KEYS = {
+  'In Stock': 'statuses.inStock',
+  'Low Stock': 'statuses.lowStock',
+  'Very Low Stock': 'statuses.veryLowStock',
+  'Out of Stock': 'statuses.outOfStock',
+}
+
 function getStatus(item) {
   const stock = Number(item.stock_quantity)
   if (stock === 0) return 'Out of Stock'
@@ -50,17 +57,6 @@ function getFillPercent(item) {
   return Math.min(100, (Number(item.stock_quantity) / Number(item.max_stock)) * 100)
 }
 
-function getModalLabels(item) {
-  const units = item.unit_label
-  return {
-    add: `Enter number of ${units} to add`,
-    addHint: `Adds to current stock (max ${item.max_stock} ${units}).`,
-    override: `Set current count on hand (${units})`,
-    overrideHint: 'Overrides the database count completely.',
-    overridePlaceholder: `Current: ${formatAmount(item.stock_quantity, item.is_weight)} ${units}`,
-  }
-}
-
 function StockGauge({ item }) {
   const status = getStatus(item)
   const fill = getFillPercent(item)
@@ -79,6 +75,8 @@ function StockGauge({ item }) {
 }
 
 function InventoryTable({ items, onRestock, isLoading }) {
+  const { t } = useTranslation()
+
   if (isLoading) {
     return (
       <div className="space-y-2 px-6 py-6">
@@ -92,7 +90,7 @@ function InventoryTable({ items, onRestock, isLoading }) {
   if (items.length === 0) {
     return (
       <div className="px-6 py-10 text-center">
-        <p className="text-muted text-sm">No items match your search filters.</p>
+        <p className="text-muted text-sm">{t('inventory.noMatches')}</p>
       </div>
     )
   }
@@ -102,12 +100,12 @@ function InventoryTable({ items, onRestock, isLoading }) {
       <table className="w-full min-w-[720px] text-left text-sm">
         <thead>
           <tr className="table-head">
-            <th className="px-6 py-3">Item Name</th>
-            <th className="px-6 py-3">Category</th>
-            <th className="px-6 py-3">Stock On Hand</th>
-            <th className="px-6 py-3">Unit</th>
-            <th className="px-6 py-3">Status</th>
-            <th className="px-6 py-3">Action</th>
+            <th className="px-6 py-3">{t('inventory.itemName')}</th>
+            <th className="px-6 py-3">{t('common.category')}</th>
+            <th className="px-6 py-3">{t('inventory.stockOnHand')}</th>
+            <th className="px-6 py-3">{t('inventory.unit')}</th>
+            <th className="px-6 py-3">{t('common.status')}</th>
+            <th className="px-6 py-3">{t('common.action')}</th>
           </tr>
         </thead>
         <tbody className="table-divider">
@@ -127,7 +125,7 @@ function InventoryTable({ items, onRestock, isLoading }) {
                 </td>
                 <td className="px-6 py-4">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 transition-colors duration-300 ${statusStyles[status]}`}>
-                    {status}
+                    {t(STATUS_I18N_KEYS[status])}
                   </span>
                 </td>
                 <td className="px-6 py-4">
@@ -137,7 +135,7 @@ function InventoryTable({ items, onRestock, isLoading }) {
                     className="btn-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs"
                   >
                     <PackagePlus className="h-3.5 w-3.5" />
-                    Restock
+                    {t('inventory.restock')}
                   </button>
                 </td>
               </tr>
@@ -150,10 +148,11 @@ function InventoryTable({ items, onRestock, isLoading }) {
 }
 
 function RestockModal({ item, onClose, onSave }) {
+  const { t } = useTranslation()
   const [quantityToAdd, setQuantityToAdd] = useState('')
   const [stockOverride, setStockOverride] = useState('')
   const [error, setError] = useState('')
-  const labels = getModalLabels(item)
+  const units = item.unit_label
   const step = item.is_weight ? 0.1 : 1
 
   const panelRef = useModalKeyboard({
@@ -186,7 +185,7 @@ function RestockModal({ item, onClose, onSave }) {
     const hasQuantity = quantityToAdd.trim() !== ''
 
     if (!hasOverride && !hasQuantity) {
-      setError('Enter an amount to add or set the current stock on hand.')
+      setError(t('inventory.amountRequired'))
       return
     }
 
@@ -195,7 +194,7 @@ function RestockModal({ item, onClose, onSave }) {
       : currentStock + Number(quantityToAdd)
 
     if (Number.isNaN(nextStock) || nextStock < 0) {
-      setError('Amount must be a valid number.')
+      setError(t('inventory.invalidAmount'))
       return
     }
 
@@ -216,9 +215,9 @@ function RestockModal({ item, onClose, onSave }) {
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-heading text-lg">Restock Item</h3>
+            <h3 className="text-heading text-lg">{t('inventory.restockItem')}</h3>
             <p className="text-muted mt-1 text-sm">
-              Adjust stock for <span className="font-semibold text-forest-600 dark:text-forest-400">{item.item_name}</span>
+              {t('inventory.adjustStockFor', { item: item.item_name })}
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-stone-400">
@@ -229,11 +228,11 @@ function RestockModal({ item, onClose, onSave }) {
         <div className="surface-inset mt-5 space-y-3 px-4 py-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-muted text-xs">Current on hand</p>
+              <p className="text-muted text-xs">{t('inventory.currentOnHand')}</p>
               <p className="text-heading text-lg font-bold tabular-nums">{formatStockDisplay(item)}</p>
             </div>
             <div className="text-right">
-              <p className="text-muted text-xs">After update</p>
+              <p className="text-muted text-xs">{t('inventory.afterUpdate')}</p>
               <p className="text-lg font-bold tabular-nums text-forest-600 dark:text-forest-400">{formatStockDisplay(previewItem)}</p>
             </div>
           </div>
@@ -241,7 +240,9 @@ function RestockModal({ item, onClose, onSave }) {
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
-            <label htmlFor="quantity-to-add" className="mb-1.5 block text-sm font-medium">{labels.add}</label>
+            <label htmlFor="quantity-to-add" className="mb-1.5 block text-sm font-medium">
+              {t('inventory.enterUnitsToAdd', { units })}
+            </label>
             <input
               id="quantity-to-add"
               type="number"
@@ -249,13 +250,16 @@ function RestockModal({ item, onClose, onSave }) {
               step={step}
               value={quantityToAdd}
               onChange={(e) => { setQuantityToAdd(e.target.value); setStockOverride(''); setError(''); }}
-              placeholder={item.is_weight ? 'e.g. 2.5' : 'e.g. 10'}
+              placeholder={item.is_weight ? t('inventory.weightPlaceholder') : t('inventory.countPlaceholder')}
               className="input-field"
             />
           </div>
 
           <div>
-            <label htmlFor="stock-override" className="mb-1.5 block text-sm font-medium">{labels.override} <span className="font-normal text-stone-400">(optional)</span></label>
+            <label htmlFor="stock-override" className="mb-1.5 block text-sm font-medium">
+              {t('inventory.setCurrentCount', { units })}{' '}
+              <span className="font-normal text-stone-400">{t('common.optional')}</span>
+            </label>
             <input
               id="stock-override"
               type="number"
@@ -263,7 +267,10 @@ function RestockModal({ item, onClose, onSave }) {
               step={step}
               value={stockOverride}
               onChange={(e) => { setStockOverride(e.target.value); setQuantityToAdd(''); setError(''); }}
-              placeholder={labels.overridePlaceholder}
+              placeholder={t('inventory.currentPlaceholder', {
+                amount: formatAmount(item.stock_quantity, item.is_weight),
+                units,
+              })}
               className="input-field"
             />
           </div>
@@ -271,8 +278,8 @@ function RestockModal({ item, onClose, onSave }) {
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2.5 text-sm">Cancel</button>
-            <button type="submit" className="btn-primary flex-1 py-2.5 text-sm">Update Stock</button>
+            <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2.5 text-sm">{t('common.cancel')}</button>
+            <button type="submit" className="btn-primary flex-1 py-2.5 text-sm">{t('inventory.updateStock')}</button>
           </div>
         </form>
       </div>
@@ -343,20 +350,20 @@ export default function InventoryStock() {
     <div className="space-y-8">
       {usingFallbackInventory && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
-          Showing offline inventory data. Reconnect the backend to sync live stock levels.
+          {t('inventory.offlineData')}
         </div>
       )}
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-heading text-lg">{t('nav.inventoryStock')}</h3>
-          <p className="text-muted text-sm">Countable supplies and fresh ingredients with real capacity limits.</p>
+          <p className="text-muted text-sm">{t('inventory.subtitle')}</p>
         </div>
         <div className="relative max-w-xs flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
           <input
             type="text"
-            placeholder="Search inventory..."
+            placeholder={t('inventory.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-field pl-10"
@@ -370,8 +377,8 @@ export default function InventoryStock() {
             <Package className="h-5 w-5 text-forest-600 dark:text-forest-400" />
           </div>
           <div>
-            <h4 className="text-heading text-base font-semibold">Bar & Packaging Supplies (Countable)</h4>
-            <p className="text-muted mt-0.5 text-sm">Tracked by individual units — bottles, boxes, bags, and packs.</p>
+            <h4 className="text-heading text-base font-semibold">{t('inventory.countableTitle')}</h4>
+            <p className="text-muted mt-0.5 text-sm">{t('inventory.countableDescription')}</p>
           </div>
         </div>
         <InventoryTable items={countableItems} onRestock={setRestockItem} isLoading={isLoading} />
@@ -383,8 +390,8 @@ export default function InventoryStock() {
             <Scale className="h-5 w-5 text-forest-600 dark:text-forest-400" />
           </div>
           <div>
-            <h4 className="text-heading text-base font-semibold">Kitchen & Fresh Ingredients (Uncountable)</h4>
-            <p className="text-muted mt-0.5 text-sm">Tracked by raw weight in kilograms (kg).</p>
+            <h4 className="text-heading text-base font-semibold">{t('inventory.uncountableTitle')}</h4>
+            <p className="text-muted mt-0.5 text-sm">{t('inventory.uncountableDescription')}</p>
           </div>
         </div>
         <InventoryTable items={uncountableItems} onRestock={setRestockItem} isLoading={isLoading} />

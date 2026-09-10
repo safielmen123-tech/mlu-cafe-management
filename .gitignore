@@ -6,3 +6,7 @@ node_modules/
 frontend/dist/
 backend/node_modules/
 frontend/node_modules/
+
+# Incoming menu photos (drop files here; do not commit camera originals)
+menu-photos/*
+!menu-photos/README.txt

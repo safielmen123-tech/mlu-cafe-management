@@ -13,17 +13,57 @@ import {
 import { usePOS } from '../context/POSContext'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
+import { TABLE_STATUS_META } from '../data/tables'
 
 import MenuItemImage from '../components/menu/MenuItemImage'
 import SugarLevelModal from '../components/pos/SugarLevelModal'
 import {
+  formatMenuPrice,
+  hasServingOptions,
+} from '../utils/drinkOptions'
+import {
+  formatDrinkNotes,
   formatItemDisplayName,
-  formatSugarNote,
   lineIdentity,
   needsSugarLevel,
 } from '../utils/sugarLevel'
 
-const CATEGORY_FILTERS = ['All', 'Coffee', 'Bakery', 'Cold Drinks', 'Food']
+const CATEGORY_FILTERS = [
+  { id: 'All', labelKey: 'order.categories.all' },
+  { id: 'Coffee', labelKey: 'order.categories.coffee' },
+  { id: 'Tea', labelKey: 'order.categories.tea' },
+  { id: 'Cold Drinks', labelKey: 'order.categories.coldDrinks' },
+  { id: 'Beer', labelKey: 'order.categories.beer' },
+  { id: 'Starters', labelKey: 'order.categories.starters' },
+  { id: 'Mains', labelKey: 'order.categories.mains' },
+  { id: 'Soup', labelKey: 'order.categories.soup' },
+  { id: 'Vegetable', labelKey: 'order.categories.vegetable' },
+  { id: 'Dessert', labelKey: 'order.categories.dessert' },
+]
+
+const CATEGORY_LABEL_KEYS = {
+  Coffee: 'order.categories.coffee',
+  Tea: 'order.categories.tea',
+  'Cold Drinks': 'order.categories.coldDrinks',
+  Beer: 'order.categories.beer',
+  Starters: 'order.categories.starters',
+  Mains: 'order.categories.mains',
+  Soup: 'order.categories.soup',
+  Vegetable: 'order.categories.vegetable',
+  Dessert: 'order.categories.dessert',
+}
+
+function categoryLabel(category, t) {
+  const key = CATEGORY_LABEL_KEYS[category]
+  return key ? t(key) : category
+}
+
+function statusSuffix(status, t) {
+  if (!status || status === 'empty') return ''
+  const labelKey = TABLE_STATUS_META[status]?.labelKey
+  const label = labelKey ? t(labelKey) : status.replace('_', ' ')
+  return ` (${label})`
+}
 
 export default function Order() {
   const { t } = useTranslation()
@@ -101,12 +141,16 @@ export default function Order() {
     const notes = options.notes != null ? String(options.notes) : item.notes || ''
     const originalName = item.originalName || item.name
     const menuItemId = item.menu_item_id ?? item.id
+    const price = Number(options.price ?? item.price ?? 0)
     const lineItem = {
       ...item,
       originalName,
       name: formatItemDisplayName(originalName, notes),
       notes,
       sugarLevel: options.sugarLevel || item.sugarLevel || null,
+      serving: options.serving || item.serving || null,
+      price,
+      unitPrice: price,
       menu_item_id: menuItemId,
       id: lineIdentity({ menu_item_id: menuItemId, notes }),
       quantity: 1,
@@ -127,18 +171,20 @@ export default function Order() {
   }
 
   const handleMenuItemClick = (item) => {
-    if (needsSugarLevel(item)) {
+    if (needsSugarLevel(item) || hasServingOptions(item)) {
       setSugarItem(item)
       return
     }
     addToCart(item)
   }
 
-  const handleSugarConfirm = ({ sugarLevel, extraNotes }) => {
+  const handleSugarConfirm = ({ serving, sugarLevel, extraNotes, teaFlavor, price }) => {
     if (!sugarItem) return
     addToCart(sugarItem, {
+      serving,
       sugarLevel,
-      notes: formatSugarNote(sugarLevel, extraNotes),
+      price,
+      notes: formatDrinkNotes({ serving, sugarLevel, extraNotes, teaFlavor }),
     })
     setSugarItem(null)
   }
@@ -162,14 +208,14 @@ export default function Order() {
   const handleSendOrder = () => {
     if (!selectedDestination || cart.length === 0) return
 
-    const target = assignmentTargets.find((t) => String(t.id) === selectedDestination)
+    const target = assignmentTargets.find((entry) => String(entry.id) === selectedDestination)
     const success = assignOrder(
       target?.isTakeOut ? 'takeout' : Number(selectedDestination),
       cart,
     )
 
     if (success) {
-      setSentConfirmation(target?.name ?? 'Table')
+      setSentConfirmation(target?.name ?? t('order.fallbackDestination'))
       setCart([])
       setSelectedDestination('')
       setTimeout(() => setSentConfirmation(null), 2500)
@@ -180,13 +226,12 @@ export default function Order() {
   const total = subtotal
 
   const destinationLabel =
-    assignmentTargets.find((t) => String(t.id) === selectedDestination)?.name ?? null
+    assignmentTargets.find((entry) => String(entry.id) === selectedDestination)?.name ?? null
 
   return (
     <div className="flex h-[calc(100vh-5rem)] min-h-0 flex-col overflow-hidden page-enter">
-      <div className="mb-6 shrink-0">
+      <div className="mb-3 shrink-0">
         <h3 className="page-title">{t('nav.order')}</h3>
-        <p className="page-subtitle">Build orders and send them to tables or take out</p>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden lg:flex-row">
@@ -194,8 +239,7 @@ export default function Order() {
         <div className="surface-panel flex min-h-0 flex-1 flex-col overflow-hidden shadow-sm">
           <div className="shrink-0 space-y-4 border-b border-slate-100 px-5 py-5 dark:border-zinc-800">
             <div>
-              <h3 className="text-heading font-semibold">Select Items</h3>
-              <p className="text-muted text-sm">Tap a card to add it to the current order</p>
+              <h3 className="text-heading font-semibold">{t('order.selectItems')}</h3>
             </div>
 
             <div className="relative">
@@ -204,26 +248,26 @@ export default function Order() {
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search menu..."
+                placeholder={t('order.searchMenu')}
                 className="w-full rounded-xl border border-slate-100 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
               />
             </div>
 
             <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {CATEGORY_FILTERS.map((category) => {
-                const isActive = activeCategory === category
+              {CATEGORY_FILTERS.map(({ id, labelKey }) => {
+                const isActive = activeCategory === id
                 return (
                   <button
-                    key={category}
+                    key={id}
                     type="button"
-                    onClick={() => setActiveCategory(category)}
+                    onClick={() => setActiveCategory(id)}
                     className={
                       isActive
-                        ? 'shrink-0 rounded-full bg-[#10b981] px-4 py-1.5 text-sm font-medium text-white shadow-sm'
-                        : 'shrink-0 rounded-full bg-slate-100 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+                        ? 'shrink-0 rounded-full bg-forest-500 px-4 py-1.5 text-sm font-medium text-white shadow-sm'
+                        : 'shrink-0 rounded-full bg-cocoa-50 px-4 py-1.5 text-sm text-cocoa-800 hover:bg-cocoa-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
                     }
                   >
-                    {category}
+                    {t(labelKey)}
                   </button>
                 )
               })}
@@ -237,7 +281,7 @@ export default function Order() {
                   key={item.id}
                   type="button"
                   onClick={() => handleMenuItemClick(item)}
-                  className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-100 bg-white p-4 text-left transition-all hover:border-emerald-500/50 hover:shadow-md dark:border-zinc-800/80 dark:bg-zinc-900"
+                  className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-cocoa-100 bg-white p-4 text-left transition-colors hover:border-forest-400 hover:shadow-sm dark:border-zinc-800/80 dark:bg-zinc-900"
                 >
                   <div className="flex justify-center">
                     <MenuItemImage
@@ -253,31 +297,31 @@ export default function Order() {
                       {item.name}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-400 dark:text-zinc-500">
-                      {item.category}
+                      {categoryLabel(item.category, t)}
                     </p>
                   </div>
 
-                  <p className="mt-2 text-center text-base font-bold text-[#10b981]">
-                    ${Number(item.price).toFixed(2)}
+                    <p className="mt-2 text-center text-base font-bold text-forest-600">
+                    {formatMenuPrice(item)}
                   </p>
                 </button>
               ))}
 
               {usingFallbackMenu && menuItems.length > 0 && (
                 <div className="col-span-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
-                  Showing offline menu data. Reconnect the backend to sync live items.
+                  {t('order.offlineMenu')}
                 </div>
               )}
 
               {menuItems.length === 0 && (
                 <div className="col-span-full py-12 text-center text-sm text-slate-400 dark:text-zinc-500">
-                  No items loaded. Make sure your backend server is online!
+                  {t('order.noItemsLoaded')}
                 </div>
               )}
 
               {menuItems.length > 0 && filteredMenuItems.length === 0 && (
                 <div className="col-span-full py-12 text-center text-sm text-slate-400 dark:text-zinc-500">
-                  No items match your search or category filter.
+                  {t('order.noFilteredItems')}
                 </div>
               )}
             </div>
@@ -289,15 +333,15 @@ export default function Order() {
           <div className="shrink-0 border-b border-slate-100 px-5 py-5 dark:border-zinc-800">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-heading font-semibold">Current Order</h3>
-                <p className="text-muted text-sm">{cart.length} item line(s)</p>
+                <h3 className="text-heading font-semibold">{t('order.currentOrder')}</h3>
+                <p className="text-muted text-sm">{t('order.itemLines', { count: cart.length })}</p>
               </div>
               {cart.length > 0 && !sentConfirmation && (
                 <button
                   type="button"
                   onClick={clearCart}
                   className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-                  aria-label="Clear cart"
+                  aria-label={t('a11y.clearCart')}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -311,14 +355,16 @@ export default function Order() {
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
                   <CheckCircle2 className="h-8 w-8 text-[#10b981]" />
                 </div>
-                <p className="text-heading mt-4 text-lg font-semibold">Sent to {sentConfirmation}</p>
-                <p className="text-muted mt-1 text-sm">Order added to the active bill</p>
+                <p className="text-heading mt-4 text-lg font-semibold">
+                  {t('order.sentTo', { destination: sentConfirmation })}
+                </p>
+                <p className="text-muted mt-1 text-sm">{t('order.addedToBill')}</p>
               </div>
             ) : cart.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center text-center text-slate-400 dark:text-zinc-500">
                 <Receipt className="mb-3 h-10 w-10 opacity-40" />
-                <p className="text-sm">No items in cart yet</p>
-                <p className="mt-1 text-xs">Select items from the grid to begin</p>
+                <p className="text-sm">{t('order.emptyCart')}</p>
+                <p className="mt-1 text-xs">{t('order.emptyCartHint')}</p>
               </div>
             ) : (
               cart.map((item) => (
@@ -334,7 +380,7 @@ export default function Order() {
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">{item.notes}</p>
                     ) : null}
                     <p className="mt-0.5 text-sm font-medium text-[#10b981]">
-                      ${Number(item.price).toFixed(2)} each
+                      {t('order.each', { price: `$${Number(item.price).toFixed(2)}` })}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -342,7 +388,7 @@ export default function Order() {
                       type="button"
                       onClick={() => updateQuantity(item.id, -1)}
                       className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 active:scale-95 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                      aria-label={`Decrease ${item.name}`}
+                      aria-label={t('a11y.decreaseItem', { item: item.originalName || item.name })}
                     >
                       <Minus className="h-4 w-4" />
                     </button>
@@ -353,7 +399,7 @@ export default function Order() {
                       type="button"
                       onClick={() => updateQuantity(item.id, 1)}
                       className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 active:scale-95 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                      aria-label={`Increase ${item.name}`}
+                      aria-label={t('a11y.increaseItem', { item: item.originalName || item.name })}
                     >
                       <Plus className="h-4 w-4" />
                     </button>
@@ -367,11 +413,11 @@ export default function Order() {
             <div className="mt-auto shrink-0 border-t border-slate-100 p-5 dark:border-zinc-800">
               <div className="space-y-2 text-sm select-none">
                 <div className="flex justify-between text-slate-500 dark:text-zinc-400">
-                  <span>Subtotal</span>
+                  <span>{t('common.subtotal')}</span>
                   <span className="tabular-nums">${subtotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between border-t border-slate-100 pt-2 text-lg font-semibold text-slate-900 dark:border-zinc-800 dark:text-zinc-100">
-                  <span>Total</span>
+                  <span>{t('common.total')}</span>
                   <span className="tabular-nums text-[#10b981]">${total.toFixed(2)}</span>
                 </div>
               </div>
@@ -382,7 +428,7 @@ export default function Order() {
                   className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-zinc-300"
                 >
                   <UtensilsCrossed className="h-4 w-4 text-[#10b981]" />
-                  Table Assignment
+                  {t('order.tableAssignment')}
                 </label>
                 <select
                   id="table-destination"
@@ -390,32 +436,32 @@ export default function Order() {
                   onChange={(e) => setSelectedDestination(e.target.value)}
                   className="input-field rounded-xl"
                 >
-                  <option value="">Select table or take out...</option>
-                  <optgroup label="Standard tables">
+                  <option value="">{t('order.selectDestination')}</option>
+                  <optgroup label={t('tables.standardTables')}>
                     {assignmentTargets
                       .filter((table) => !table.isTakeOut && table.section !== 'vip' && !String(table.name).startsWith('VIP'))
                       .map((table) => (
                         <option key={table.id} value={table.id}>
                           {table.name}
-                          {table.status !== 'empty' ? ` (${table.status.replace('_', ' ')})` : ''}
+                          {statusSuffix(table.status, t)}
                         </option>
                       ))}
                   </optgroup>
-                  <optgroup label="VIP rooms">
+                  <optgroup label={t('tables.vipRooms')}>
                     {assignmentTargets
                       .filter((table) => table.section === 'vip' || String(table.name).startsWith('VIP'))
                       .map((table) => (
                         <option key={table.id} value={table.id}>
                           {table.name}
-                          {table.status !== 'empty' ? ` (${table.status.replace('_', ' ')})` : ''}
+                          {statusSuffix(table.status, t)}
                         </option>
                       ))}
                   </optgroup>
-                  <optgroup label="Take Out">
+                  <optgroup label={t('tables.takeOut')}>
                     <option value="takeout">
-                      Take Out
-                      {assignmentTargets.find((t) => t.isTakeOut)?.status !== 'empty'
-                        ? ' (active ticket)'
+                      {t('tables.takeOut')}
+                      {assignmentTargets.find((entry) => entry.isTakeOut)?.status !== 'empty'
+                        ? ` ${t('order.activeTicketSuffix')}`
                         : ''}
                     </option>
                   </optgroup>
@@ -429,11 +475,13 @@ export default function Order() {
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10b981] py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send className="h-4 w-4" />
-                {destinationLabel ? `Send to ${destinationLabel}` : 'Confirm Order'}
+                {destinationLabel
+                  ? t('order.sendTo', { destination: destinationLabel })
+                  : t('order.confirmOrder')}
               </button>
 
               <p className="mt-3 text-center text-xs text-slate-400 dark:text-zinc-500">
-                Payment is processed from the Table view after service.
+                {t('order.paymentAfterService')}
               </p>
             </div>
           )}

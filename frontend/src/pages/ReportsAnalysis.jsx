@@ -24,6 +24,7 @@ import { usePOS } from '../context/POSContext'
 import { useTheme } from '../context/ThemeContext'
 import { apiFetch } from '../services/apiClient'
 import {
+  DEFAULT_HISTORY_DAYS,
   buildMonthFilterOptions,
   filterCompletedOrders,
   filterOrdersByMonth,
@@ -36,6 +37,20 @@ import {
   summarizeExpenses,
   summarizeProfit,
 } from '../utils/profitAnalytics'
+
+const EXPENSE_CATEGORY_KEYS = {
+  'Inventory Restock': 'inventoryRestock',
+  'Daily Overhead': 'dailyOverhead',
+  Utilities: 'utilities',
+  'Staff / Payroll': 'staffPayroll',
+  Maintenance: 'maintenance',
+  Other: 'other',
+}
+
+function expenseCategoryLabel(category, t) {
+  const key = EXPENSE_CATEGORY_KEYS[category]
+  return key ? t(`expenses.categories.${key}`) : category
+}
 
 function ProfitTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -54,28 +69,40 @@ function ProfitTooltip({ active, payload, label }) {
 }
 
 export default function ReportsAnalysis() {
-  const { t } = useTranslation()
-  const { salesHistory } = usePOS()
+  const { t, i18n } = useTranslation()
+  const { salesHistory, loadSalesHistory } = usePOS()
   const { isDark } = useTheme()
   const [selectedMonth, setSelectedMonth] = useState('all')
   const [expenses, setExpenses] = useState([])
   const [expenseError, setExpenseError] = useState('')
   const [expenseTick, setExpenseTick] = useState(0)
 
-  const monthOptions = useMemo(() => buildMonthFilterOptions(16), [])
+  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
+  const monthOptions = useMemo(
+    () => buildMonthFilterOptions(16, new Date(), dateLocale, t('reports.allMonthsInRange')),
+    [dateLocale, t],
+  )
+
+  useEffect(() => {
+    if (selectedMonth === 'all') {
+      loadSalesHistory({ days: DEFAULT_HISTORY_DAYS })
+    } else {
+      loadSalesHistory({ month: selectedMonth })
+    }
+  }, [selectedMonth, loadSalesHistory])
 
   const loadExpenses = useCallback(async () => {
     setExpenseError('')
     try {
       const response = await apiFetch('/expenses?days=730')
       const data = await response.json().catch(() => [])
-      if (!response.ok) throw new Error(data.message || 'Failed to load expenses')
+      if (!response.ok) throw new Error(data.message || t('reports.errors.loadExpenses'))
       setExpenses(Array.isArray(data) ? data : [])
     } catch (error) {
-      setExpenseError(error.message || 'Could not load spending records.')
+      setExpenseError(error.message || t('reports.errors.couldNotLoadExpenses'))
       setExpenses([])
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadExpenses()
@@ -115,8 +142,10 @@ export default function ReportsAnalysis() {
 
   const chartLabel =
     selectedMonth === 'all'
-      ? 'Monthly income, expenses, and profit'
-      : `Daily income vs spending — ${formatMonthLabel(selectedMonth)}`
+      ? t('reports.monthlyChartTitle')
+      : t('reports.dailyChartTitle', {
+          month: formatMonthLabel(selectedMonth, dateLocale),
+        })
 
   const axisColor = isDark ? '#c2cbc5' : '#57534e'
   const gridColor = isDark ? '#323b36' : '#d5efd5'
@@ -127,32 +156,39 @@ export default function ReportsAnalysis() {
     (point) => point.revenue > 0 || point.expenses > 0,
   )
 
+  const incomeLabel = t('reports.income')
+  const expensesLabel = t('reports.expenses')
+  const profitLabel = t('reports.profit')
+
   const statCards = [
     {
-      label: 'Income',
+      label: incomeLabel,
       value: `$${profit.revenue.toFixed(2)}`,
-      hint: `${profit.orders} completed orders`,
+      hint: t('reports.completedOrders', { count: profit.orders }),
       icon: TrendingUp,
       accent: 'bg-forest-500',
     },
     {
-      label: 'Expenses',
+      label: expensesLabel,
       value: `$${profit.expenses.toFixed(2)}`,
-      hint: `${monthScopedExpenses.length} spending records`,
+      hint: t('reports.spendingRecords', { count: monthScopedExpenses.length }),
       icon: TrendingDown,
       accent: 'bg-amber-700',
     },
     {
-      label: 'Net profit',
+      label: t('reports.netProfit'),
       value: `$${profit.profit.toFixed(2)}`,
-      hint: 'Income minus expenses',
+      hint: t('reports.incomeMinusExpenses'),
       icon: Wallet,
       accent: profit.profit >= 0 ? 'bg-olive-600' : 'bg-red-600',
     },
     {
-      label: 'Orders fulfilled',
+      label: t('reports.ordersFulfilled'),
       value: profit.orders.toString(),
-      hint: selectedMonth === 'all' ? 'All months in range' : formatMonthLabel(selectedMonth),
+      hint:
+        selectedMonth === 'all'
+          ? t('reports.allMonthsInRange')
+          : formatMonthLabel(selectedMonth, dateLocale),
       icon: ShoppingBag,
       accent: 'bg-forest-700',
     },
@@ -163,10 +199,8 @@ export default function ReportsAnalysis() {
   return (
     <div className="space-y-8">
       <div>
-        <h3 className="text-heading text-lg">{t('nav.analysis')}</h3>
-        <p className="text-muted text-sm">
-          Compare income from completed sales with operating expenses to see profit by day or month.
-        </p>
+        <h3 className="text-heading text-lg">{t('nav.reports')}</h3>
+        <p className="text-muted text-sm">{t('reports.subtitle')}</p>
       </div>
 
       <div className="surface-card p-4">
@@ -175,9 +209,7 @@ export default function ReportsAnalysis() {
           onMonthChange={setSelectedMonth}
           monthOptions={monthOptions}
         />
-        <p className="text-muted mt-3 text-sm">
-          Choose a month for a daily view, or keep all months to see the year at a glance.
-        </p>
+        <p className="text-muted mt-3 text-sm">{t('reports.filterHint')}</p>
       </div>
 
       {expenseError ? (
@@ -211,14 +243,14 @@ export default function ReportsAnalysis() {
             </div>
             <div>
               <h4 className="text-heading font-semibold">{chartLabel}</h4>
-              <p className="text-muted text-sm">Income from Sales History, expenses from logged spending</p>
+              <p className="text-muted text-sm">{t('reports.chartDescription')}</p>
             </div>
           </div>
         </div>
         <div className="h-80 p-4">
           {!hasChartValues ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-muted text-sm">No income or expense data for the selected period.</p>
+              <p className="text-muted text-sm">{t('reports.noChartData')}</p>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -235,9 +267,9 @@ export default function ReportsAnalysis() {
                 <YAxis tick={{ fill: axisColor, fontSize: 12 }} />
                 <Tooltip content={<ProfitTooltip />} />
                 <Legend />
-                <Bar dataKey="revenue" name="Income" fill={incomeColor} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" name="Expenses" fill={expenseColor} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="profit" name="Profit" fill={profitColor} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="revenue" name={incomeLabel} fill={incomeColor} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expenses" name={expensesLabel} fill={expenseColor} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="profit" name={profitLabel} fill={profitColor} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -251,14 +283,16 @@ export default function ReportsAnalysis() {
               <Receipt className="h-5 w-5 text-amber-800 dark:text-amber-300" />
             </div>
             <div>
-              <h4 className="text-heading font-semibold">Spending by category</h4>
-              <p className="text-muted text-sm">Where the cafe money went in this period</p>
+              <h4 className="text-heading font-semibold">{t('reports.spendingByCategory')}</h4>
+              <p className="text-muted text-sm">{t('reports.spendingCategoryDescription')}</p>
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {categoryEntries.map(([category, amount]) => (
               <div key={category} className="surface-inset rounded-xl px-4 py-3">
-                <p className="text-muted text-xs uppercase tracking-wider">{category}</p>
+                <p className="text-muted text-xs uppercase tracking-wider">
+                  {expenseCategoryLabel(category, t)}
+                </p>
                 <p className="text-heading mt-1 text-lg font-semibold tabular-nums">${amount.toFixed(2)}</p>
               </div>
             ))}

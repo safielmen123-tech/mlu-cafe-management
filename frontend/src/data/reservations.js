@@ -8,8 +8,9 @@ import {
   nextOpenDate,
 } from '../config/siteData'
 
-export const RESERVATION_STATUSES = ['Pending', 'Confirmed', 'Reserved', 'Seated', 'Completed', 'Canceled']
-export const CHECK_IN_STATUSES = ['Pending', 'Confirmed', 'Reserved']
+export const BOOKING_STATUSES = ['Pending', 'Confirmed', 'Paid']
+export const RESERVATION_STATUSES = [...BOOKING_STATUSES, 'Canceled']
+export const CHECK_IN_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Reserved']
 export const SEATED_STATUS = 'Seated'
 
 /** Default bookable slots (low season). Prefer getTimeSlotsForDate(date) in the UI. */
@@ -20,31 +21,43 @@ export { ALL_TIME_SLOTS, getTimeSlotsForDate, isMonday, nextOpenDate, CLOSED_WEE
 export const RESERVATION_STATUS_META = {
   Pending: {
     label: 'Pending',
+    labelKey: 'statuses.pending',
     badge:
       'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-800/50',
   },
   Confirmed: {
     label: 'Confirmed',
+    labelKey: 'statuses.confirmed',
     badge:
       'bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800/50',
   },
+  Paid: {
+    label: 'Paid',
+    labelKey: 'statuses.paid',
+    badge:
+      'bg-teal-50 text-teal-800 ring-teal-200 dark:bg-teal-950/40 dark:text-teal-200 dark:ring-teal-800/50',
+  },
   Reserved: {
     label: 'Reserved',
+    labelKey: 'statuses.reserved',
     badge:
       'bg-violet-50 text-violet-800 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-800/50',
   },
   Seated: {
     label: 'Seated',
+    labelKey: 'statuses.seated',
     badge:
       'bg-emerald-50 text-emerald-800 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800/50',
   },
   Completed: {
     label: 'Completed',
+    labelKey: 'statuses.completed',
     badge:
       'bg-emerald-50 text-emerald-800 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800/50',
   },
   Canceled: {
     label: 'Canceled',
+    labelKey: 'statuses.canceled',
     badge:
       'bg-stone-100 text-stone-700 ring-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:ring-stone-700',
   },

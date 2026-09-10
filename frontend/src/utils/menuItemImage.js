@@ -24,5 +24,7 @@ export function resolveMenuImageSrc(imageUrl) {
 
 export function resolveMenuImageFallback(imageUrl) {
   const trimmed = String(imageUrl ?? '').trim()
-  return trimmed || MENU_IMAGE_PLACEHOLDER
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  // Camera originals are 2–7 MB. List views must never fall back to them.
+  return MENU_IMAGE_PLACEHOLDER
 }

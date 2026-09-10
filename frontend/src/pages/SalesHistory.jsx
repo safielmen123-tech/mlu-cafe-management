@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Printer, Search } from 'lucide-react'
 import ReceiptModal from '../components/pos/ReceiptModal'
@@ -6,10 +6,12 @@ import { SalesFilterBar } from '../components/ui/SalesFilterBar'
 import { usePOS } from '../context/POSContext'
 import { fetchReceiptTransaction } from '../utils/receiptHelpers'
 import {
+  DEFAULT_HISTORY_DAYS,
   buildMonthFilterOptions,
   filterCompletedOrders,
   filterOrdersByMonth,
   formatMonthLabel,
+  getCurrentMonthKey,
   summarizeSalesMetrics,
 } from '../utils/salesHistoryAnalytics'
 import { formatDateTimeDisplay, sortOrdersByDateTime } from '../utils/dateTimeFormat'
@@ -26,16 +28,56 @@ const paymentStyles = {
   'Bank Scan': 'badge-forest',
 }
 
+function paymentMethodLabel(method, t) {
+  if (method === 'Bank Scan') return t('payment.methods.bankScan')
+  if (method === 'Cash') return t('payment.methods.cash')
+  return method
+}
+
+function statusLabel(status, t) {
+  const key = String(status || '').trim().toLowerCase()
+  if (key === 'completed') return t('statuses.completed')
+  if (key === 'refunded') return t('statuses.refunded')
+  return status
+}
+
 export default function SalesHistory() {
-  const { t } = useTranslation()
-  const { salesHistory } = usePOS()
+  const { t, i18n } = useTranslation()
+  const { salesHistory, loadSalesHistory } = usePOS()
   const [search, setSearch] = useState('')
-  const [selectedMonth, setSelectedMonth] = useState('all')
+  const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthKey())
   const [receiptTransaction, setReceiptTransaction] = useState(null)
   const [printingOrderId, setPrintingOrderId] = useState(null)
   const [receiptError, setReceiptError] = useState('')
 
-  const monthOptions = useMemo(() => buildMonthFilterOptions(16), [])
+  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
+  const monthOptions = useMemo(
+    () => buildMonthFilterOptions(16, new Date(), dateLocale, t('sales.allMonthsInRange')),
+    [dateLocale, t],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadMonthHistory() {
+      try {
+        if (selectedMonth === 'all') {
+          await loadSalesHistory({ days: DEFAULT_HISTORY_DAYS })
+        } else {
+          await loadSalesHistory({ month: selectedMonth })
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load sales history for selected month:', error)
+        }
+      }
+    }
+
+    loadMonthHistory()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedMonth, loadSalesHistory])
 
   const completedHistory = useMemo(
     () => filterCompletedOrders(salesHistory || []),
@@ -71,7 +113,7 @@ export default function SalesHistory() {
       setReceiptTransaction(transaction)
     } catch (error) {
       console.error('Failed to prepare receipt:', error)
-      setReceiptError('Could not load receipt. Please try again.')
+      setReceiptError(t('sales.receiptLoadFailed'))
     } finally {
       setPrintingOrderId(null)
     }
@@ -107,7 +149,9 @@ export default function SalesHistory() {
                 {t('sales.period', { defaultValue: 'Period' })}
               </p>
               <p className="text-heading mt-1 text-sm font-semibold">
-                {selectedMonth === 'all' ? 'All months in range' : formatMonthLabel(selectedMonth)}
+                {selectedMonth === 'all'
+                  ? t('sales.allMonthsInRange')
+                  : formatMonthLabel(selectedMonth, dateLocale)}
               </p>
             </div>
             <div className="surface-inset rounded-xl px-4 py-3">
@@ -148,7 +192,7 @@ export default function SalesHistory() {
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead>
                 <tr className="table-head">
-                  <th className="px-6 py-3">Order ID</th>
+                  <th className="px-6 py-3">{t('sales.orderId')}</th>
                   <th className="px-6 py-3">{t('common.source', { defaultValue: 'Source' })}</th>
                   <th className="px-6 py-3">{t('common.dateTime', { defaultValue: 'Date / Time' })}</th>
                   <th className="px-6 py-3">{t('common.payment', { defaultValue: 'Payment' })}</th>
@@ -189,7 +233,7 @@ export default function SalesHistory() {
                         </td>
                         <td className="px-6 py-4">
                           <span className={`rounded px-2.5 py-1 text-xs font-semibold ${pStyle}`}>
-                            {order.payment}
+                            {paymentMethodLabel(order.payment, t)}
                           </span>
                         </td>
                         <td className="px-6 py-4 font-semibold text-heading tabular-nums">
@@ -199,7 +243,7 @@ export default function SalesHistory() {
                           <span
                             className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${sStyle}`}
                           >
-                            {order.status}
+                            {statusLabel(order.status, t)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">

@@ -50,6 +50,7 @@ export default function MenuItemImage({
         alt={alt}
         width={128}
         height={128}
+        sizes="80px"
         className={`h-full w-full object-cover transition-opacity duration-200 ${
           loaded ? 'opacity-100' : 'opacity-0'
         }`}

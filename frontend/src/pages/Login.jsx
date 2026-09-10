@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Moon, Sun, X } from 'lucide-react'
-import { useTheme } from '../context/ThemeContext'
+import { useTranslation } from 'react-i18next'
+import { X } from 'lucide-react'
+import ThemeToggle from '../components/ui/ThemeToggle'
+import LanguageToggle from '../components/ui/LanguageToggle'
 import { API_BASE } from '../services/apiClient'
 import { consumeConnectionLost } from '../services/sessionStorage'
 import BrandLogo from '../components/common/BrandLogo'
 
 export default function Login({ onLogin }) {
-  const { isDark, toggleTheme } = useTheme()
+  const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
-  const [connectionNotice, setConnectionNotice] = useState('')
+  const [showConnectionNotice, setShowConnectionNotice] = useState(false)
 
   const [resetOpen, setResetOpen] = useState(false)
   const [resetUsername, setResetUsername] = useState('')
@@ -20,7 +22,7 @@ export default function Login({ onLogin }) {
 
   useEffect(() => {
     if (consumeConnectionLost()) {
-      setConnectionNotice('Connection lost. Sign in again to continue.')
+      setShowConnectionNotice(true)
     }
   }, [])
 
@@ -28,12 +30,12 @@ export default function Login({ onLogin }) {
     event.preventDefault()
     if (isLoading) return
     setError('')
-    setConnectionNotice('')
+    setShowConnectionNotice(false)
     setIsLoading(true)
     try {
       await onLogin({ username: email.trim(), password })
     } catch (err) {
-      setError(err.message || 'Login failed. Please try again.')
+      setError(err.message || t('auth.loginFailed'))
     } finally {
       setIsLoading(false)
     }
@@ -58,7 +60,7 @@ export default function Login({ onLogin }) {
 
     const username = resetUsername.trim()
     if (!username) {
-      setResetStatus({ type: 'error', message: 'Please enter your username.' })
+      setResetStatus({ type: 'error', message: t('auth.usernameRequired') })
       return
     }
 
@@ -74,19 +76,17 @@ export default function Login({ onLogin }) {
       const data = await response.json().catch(() => ({}))
 
       if (!response.ok) {
-        throw new Error(data.message || 'Unable to send the reset request.')
+        throw new Error(data.message || t('auth.resetRequestFailed'))
       }
 
       setResetStatus({
         type: 'success',
-        message:
-          data.message ||
-          'If an account exists for that username, a reset request has been sent. An administrator will follow up shortly.',
+        message: data.message || t('auth.resetRequestSent'),
       })
     } catch (err) {
       setResetStatus({
         type: 'error',
-        message: err.message || 'Unable to send the reset request.',
+        message: err.message || t('auth.resetRequestFailed'),
       })
     } finally {
       setResetLoading(false)
@@ -94,43 +94,38 @@ export default function Login({ onLogin }) {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground transition-colors duration-300">
-      <button
-        type="button"
-        onClick={toggleTheme}
-        className="absolute right-8 top-8 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-border/50 bg-card/50 backdrop-blur-sm transition-all hover:border-border hover:bg-card active:scale-95"
-        aria-label="Toggle theme"
-      >
-        {isDark ? (
-          <Sun className="h-5 w-5 text-primary" />
-        ) : (
-          <Moon className="h-5 w-5 text-primary" />
-        )}
-      </button>
+    <div className="relative min-h-screen overflow-x-hidden text-foreground transition-colors duration-300">
+      {/* Calm, on-brand gradient backdrop (replaces the old cafe photo). */}
+      <div className="login-backdrop pointer-events-none fixed inset-0 -z-10" aria-hidden="true" />
 
-      <div className="flex min-h-screen items-center lg:justify-center lg:gap-x-14 lg:px-12 xl:gap-x-16 xl:px-16">
-        <div className="hidden min-h-screen lg:flex lg:flex-1 items-center justify-center py-12">
-          <BrandLogo className="h-auto w-full max-h-[420px] max-w-[360px] object-contain animate-fadeIn" />
+      <div className="absolute right-4 top-4 z-50 flex items-center gap-2 sm:right-8 sm:top-8">
+        <LanguageToggle />
+        <ThemeToggle variant="icon" />
+      </div>
+
+      <div className="login-page relative z-10 mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center gap-x-10 px-4 py-10 sm:px-8 lg:gap-x-16 lg:px-12">
+        <div className="hidden lg:flex lg:w-[42%] lg:items-center lg:justify-center">
+          <BrandLogo glow className="h-auto w-full max-h-[380px] max-w-[320px] object-contain" />
         </div>
 
-        <div className="flex w-full min-h-screen lg:flex-1 items-center justify-center px-6 py-12 sm:px-10 lg:px-0">
-          <div className="w-full max-w-[460px] lg:max-w-[500px]">
+        <div className="flex w-full items-center justify-center lg:w-[58%]">
+          <div className="w-full max-w-[420px]">
             <div className="mb-8 flex justify-center lg:hidden">
-              <BrandLogo className="h-auto w-full max-h-[280px] max-w-[280px] object-contain" />
+              <BrandLogo glow className="h-auto w-full max-h-[180px] max-w-[180px] object-contain sm:max-h-[220px] sm:max-w-[220px]" />
             </div>
 
-            <div className="flex w-full flex-col gap-6 rounded-3xl border border-slate-100 bg-white p-10 shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
-              <h2 className="text-3xl font-light text-slate-900 lg:text-4xl dark:text-zinc-100">
-                Staff POS sign-in
+            <div className="flex w-full flex-col gap-5 rounded-3xl border border-cocoa-100/80 bg-white/70 p-6 shadow-xl shadow-cocoa-900/10 ring-1 ring-white/40 backdrop-blur-xl sm:p-8 dark:border-white/10 dark:bg-zinc-900/55 dark:shadow-black/30 dark:ring-white/10">
+              <h2 className="text-3xl font-semibold tracking-tight text-slate-900 lg:text-4xl dark:text-zinc-50">
+                {t('auth.staffSignIn')}
               </h2>
 
               <form onSubmit={handleSubmit} className="flex flex-col gap-6">
                 <div>
                   <label
                     htmlFor="login-username"
-                    className="mb-2 block text-sm font-medium text-slate-600 lg:text-base dark:text-zinc-400"
+                    className="mb-2 block text-sm font-medium text-slate-700 lg:text-base dark:text-zinc-300"
                   >
-                    Username
+                    {t('auth.username')}
                   </label>
                   <input
                     id="login-username"
@@ -140,16 +135,16 @@ export default function Login({ onLogin }) {
                     required
                     autoComplete="username"
                     disabled={isLoading}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:text-lg dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(248_250_252)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
+                    className="w-full rounded-xl border border-slate-200/80 bg-white/85 px-4 py-3.5 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:text-lg dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(255_255_255_/_0.9)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42_/_0.95)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
                   />
                 </div>
 
                 <div>
                   <label
                     htmlFor="login-password"
-                    className="mb-2 block text-sm font-medium text-slate-600 lg:text-base dark:text-zinc-400"
+                    className="mb-2 block text-sm font-medium text-slate-700 lg:text-base dark:text-zinc-300"
                   >
-                    Password
+                    {t('auth.password')}
                   </label>
                   <input
                     id="login-password"
@@ -159,22 +154,22 @@ export default function Login({ onLogin }) {
                     required
                     autoComplete="current-password"
                     disabled={isLoading}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:text-lg dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(248_250_252)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
+                    className="w-full rounded-xl border border-slate-200/80 bg-white/85 px-4 py-3.5 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:text-lg dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(255_255_255_/_0.9)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42_/_0.95)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
                   />
                   <div className="mt-2.5 flex justify-end">
                     <button
                       type="button"
-                      className="text-sm font-medium text-slate-500 transition-colors hover:text-emerald-600 dark:text-zinc-400 dark:hover:text-emerald-400"
+                      className="text-sm font-medium text-slate-600 transition-colors hover:text-emerald-600 dark:text-zinc-300 dark:hover:text-emerald-400"
                       onClick={openResetModal}
                     >
-                      Forgot password?
+                      {t('auth.forgotPassword')}
                     </button>
                   </div>
                 </div>
 
-                {connectionNotice && !error ? (
+                {showConnectionNotice && !error ? (
                   <p className="text-sm text-amber-700 dark:text-amber-400" role="status">
-                    {connectionNotice}
+                    {t('auth.connectionLost')}
                   </p>
                 ) : null}
 
@@ -187,9 +182,9 @@ export default function Login({ onLogin }) {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="relative w-full overflow-hidden rounded-full bg-[#10b981] py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-[#059669] disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[52px] lg:text-lg"
+                  className="relative w-full overflow-hidden rounded-full bg-forest-500 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-forest-600 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[52px] lg:text-lg"
                 >
-                  <span className={isLoading ? 'opacity-0' : 'opacity-100'}>Login</span>
+                  <span className={isLoading ? 'opacity-0' : 'opacity-100'}>{t('auth.login')}</span>
                   {isLoading ? (
                     <span className="absolute inset-0 flex items-center justify-center">
                       <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -207,7 +202,7 @@ export default function Login({ onLogin }) {
           <button
             type="button"
             className="absolute inset-0 bg-stone-950/50 backdrop-blur-sm"
-            aria-label="Close password reset"
+            aria-label={t('a11y.closePasswordReset')}
             onClick={closeResetModal}
           />
           <div
@@ -220,18 +215,16 @@ export default function Login({ onLogin }) {
               type="button"
               onClick={closeResetModal}
               className="absolute right-4 top-4 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               <X className="h-4 w-4" />
             </button>
 
             <h2 id="reset-title" className="pr-8 text-xl font-semibold text-slate-900 dark:text-zinc-100">
-              Reset password
+              {t('auth.resetPassword')}
             </h2>
             <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">
-              Enter your staff username. Administrator accounts receive a reset email at the recovery
-              inbox. Staff requests create an internal alert on the Admin dashboard with your account
-              details and a temporary password.
+              {t('auth.resetInstructions')}
             </p>
 
             <form onSubmit={handleResetSubmit} className="mt-5 flex flex-col gap-4">
@@ -240,7 +233,7 @@ export default function Login({ onLogin }) {
                   htmlFor="reset-username"
                   className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-zinc-400"
                 >
-                  Username
+                  {t('auth.username')}
                 </label>
                 <input
                   id="reset-username"
@@ -273,7 +266,7 @@ export default function Login({ onLogin }) {
                   onClick={closeResetModal}
                   className="rounded-full px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
-                  Close
+                  {t('common.close')}
                 </button>
                 {resetStatus.type !== 'success' ? (
                   <button
@@ -281,7 +274,7 @@ export default function Login({ onLogin }) {
                     disabled={resetLoading}
                     className="rounded-full bg-[#10b981] px-5 py-2 text-sm font-semibold text-white hover:bg-[#059669] disabled:opacity-50"
                   >
-                    {resetLoading ? 'Sending…' : 'Send reset request'}
+                    {resetLoading ? t('auth.sending') : t('auth.sendResetRequest')}
                   </button>
                 ) : null}
               </div>
@@ -290,10 +283,6 @@ export default function Login({ onLogin }) {
         </div>
       ) : null}
 
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -right-1/4 -top-1/4 h-1/2 w-1/2 rounded-full bg-gradient-to-br from-primary/5 to-accent/5 blur-3xl" />
-        <div className="absolute -left-1/4 -bottom-1/4 h-1/2 w-1/2 rounded-full bg-gradient-to-tr from-accent/5 to-primary/5 blur-3xl" />
-      </div>
     </div>
   )
 }

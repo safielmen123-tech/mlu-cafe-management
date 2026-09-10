@@ -32,8 +32,11 @@ const { createDatabaseDump, restoreDatabaseFromSql } = require('./src/utils/back
 const { parseBackupPeriod, buildBackupFilename } = require('./src/utils/backupPeriod');
 const { buildActiveAlerts } = require('./src/utils/alertEngine');
 const {
-    ensureMenuItemsImageSchema,
+    ensureMenuItemsSchema,
+    menuCategoryFieldSql,
+    normalizeMenuCategory,
     normalizeMenuImageUrl,
+    normalizeMenuPrices,
     serializeMenuItem,
 } = require('./src/utils/menuItemsSchema');
 const { buildSalesReport } = require('./src/utils/reports');
@@ -79,6 +82,7 @@ const {
 } = require('./src/utils/reservations');
 const { processReservationReminders, startReservationReminderJob } = require('./src/utils/reservationReminders');
 const { sendReservationConfirmationLetter } = require('./src/utils/reservationLetter');
+const { getLiveConditions } = require('./src/utils/liveConditions');
 
 const app = express();
 
@@ -138,6 +142,23 @@ app.get('/api/signup', rejectPublicSignup);
 // ==========================================
 app.use('/api', apiLimiter, authenticateToken);
 app.use('/api/auth', privateAuthRouter);
+
+// ==========================================
+// 🛡️ FEATURE-LEVEL AUTHORIZATION GUARDS
+// ------------------------------------------
+// Server-side mirror of the frontend permission model. The UI already hides
+// screens a user cannot access; these guards enforce the same rules on the API
+// so a permission can't be bypassed by calling an endpoint directly. Admins
+// always pass (userHasPermission short-circuits for the admin role).
+// ==========================================
+const requirePosFloorAccess = requireAnyPermission('order', 'payment', 'table');
+const requireOrderWriteAccess = requireAnyPermission('order', 'payment');
+const requireSalesHistoryAccess = requireAnyPermission(
+    'dashboard', 'sales_history', 'reports', 'reports_analysis', 'payment', 'order',
+);
+const requireExpenseAccess = requireAnyPermission('reports', 'reports_analysis');
+const requireExpenseSummaryAccess = requireAnyPermission('dashboard', 'reports', 'reports_analysis');
+const requireDashboardAccess = requirePermission('dashboard');
 
 // ==========================================
 // 👥 EMPLOYEES & USER MANAGEMENT API ROUTES
@@ -348,7 +369,9 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 app.get('/api/menu', async (req, res) => {
     try {
         const [items] = await db.execute(
-            'SELECT id, name, category, price, image_url, is_available FROM menu_items ORDER BY category, name',
+            `SELECT id, name, category, price, hot_price, iced_price, image_url, is_available
+             FROM menu_items
+             ORDER BY ${menuCategoryFieldSql()}, id`,
         );
         res.status(200).json(items.map(serializeMenuItem));
     } catch (error) {
@@ -359,36 +382,46 @@ app.get('/api/menu', async (req, res) => {
 
 // 2. ADD A NEW MENU ITEM (When you click 'Add Item' on your management page)
 app.post('/api/menu', requirePermission('menu'), async (req, res) => {
-    const { name, category, price, image_url } = req.body ?? {};
-    const priceNum = Number(price);
+    const { name, image_url } = req.body ?? {};
+    const category = normalizeMenuCategory(req.body?.category);
+    const prices = normalizeMenuPrices(req.body ?? {}, category);
 
-    if (!name || !category || !Number.isFinite(priceNum) || priceNum < 0) {
-        return res.status(400).json({ message: 'Please fill in all fields (Name, Category, Price)' });
+    if (!name || !category || prices.error) {
+        return res.status(400).json({ message: prices.error || 'Please fill in all fields (Name, Category, Price)' });
     }
 
     const normalizedImageUrl = normalizeMenuImageUrl(image_url);
 
     try {
         const query =
-            'INSERT INTO menu_items (name, category, price, image_url, is_available) VALUES (?, ?, ?, ?, TRUE)';
-        const [result] = await db.execute(query, [name, category, priceNum, normalizedImageUrl]);
+            'INSERT INTO menu_items (name, category, price, hot_price, iced_price, image_url, is_available) VALUES (?, ?, ?, ?, ?, ?, TRUE)';
+        const [result] = await db.execute(query, [
+            name,
+            category,
+            prices.price,
+            prices.hot_price,
+            prices.iced_price,
+            normalizedImageUrl,
+        ]);
 
         await auditFromRequest(db, req, {
             action: 'menu_create',
             module: 'Menu Management',
-            description: `Created menu item "${name}" at $${priceNum.toFixed(2)}`,
+            description: `Created menu item "${name}" at $${prices.price.toFixed(2)}`,
         });
 
         res.status(201).json({
             message: 'Item added successfully!',
-            item: {
+            item: serializeMenuItem({
                 id: result.insertId,
                 name,
                 category,
-                price: priceNum,
+                price: prices.price,
+                hot_price: prices.hot_price,
+                iced_price: prices.iced_price,
                 image_url: normalizedImageUrl,
                 is_available: true,
-            },
+            }),
         });
     } catch (error) {
         console.error('Error adding menu item:', error);
@@ -399,23 +432,32 @@ app.post('/api/menu', requirePermission('menu'), async (req, res) => {
 // 3. EDIT AN EXISTING MENU ITEM (Fixes your click/modify actions)
 app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
-    const { name, category, price, image_url } = req.body ?? {};
-    const priceNum = Number(price);
+    const { name, image_url } = req.body ?? {};
+    const category = normalizeMenuCategory(req.body?.category);
+    const prices = normalizeMenuPrices(req.body ?? {}, category);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ message: 'Invalid menu item id' });
     }
 
-    if (!name || !category || !Number.isFinite(priceNum) || priceNum < 0) {
-        return res.status(400).json({ message: 'Please fill in all fields to complete update' });
+    if (!name || !category || prices.error) {
+        return res.status(400).json({ message: prices.error || 'Please fill in all fields to complete update' });
     }
 
     const normalizedImageUrl = normalizeMenuImageUrl(image_url);
 
     try {
         const query =
-            'UPDATE menu_items SET name = ?, category = ?, price = ?, image_url = ? WHERE id = ?';
-        const [result] = await db.execute(query, [name, category, priceNum, normalizedImageUrl, itemId]);
+            'UPDATE menu_items SET name = ?, category = ?, price = ?, hot_price = ?, iced_price = ?, image_url = ? WHERE id = ?';
+        const [result] = await db.execute(query, [
+            name,
+            category,
+            prices.price,
+            prices.hot_price,
+            prices.iced_price,
+            normalizedImageUrl,
+            itemId,
+        ]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Item not found' });
@@ -424,7 +466,7 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
         await auditFromRequest(db, req, {
             action: 'menu_update',
             module: 'Menu Management',
-            description: `Updated menu item #${itemId} "${name}" (price $${priceNum.toFixed(2)})`,
+            description: `Updated menu item #${itemId} "${name}" (price $${prices.price.toFixed(2)})`,
         });
 
         res.status(200).json({ message: 'Item updated successfully!' });
@@ -467,7 +509,7 @@ app.delete('/api/menu/:id', requirePermission('menu'), async (req, res) => {
 // ==========================================
 
 // 1. GET ACTIVE (PENDING) ORDERS FOR BILL RECONCILIATION
-app.get('/api/orders/active', async (req, res) => {
+app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
     const targetSelect = targetIdSelectSql('o');
     try {
         const query = `
@@ -518,7 +560,7 @@ app.get('/api/orders/active', async (req, res) => {
 });
 
 // 2. DISPATCH/MERGE ORDER ITEMS INTO TARGET TICKETS
-app.post('/api/orders', async (req, res) => {
+app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     const { target_id, items, table_id } = req.body ?? {};
 
     if (!target_id || !Array.isArray(items) || !items.length) {
@@ -580,7 +622,7 @@ app.post('/api/orders', async (req, res) => {
 });
 
 // 3. PROCESS PAYMENT / FINAL TRANSACTION CHECKOUT
-app.post('/api/orders/checkout', async (req, res) => {
+app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) => {
     const {
         invoice_id,
         target_id,
@@ -603,7 +645,6 @@ app.post('/api/orders/checkout', async (req, res) => {
         return res.status(400).json({ message: 'Checkout requires a valid subtotal' });
     }
     const taxNum = 0;
-    const totalNum = subtotalNum;
 
     let target;
     try {
@@ -624,6 +665,20 @@ app.post('/api/orders/checkout', async (req, res) => {
         const resolvedTableId =
             target.sourceType === 'Take Out' ? null : await resolveTableForeignKey(db, table_id ?? target.tableId);
 
+        // Authoritative money: the total is recomputed from the order lines already
+        // persisted for this ticket rather than trusted from the request body. In the
+        // normal flow the client syncs these exact lines immediately before checkout,
+        // so this equals the submitted subtotal to the cent — but a forged or tampered
+        // checkout request can no longer undercharge the bill. Falls back to the
+        // validated request subtotal only when no lines are stored (empty ticket edge).
+        const [billSumRows] = await db.execute(
+            'SELECT COALESCE(SUM(quantity * price), 0) AS computed FROM order_items WHERE order_id = ?',
+            [orderId],
+        );
+        const computedSubtotal = Math.round((Number(billSumRows[0]?.computed) || 0) * 100) / 100;
+        const finalSubtotal = computedSubtotal > 0 ? computedSubtotal : subtotalNum;
+        const finalTotal = finalSubtotal; // tax is 0 in this business model
+
         const checkoutQuery = `
             UPDATE orders
             SET invoice_id = ?, payment_method = ?, payment_type = ?, subtotal = ?, tax = ?, total = ?,
@@ -635,10 +690,10 @@ app.post('/api/orders/checkout', async (req, res) => {
             invoice_id || null,
             method,
             method,
-            subtotalNum,
+            finalSubtotal,
             taxNum,
-            totalNum,
-            totalNum,
+            finalTotal,
+            finalTotal,
             resolvedTableId,
             orderId,
             ...params,
@@ -653,7 +708,7 @@ app.post('/api/orders/checkout', async (req, res) => {
             module: 'Payment',
             description: `Payment received via ${method} for ${
                 target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`
-            } / Invoice ${invoice_id || orderId} ($${totalNum.toFixed(2)})`,
+            } / Invoice ${invoice_id || orderId} ($${finalTotal.toFixed(2)})`,
         });
 
         res.status(200).json({ message: 'Transaction completed and locked successfully.', invoice_id });
@@ -668,7 +723,7 @@ app.post('/api/orders/checkout', async (req, res) => {
 });
 
 // 4. MARK TABLE AS BILL REQUESTED (PENDING BILL STATUS)
-app.post('/api/orders/bill-requested', async (req, res) => {
+app.post('/api/orders/bill-requested', requirePosFloorAccess, async (req, res) => {
     const { target_id } = req.body ?? {};
     if (!target_id) {
         return res.status(400).json({ message: 'Missing target_id' });
@@ -706,7 +761,7 @@ app.post('/api/orders/bill-requested', async (req, res) => {
 });
 
 // 5. SYNC UPDATED BILL LINE ITEMS BEFORE CHECKOUT
-app.put('/api/orders/items', async (req, res) => {
+app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
     const { target_id, items, table_id } = req.body ?? {};
 
     if (!target_id || !Array.isArray(items)) {
@@ -756,10 +811,29 @@ app.put('/api/orders/items', async (req, res) => {
 });
 
 // 6. FETCH COMPLETED SALES HISTORY LOGS
-app.get('/api/orders/history', async (req, res) => {
-    const parsedDays = Number.parseInt(req.query.days, 10);
-    const allowedDayRanges = [30, 60, 90, 120, 180, 365, 730];
-    const days = allowedDayRanges.includes(parsedDays) ? parsedDays : 730;
+app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
+    const monthParam = typeof req.query.month === 'string' ? req.query.month.trim() : '';
+    const monthMatch = /^(\d{4})-(\d{2})$/.exec(monthParam);
+    let dateFilterSql = 'AND updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)';
+    let dateFilterParams = [730];
+
+    if (monthMatch) {
+        const year = Number.parseInt(monthMatch[1], 10);
+        const month = Number.parseInt(monthMatch[2], 10);
+        if (Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12) {
+            const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+            const nextMonth = month === 12 ? 1 : month + 1;
+            const nextYear = month === 12 ? year + 1 : year;
+            const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+            dateFilterSql = 'AND updated_at >= ? AND updated_at < ?';
+            dateFilterParams = [startDate, endDate];
+        }
+    } else {
+        const parsedDays = Number.parseInt(req.query.days, 10);
+        const allowedDayRanges = [30, 60, 90, 120, 180, 365, 730];
+        const days = allowedDayRanges.includes(parsedDays) ? parsedDays : 730;
+        dateFilterParams = [days];
+    }
 
     try {
         const query = `
@@ -779,10 +853,10 @@ app.get('/api/orders/history', async (req, res) => {
                 DATE_FORMAT(updated_at, '%Y-%m') AS month_key
             FROM orders 
             WHERE UPPER(status) IN ('COMPLETED', 'PAID')
-              AND updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+              ${dateFilterSql}
             ORDER BY updated_at DESC
         `;
-        const [historyRows] = await db.execute(query, [days]);
+        const [historyRows] = await db.execute(query, dateFilterParams);
 
         if (historyRows.length === 0) {
             return res.status(200).json([]);
@@ -893,7 +967,7 @@ app.patch('/api/notifications/:id/read', async (req, res) => {
 // 📦 INVENTORY & STOCK MANAGEMENT API ROUTES
 // ==========================================
 
-app.get('/api/inventory', async (req, res) => {
+app.get('/api/inventory', requirePermission('inventory_stock'), async (req, res) => {
     try {
         const [items] = await db.execute('SELECT * FROM inventory ORDER BY section, category, item_name');
         res.status(200).json(items);
@@ -1083,7 +1157,7 @@ app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, 
 // ==========================================
 // 💰 EXPENSE / SPENDING TRACKING
 // ==========================================
-app.get('/api/expenses', async (req, res) => {
+app.get('/api/expenses', requireExpenseAccess, async (req, res) => {
     try {
         const expenses = await listExpenses(db, { days: req.query.days });
         res.status(200).json(expenses);
@@ -1093,7 +1167,7 @@ app.get('/api/expenses', async (req, res) => {
     }
 });
 
-app.get('/api/expenses/summary', async (req, res) => {
+app.get('/api/expenses/summary', requireExpenseSummaryAccess, async (req, res) => {
     try {
         const todaySpending = await summarizeExpensesToday(db);
         res.status(200).json({ todaySpending });
@@ -1103,7 +1177,21 @@ app.get('/api/expenses/summary', async (req, res) => {
     }
 });
 
-app.post('/api/expenses', async (req, res) => {
+app.get('/api/dashboard/live', requireDashboardAccess, async (req, res) => {
+    try {
+        const conditions = await getLiveConditions();
+        res.status(200).json(conditions);
+    } catch (error) {
+        console.error('❌ DASHBOARD LIVE CONDITIONS ERROR:', error.message);
+        res.status(200).json({
+            weather: { ok: false, reason: 'weather_unreachable' },
+            exchange: { ok: false, reason: 'exchange_unreachable' },
+            fetchedAt: new Date().toISOString(),
+        });
+    }
+});
+
+app.post('/api/expenses', requireExpenseAccess, async (req, res) => {
     try {
         const expense = await createExpense(db, req.body ?? {}, req.user);
         await auditFromRequest(db, req, {
@@ -1122,7 +1210,7 @@ app.post('/api/expenses', async (req, res) => {
     }
 });
 
-app.delete('/api/expenses/:id', async (req, res) => {
+app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
     try {
         await deleteExpense(db, req.params.id);
         await auditFromRequest(db, req, {
@@ -1367,7 +1455,7 @@ app.listen(PORT, async () => {
         await ensureInventorySchema(db);
         const restoredSaleDates = await ensureOrdersSchema(db);
         await ensureOrderItemsSchema(db);
-        await ensureMenuItemsImageSchema(db);
+        await ensureMenuItemsSchema(db);
         await ensureExpensesSchema(db);
         await ensureAuditSchema(db);
         await ensureUsersEmailColumn(db);
@@ -1380,7 +1468,7 @@ app.listen(PORT, async () => {
         }
         console.log('   Order timestamps: OK (no ON UPDATE stamp)');
         console.log('   Order items schema: OK');
-        console.log('   Menu items image_url: OK');
+        console.log('   Menu items schema: OK');
         console.log('   Expenses / audit schema: OK');
         console.log('   Floor tables / reservations schema: OK');
         console.log(`   Admin recovery email: ${env.adminEmail}`);

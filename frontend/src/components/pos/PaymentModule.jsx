@@ -1,12 +1,14 @@
 import { Banknote, ScanLine } from 'lucide-react'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 const PAYMENT_METHODS = [
-  { id: 'Cash', label: 'Cash', icon: Banknote },
-  { id: 'Bank Scan', label: 'Bank Scan', icon: ScanLine },
+  { id: 'Cash', labelKey: 'payment.methods.cash', icon: Banknote },
+  { id: 'Bank Scan', labelKey: 'payment.methods.bankScan', icon: ScanLine },
 ]
 
 export default function PaymentModule({ disabled, onConfirm }) {
+  const { t } = useTranslation()
   const [method, setMethod] = useState('Cash')
 
   const handleConfirm = () => {
@@ -18,10 +20,10 @@ export default function PaymentModule({ disabled, onConfirm }) {
     <div className="space-y-4">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
-          Payment Method
+          {t('payment.method')}
         </p>
         <div className="mt-2 grid grid-cols-2 gap-2">
-          {PAYMENT_METHODS.map(({ id, label, icon: Icon }) => {
+          {PAYMENT_METHODS.map(({ id, labelKey, icon: Icon }) => {
             const isActive = method === id
             return (
               <button
@@ -41,7 +43,7 @@ export default function PaymentModule({ disabled, onConfirm }) {
                 <span
                   className={`text-sm font-semibold ${isActive ? 'text-emerald-900 dark:text-emerald-300' : 'text-slate-700 dark:text-zinc-300'}`}
                 >
-                  {label}
+                  {t(labelKey)}
                 </span>
               </button>
             )
@@ -55,7 +57,7 @@ export default function PaymentModule({ disabled, onConfirm }) {
         onClick={handleConfirm}
         className="btn-primary w-full py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Confirm Payment / Complete Order
+        {t('payment.confirmComplete')}
       </button>
     </div>
   )

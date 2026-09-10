@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 
 export default function ConfirmDeleteModal({
@@ -8,8 +9,10 @@ export default function ConfirmDeleteModal({
   itemName,
   onConfirm,
   onCancel,
-  confirmLabel = 'Yes, Delete',
+  confirmLabel,
 }) {
+  const { t } = useTranslation()
+  const resolvedConfirmLabel = confirmLabel || t('common.deleteConfirm')
   const panelRef = useModalKeyboard({
     isOpen,
     onEscape: onCancel,
@@ -23,7 +26,7 @@ export default function ConfirmDeleteModal({
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       <button
         type="button"
-        aria-label="Cancel deletion"
+        aria-label={t('a11y.cancelDeletion')}
         className="modal-backdrop"
         onClick={onCancel}
       />
@@ -57,14 +60,14 @@ export default function ConfirmDeleteModal({
 
         <div className="modal-panel-footer flex gap-3 px-6 pb-6">
           <button type="button" onClick={onCancel} className="btn-secondary flex-1 text-sm">
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="min-h-11 flex-1 rounded-full bg-red-500 text-sm font-medium text-white transition hover:bg-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
           >
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </button>
         </div>
       </div>

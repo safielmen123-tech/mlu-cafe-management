@@ -3,8 +3,17 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 const STORAGE_KEY = 'mlu_kitchen_cafe-app-settings'
 
 const DEFAULT_SETTINGS = {
-  isDarkCanvas: false,
+  isLiquidGlass: false,
   lowStockAlertsEnabled: true,
+}
+
+function applyLiquidGlassToDocument(enabled) {
+  if (typeof document === 'undefined') return
+  if (enabled) {
+    document.documentElement.setAttribute('data-liquid-glass', 'on')
+  } else {
+    document.documentElement.removeAttribute('data-liquid-glass')
+  }
 }
 
 function readStoredSettings() {
@@ -13,8 +22,12 @@ function readStoredSettings() {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS }
     const parsed = JSON.parse(raw)
+    // Prefer isLiquidGlass; migrate legacy isDarkCanvas if present
+    const isLiquidGlass = Boolean(
+      parsed.isLiquidGlass ?? parsed.isDarkCanvas,
+    )
     return {
-      isDarkCanvas: Boolean(parsed.isDarkCanvas),
+      isLiquidGlass,
       lowStockAlertsEnabled: parsed.lowStockAlertsEnabled !== false,
     }
   } catch {
@@ -27,19 +40,23 @@ function persistSettings(settings) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
 }
 
+const initialSettings = readStoredSettings()
+applyLiquidGlassToDocument(initialSettings.isLiquidGlass)
+
 const SettingsContext = createContext(null)
 
 export function SettingsProvider({ children }) {
-  const [settings, setSettings] = useState(readStoredSettings)
+  const [settings, setSettings] = useState(initialSettings)
 
-  const { isDarkCanvas, lowStockAlertsEnabled } = settings
+  const { isLiquidGlass, lowStockAlertsEnabled } = settings
 
   useEffect(() => {
     persistSettings(settings)
+    applyLiquidGlassToDocument(settings.isLiquidGlass)
   }, [settings])
 
-  const setIsDarkCanvas = useCallback((value) => {
-    setSettings((prev) => ({ ...prev, isDarkCanvas: Boolean(value) }))
+  const setIsLiquidGlass = useCallback((value) => {
+    setSettings((prev) => ({ ...prev, isLiquidGlass: Boolean(value) }))
   }, [])
 
   const setLowStockAlertsEnabled = useCallback((value) => {
@@ -48,12 +65,12 @@ export function SettingsProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      isDarkCanvas,
+      isLiquidGlass,
       lowStockAlertsEnabled,
-      setIsDarkCanvas,
+      setIsLiquidGlass,
       setLowStockAlertsEnabled,
     }),
-    [isDarkCanvas, lowStockAlertsEnabled, setIsDarkCanvas, setLowStockAlertsEnabled],
+    [isLiquidGlass, lowStockAlertsEnabled, setIsLiquidGlass, setLowStockAlertsEnabled],
   )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>

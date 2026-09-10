@@ -5,35 +5,46 @@
 
 @layer base {
   :root {
-    --background: #f5f5f7;
-    --foreground: #1d1d1f;
-    --card: #ffffff;
-    --border: #e5e5e7;
+    --background: #f4efe8;
+    --foreground: #1c1916;
+    --card: #fffcf8;
+    --border: #e6ddd2;
     --primary: #10b981;
     --primary-hover: #059669;
     --primary-foreground: #ffffff;
-    --accent: #86868b;
-    --muted-foreground: #86868b;
+    --accent: #8b5e34;
+    --muted-foreground: #7a7168;
     --accent-tint: #ecfdf5;
   }
 
   .dark {
-    --background: #09090b;
-    --foreground: #fafafa;
-    --card: #18181b;
-    --border: #27272a;
+    --background: #0f0e0c;
+    --foreground: #f7f3ee;
+    --card: #1a1815;
+    --border: #322e29;
     --primary: #10b981;
     --primary-hover: #34d399;
     --primary-foreground: #ffffff;
-    --accent: #aeaeb2;
-    --muted-foreground: #aeaeb2;
+    --accent: #c9a882;
+    --muted-foreground: #b4aaa0;
     --accent-tint: #064e3b;
   }
 
   html {
     @apply font-sans antialiased;
+    font-size: 16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /*
+   * Khmer glyphs often look smaller than Latin at the same CSS size.
+   * Prefer Noto Sans Khmer and bump the root size so UI labels match English optically.
+   */
+  html[lang='km'] {
+    font-family: 'Noto Sans Khmer', 'Noto Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-size: 17.5px;
+    line-height: 1.55;
   }
 
   html,
@@ -43,7 +54,7 @@
   }
 
   body {
-    @apply overflow-x-hidden bg-slate-100 text-slate-900 transition-colors duration-300 dark:bg-zinc-950 dark:text-zinc-100;
+    @apply overflow-x-hidden bg-background text-foreground transition-colors duration-200;
     cursor: default;
   }
 
@@ -112,11 +123,11 @@
 
 @layer components {
   .page-title {
-    @apply text-[1.75rem] font-semibold tracking-tight text-slate-900 dark:text-zinc-100;
+    @apply text-[1.45rem] font-semibold tracking-tight text-slate-900 dark:text-zinc-100;
   }
 
   .page-subtitle {
-    @apply mt-1 text-sm text-slate-500 dark:text-zinc-400;
+    @apply mt-0.5 text-sm text-cocoa-600 dark:text-cocoa-300;
   }
 
   .interactive-btn {
@@ -144,36 +155,125 @@
   }
 
   .surface-card {
-    @apply rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-sm
+    @apply rounded-2xl border border-cocoa-100 bg-white text-slate-900 shadow-sm
            dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-none;
   }
 
-  .dark .dark-canvas {
-    --background: #09090b;
-    --card: #18181b;
-    --border: #27272a;
+  /* Liquid Glass — optional frosted UI (light + dark) */
+  html[data-liquid-glass='on'] {
+    --glass-surface: rgba(255, 255, 255, 0.72);
+    --glass-surface-strong: rgba(255, 255, 255, 0.82);
+    --glass-border: rgba(255, 255, 255, 0.55);
+    --glass-border-outer: rgba(90, 110, 70, 0.14);
+    --glass-inset: rgba(255, 255, 255, 0.75);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset, 0 10px 28px rgba(40, 55, 35, 0.07);
+    --glass-blur: blur(12px) saturate(1.2);
+    --background: #eef2ea;
+    --card: rgba(255, 255, 255, 0.72);
+    --border: rgba(90, 110, 70, 0.14);
   }
 
-  .dark .dark-canvas .surface-card {
-    @apply border-zinc-800 bg-zinc-900 shadow-none;
+  html.dark[data-liquid-glass='on'] {
+    --glass-surface: rgba(24, 28, 24, 0.58);
+    --glass-surface-strong: rgba(28, 32, 28, 0.72);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-border-outer: rgba(160, 185, 140, 0.12);
+    --glass-inset: rgba(255, 255, 255, 0.06);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.07) inset, 0 12px 36px rgba(0, 0, 0, 0.4);
+    --glass-blur: blur(14px) saturate(1.15);
+    --background: #0c0f0c;
+    --card: rgba(24, 28, 24, 0.58);
+    --border: rgba(255, 255, 255, 0.1);
   }
 
-  .dark .dark-canvas .surface-inset {
-    @apply border-zinc-800 bg-zinc-900/90;
+  html[data-liquid-glass='on'] body {
+    background:
+      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(120, 150, 90, 0.14), transparent 55%),
+      radial-gradient(ellipse 70% 45% at 95% 5%, rgba(180, 160, 100, 0.1), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 50% 100%, rgba(100, 130, 90, 0.08), transparent 55%),
+      var(--background);
   }
 
-  .dark .dark-canvas .surface-header,
-  .dark .dark-canvas header {
-    @apply bg-card/70 backdrop-blur-lg;
+  html.dark[data-liquid-glass='on'] body {
+    background:
+      radial-gradient(ellipse 70% 45% at 15% -5%, rgba(80, 110, 70, 0.22), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 90% 0%, rgba(60, 80, 50, 0.18), transparent 50%),
+      radial-gradient(ellipse 50% 35% at 50% 110%, rgba(40, 55, 40, 0.25), transparent 55%),
+      var(--background);
+  }
+
+  html[data-liquid-glass='on'] .liquid-glass {
+    background: transparent;
+  }
+
+  html[data-liquid-glass='on'] .surface-card,
+  html[data-liquid-glass='on'] .surface-panel,
+  html[data-liquid-glass='on'] .surface-inset,
+  html[data-liquid-glass='on'] .table-shell,
+  html[data-liquid-glass='on'] .modal-panel {
+    background: var(--glass-surface);
+    border-color: var(--glass-border-outer);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+  }
+
+  html[data-liquid-glass='on'] .surface-subtle {
+    background: color-mix(in srgb, var(--glass-surface) 85%, transparent);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    box-shadow: 0 1px 0 var(--glass-inset) inset;
+  }
+
+  html[data-liquid-glass='on'] .surface-header,
+  html[data-liquid-glass='on'] header,
+  html[data-liquid-glass='on'] aside {
+    background: var(--glass-surface-strong) !important;
+    border-color: var(--glass-border-outer) !important;
+    backdrop-filter: blur(24px) saturate(1.4) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
+    box-shadow: 0 1px 0 var(--glass-inset) inset;
+  }
+
+  html[data-liquid-glass='on'] .modal-panel-footer {
+    background: var(--glass-surface-strong);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  html[data-liquid-glass='on'] .table-head {
+    background: color-mix(in srgb, var(--glass-surface) 70%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  html[data-liquid-glass='on'] .input-field {
+    background: color-mix(in srgb, var(--glass-surface-strong) 88%, transparent);
+    border-color: var(--glass-border-outer);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  html[data-liquid-glass='on'] .btn-secondary {
+    background: var(--glass-surface);
+    border-color: var(--glass-border-outer);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  html[data-liquid-glass='on'] .tab-pill-inactive {
+    background: var(--glass-surface);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 
   .surface-panel {
-    @apply rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-sm
+    @apply rounded-2xl border border-cocoa-100 bg-white text-slate-900 shadow-sm
            dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-none;
   }
 
   .surface-inset {
-    @apply rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-sm
+    @apply rounded-2xl border border-cocoa-100 bg-white text-slate-900 shadow-sm
            dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-none;
   }
 
@@ -206,6 +306,140 @@
 
   .text-brand {
     @apply text-forest-600 dark:text-forest-400;
+  }
+
+  /* Login backdrop — a calm, on-brand gradient (warm cream + soft forest/olive
+     accents) that replaces the previous photo. Pure CSS, no image request. */
+  .login-backdrop {
+    background:
+      radial-gradient(ellipse 72% 55% at 12% -8%, rgba(176, 122, 58, 0.2), transparent 55%),
+      radial-gradient(ellipse 64% 50% at 92% 6%, rgba(16, 185, 129, 0.12), transparent 52%),
+      radial-gradient(ellipse 60% 46% at 50% 110%, rgba(120, 140, 95, 0.12), transparent 55%),
+      #efe9df;
+  }
+
+  .dark .login-backdrop {
+    background:
+      radial-gradient(ellipse 68% 50% at 14% -6%, rgba(190, 136, 72, 0.22), transparent 55%),
+      radial-gradient(ellipse 60% 46% at 90% 2%, rgba(16, 185, 129, 0.1), transparent 50%),
+      radial-gradient(ellipse 54% 40% at 50% 112%, rgba(40, 70, 45, 0.3), transparent 55%),
+      #0b0d0b;
+  }
+
+  /* Soft backlight behind brand logos (login + sidebar).
+     Sized larger than the art so the halo shows past the leaf.
+     Light theme: warm cocoa. Dark theme: forest green, so the dark
+     leaf and wordmark stay visible on near-black surfaces. */
+  .brand-logo-glow {
+    position: relative;
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    justify-content: center;
+    isolation: isolate;
+    overflow: visible;
+  }
+
+  .brand-logo-glow::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    z-index: 0;
+    /* Prefer width + aspect-ratio: % height on abspos can compute to 0
+       when the relative parent height comes only from the image. */
+    width: 135%;
+    height: auto;
+    aspect-ratio: 1;
+    pointer-events: none;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(
+      ellipse at center,
+      rgba(176, 122, 58, 0.72) 0%,
+      rgba(158, 108, 52, 0.48) 28%,
+      rgba(136, 92, 44, 0.26) 50%,
+      rgba(118, 82, 44, 0.1) 68%,
+      transparent 80%
+    );
+    filter: blur(22px);
+    opacity: 1;
+  }
+
+  .dark .brand-logo-glow::before {
+    width: 148%;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(52, 211, 153, 0.5) 0%,
+      rgba(16, 185, 129, 0.32) 28%,
+      rgba(6, 95, 70, 0.16) 52%,
+      transparent 74%
+    );
+    filter: blur(22px);
+    opacity: 1;
+  }
+
+  /* Extra punch on the login backdrop so the halo reads clearly. */
+  .login-page .brand-logo-glow::before {
+    width: 150%;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(186, 128, 58, 0.88) 0%,
+      rgba(168, 114, 52, 0.58) 26%,
+      rgba(142, 96, 46, 0.32) 48%,
+      rgba(120, 84, 44, 0.12) 66%,
+      transparent 80%
+    );
+    filter: blur(24px);
+  }
+
+  .dark .login-page .brand-logo-glow::before {
+    width: 165%;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(110, 231, 183, 0.42) 0%,
+      rgba(16, 185, 129, 0.34) 24%,
+      rgba(6, 95, 70, 0.16) 50%,
+      transparent 72%
+    );
+    filter: blur(28px);
+  }
+
+  html[data-liquid-glass='on'] .brand-logo-glow::before {
+    opacity: 0.95;
+    filter: blur(34px);
+  }
+
+  html.dark[data-liquid-glass='on'] .brand-logo-glow::before {
+    opacity: 0.9;
+    filter: blur(30px);
+  }
+
+  html[data-liquid-glass='on'] .login-page .brand-logo-glow::before {
+    opacity: 1;
+    filter: blur(40px);
+  }
+
+  html.dark[data-liquid-glass='on'] .login-page .brand-logo-glow::before {
+    opacity: 0.95;
+    filter: blur(34px);
+  }
+
+  .brand-logo-glow > img,
+  .brand-logo-glow__img {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    max-height: inherit;
+    object-fit: contain;
+  }
+
+  .dark .brand-logo-glow > img,
+  .dark .brand-logo-glow__img {
+    filter: brightness(1.2) saturate(1.08) drop-shadow(0 0 16px rgba(16, 185, 129, 0.38));
   }
 
   .input-field {
@@ -276,12 +510,12 @@
   }
 
   .table-shell {
-    @apply overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm
+    @apply overflow-hidden rounded-2xl border border-cocoa-100 bg-white shadow-sm
            dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none;
   }
 
   .table-head {
-    @apply border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-700
+    @apply border-b border-cocoa-100 bg-cocoa-50 text-xs font-semibold uppercase tracking-wider text-cocoa-800
            dark:border-zinc-800 dark:bg-zinc-800/80 dark:text-zinc-300;
   }
 
@@ -300,7 +534,7 @@
   }
 
   .nav-item-active {
-    @apply bg-emerald-500/10 font-medium text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300;
+    @apply bg-forest-500/12 font-semibold text-forest-800 ring-1 ring-forest-500/15 dark:bg-forest-950/50 dark:text-forest-300 dark:ring-forest-500/20;
   }
 
   .nav-item-inactive {
@@ -398,7 +632,15 @@
   }
 
   .page-enter {
-    animation: fade-in-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: fade-in-up 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page-enter,
+    .animate-fade-in-up,
+    .animate-fadeIn {
+      animation: none;
+    }
   }
 }
 

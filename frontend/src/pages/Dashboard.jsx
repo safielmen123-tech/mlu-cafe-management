@@ -22,18 +22,21 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useSettings } from '../context/SettingsContext'
-import { STORE } from '../config/store'
 import { useAlerts } from '../hooks/useAlerts'
 import AlertCenter from '../components/alerts/AlertCenter'
+import LiveConditions from '../components/dashboard/LiveConditions'
+import MenuItemImage from '../components/menu/MenuItemImage'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import {
   buildDashboardStats,
   buildPaymentSplitData,
+  buildPopularPicks,
   buildRecentOrders,
   buildWeeklySalesData,
 } from '../utils/dashboardAnalytics'
 
-const API_PATH = '/orders/history?days=730'
+const API_PATH = '/orders/history?days=30'
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
 function useChartTheme() {
   const { isDark } = useTheme()
@@ -47,7 +50,7 @@ function useChartTheme() {
       tooltipText: isDark ? '#f5f5f7' : '#1d1d1f',
       primary: isDark ? '#34d399' : '#10b981',
       primarySoft: isDark ? '#064e3b' : '#d1fae5',
-      secondary: isDark ? '#6ee7b7' : '#059669',
+      secondary: isDark ? '#c9a882' : '#8b5e34',
       muted: isDark ? '#aeaeb2' : '#86868b',
     }),
     [isDark],
@@ -100,6 +103,12 @@ function PaymentTooltip({ active, payload, theme }) {
   )
 }
 
+function paymentMethodLabel(name, t) {
+  if (name === 'Bank Scan') return t('payment.methods.bankScan')
+  if (name === 'Cash') return t('payment.methods.cash')
+  return name
+}
+
 export default function Dashboard({ onNavigate }) {
   const { t } = useTranslation()
   const { user, isAdmin } = useAuth()
@@ -107,8 +116,11 @@ export default function Dashboard({ onNavigate }) {
   const { lowStockAlertsEnabled } = useSettings()
   const { alerts, counts, isLoading: alertsLoading, error: alertsError, refresh, markNotificationRead } = useAlerts()
   const [orders, setOrders] = useState([])
+  const [menuItems, setMenuItems] = useState([])
+  const [liveConditions, setLiveConditions] = useState(null)
   const [todaySpending, setTodaySpending] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
+  const [liveLoading, setLiveLoading] = useState(true)
 
   useEffect(() => {
     refresh()
@@ -118,6 +130,7 @@ export default function Dashboard({ onNavigate }) {
     const token = getAuthToken()
     if (!token) {
       setIsLoading(false)
+      setLiveLoading(false)
       return undefined
     }
 
@@ -130,24 +143,68 @@ export default function Dashboard({ onNavigate }) {
         .then((res) => (res.ok ? res.json() : { todaySpending: 0 }))
         .then((data) => Number(data.todaySpending) || 0)
         .catch(() => 0),
+      apiFetch('/menu', { token })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((data) => (Array.isArray(data) ? data : []))
+        .catch(() => []),
+      apiFetch('/dashboard/live', { token })
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null),
     ])
-      .then(([orderRows, spending]) => {
+      .then(([orderRows, spending, menuRows, live]) => {
         setOrders(orderRows)
         setTodaySpending(spending)
+        setMenuItems(menuRows)
+        setLiveConditions(live)
       })
-      .finally(() => setIsLoading(false))
+      .finally(() => {
+        setIsLoading(false)
+        setLiveLoading(false)
+      })
   }, [])
 
   const weeklySales = useMemo(() => buildWeeklySalesData(orders), [orders])
+  const localizedWeeklySales = useMemo(
+    () =>
+      weeklySales.map((day) => {
+        const weekday = new Date(`${day.key}T12:00:00`).getDay()
+        return {
+          ...day,
+          label: t(`dates.weekdays.${WEEKDAY_KEYS[weekday]}`),
+        }
+      }),
+    [weeklySales, t],
+  )
   const paymentSplit = useMemo(() => buildPaymentSplitData(orders), [orders])
   const dashboardStats = useMemo(
     () => buildDashboardStats(orders, user, todaySpending),
     [orders, user, todaySpending],
   )
   const recentOrders = useMemo(() => buildRecentOrders(orders), [orders])
+  const popularPicks = useMemo(() => {
+    const picks = buildPopularPicks(orders, 6)
+    const menuByName = new Map(
+      menuItems.map((item) => [String(item.name || '').trim().toLowerCase(), item]),
+    )
+    return picks.map((pick) => {
+      const menuItem = menuByName.get(pick.name.toLowerCase())
+      return {
+        ...pick,
+        imageUrl: menuItem?.image_url || '',
+      }
+    })
+  }, [orders, menuItems])
 
   const paymentColors = [chartTheme.primary, chartTheme.secondary]
-  const paymentTotal = paymentSplit.reduce((sum, item) => sum + item.value, 0)
+  const localizedPaymentSplit = useMemo(
+    () =>
+      paymentSplit.map((entry) => ({
+        ...entry,
+        name: paymentMethodLabel(entry.name, t),
+      })),
+    [paymentSplit, t],
+  )
+  const paymentTotal = localizedPaymentSplit.reduce((sum, item) => sum + item.value, 0)
 
   const handleAlertAction = (alert) => {
     onNavigate?.(
@@ -177,7 +234,7 @@ export default function Dashboard({ onNavigate }) {
       value: `$${dashboardStats.todaySpending.toFixed(2)}`,
       change: t('dashboard.spendingHint', { defaultValue: 'Logged expenses' }),
       icon: Wallet,
-      color: 'bg-amber-600',
+      color: 'bg-cocoa-600',
       light: 'badge-olive',
     },
     {
@@ -199,12 +256,10 @@ export default function Dashboard({ onNavigate }) {
   ]
 
   return (
-    <div className="space-y-8 page-enter">
+    <div className="space-y-6 page-enter">
       <div>
         <h3 className="page-title">{t('nav.dashboard')}</h3>
-        <p className="page-subtitle">
-          {STORE.officialName} · Overview of sales, orders, and daily performance
-        </p>
+        <p className="page-subtitle">{t('dashboard.subtitle')}</p>
       </div>
 
       {showAlertCenter && (
@@ -220,6 +275,12 @@ export default function Dashboard({ onNavigate }) {
           maxItems={5}
         />
       )}
+
+      <LiveConditions
+        weather={liveConditions?.weather}
+        exchange={liveConditions?.exchange}
+        isLoading={liveLoading}
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => {
@@ -249,13 +310,45 @@ export default function Dashboard({ onNavigate }) {
         })}
       </div>
 
+      <div className="surface-card p-6">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h3 className="text-heading text-lg">{t('dashboard.popularPicks')}</h3>
+            <p className="text-muted mt-1 text-sm">{t('dashboard.popularPicksHint')}</p>
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          {popularPicks.length === 0 ? (
+            <p className="text-muted col-span-full text-sm">
+              {isLoading ? t('dashboard.loadingOrders') : t('dashboard.noPopularPicks')}
+            </p>
+          ) : (
+            popularPicks.map((pick, index) => (
+              <div key={pick.name} className="surface-inset flex flex-col items-center px-3 py-4 text-center">
+                <MenuItemImage
+                  imageUrl={pick.imageUrl}
+                  alt={pick.name}
+                  eager={index < 6}
+                  className="h-16 w-16 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
+                />
+                <p className="text-heading mt-3 line-clamp-2 text-sm font-semibold">{pick.name}</p>
+                <p className="text-muted mt-1 text-xs tabular-nums">
+                  {t('dashboard.soldCount', { count: pick.sold })}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-5">
         <div className="surface-card p-6 xl:col-span-2">
-          <h3 className="text-heading text-lg">Recent Orders</h3>
-          <p className="text-muted mt-1 text-sm">Latest transactions from the POS</p>
+          <h3 className="text-heading text-lg">{t('dashboard.recentOrders')}</h3>
           <div className="mt-6 space-y-4">
             {recentOrders.length === 0 ? (
-              <p className="text-muted text-sm">{isLoading ? 'Loading orders...' : 'No orders yet.'}</p>
+              <p className="text-muted text-sm">
+                {isLoading ? t('dashboard.loadingOrders') : t('dashboard.noOrders')}
+              </p>
             ) : (
               recentOrders.map((order) => (
                 <div
@@ -278,16 +371,15 @@ export default function Dashboard({ onNavigate }) {
 
         <div className="grid gap-6 sm:grid-cols-2 xl:col-span-3">
           <div className="surface-card p-6">
-            <h3 className="text-heading text-lg">Weekly Sales Performance</h3>
-            <p className="text-muted mt-1 text-sm">Daily revenue trend over the past 7 days</p>
+            <h3 className="text-heading text-lg">{t('dashboard.weeklySales')}</h3>
             <div className="mt-6 h-72 w-full">
               {isLoading ? (
                 <div className="flex h-full items-center justify-center">
-                  <p className="text-muted text-sm">Loading chart data...</p>
+                  <p className="text-muted text-sm">{t('dashboard.loadingChart')}</p>
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={weeklySales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <BarChart data={localizedWeeklySales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="label"
@@ -329,23 +421,22 @@ export default function Dashboard({ onNavigate }) {
           </div>
 
           <div className="surface-card p-6">
-            <h3 className="text-heading text-lg">Payment Methods Split</h3>
-            <p className="text-muted mt-1 text-sm">Cash vs. Bank Scan distribution</p>
+            <h3 className="text-heading text-lg">{t('dashboard.paymentSplit')}</h3>
             <div className="mt-4 flex flex-col items-center">
               <div className="h-52 w-full">
                 {isLoading ? (
                   <div className="flex h-full items-center justify-center">
-                    <p className="text-muted text-sm">Loading chart data...</p>
+                    <p className="text-muted text-sm">{t('dashboard.loadingChart')}</p>
                   </div>
                 ) : paymentTotal === 0 ? (
                   <div className="flex h-full items-center justify-center">
-                    <p className="text-muted text-sm">No payment data available yet.</p>
+                    <p className="text-muted text-sm">{t('dashboard.noPaymentData')}</p>
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={paymentSplit}
+                        data={localizedPaymentSplit}
                         dataKey="value"
                         nameKey="name"
                         cx="50%"
@@ -355,7 +446,7 @@ export default function Dashboard({ onNavigate }) {
                         paddingAngle={3}
                         stroke="none"
                       >
-                        {paymentSplit.map((entry, index) => (
+                        {localizedPaymentSplit.map((entry, index) => (
                           <Cell key={entry.name} fill={paymentColors[index % paymentColors.length]} />
                         ))}
                       </Pie>
@@ -370,7 +461,7 @@ export default function Dashboard({ onNavigate }) {
               </div>
 
               <div className="mt-2 w-full space-y-3">
-                {paymentSplit.map((entry, index) => {
+                {localizedPaymentSplit.map((entry, index) => {
                   const percent = paymentTotal > 0 ? (entry.value / paymentTotal) * 100 : 0
                   return (
                     <div key={entry.name}>
@@ -401,7 +492,7 @@ export default function Dashboard({ onNavigate }) {
               </div>
 
               <p className="text-muted mt-4 text-center text-xs">
-                Total processed:{' '}
+                {t('dashboard.totalProcessed')}{' '}
                 <span className="text-heading font-semibold tabular-nums">
                   ${paymentTotal.toFixed(2)}
                 </span>

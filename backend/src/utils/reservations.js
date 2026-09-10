@@ -1,7 +1,7 @@
 const { TIME_SLOTS, getTimeSlotsForDate, isMonday, formatTimeRange12Hour } = require('../config/siteData')
 const { dismissReservationAlerts } = require('./adminNotifications')
 
-const ACTIVE_STATUSES = ['Pending', 'Confirmed', 'Reserved']
+const ACTIVE_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Reserved']
 const SEATED_STATUS = 'Seated'
 const HOLD_STATUSES = [...ACTIVE_STATUSES, SEATED_STATUS]
 const ALL_STATUSES = [...HOLD_STATUSES, 'Completed', 'Canceled']
@@ -231,8 +231,8 @@ function parsePayload(payload = {}) {
   if (!Number.isInteger(tableId) || tableId <= 0) {
     throw httpError(400, 'An assigned table is required')
   }
-  if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 30) {
-    throw httpError(400, 'Guest count must be between 1 and 30')
+  if (!Number.isInteger(guestCount) || guestCount < 1) {
+    throw httpError(400, 'Guest count must be at least 1')
   }
   if (!ALL_STATUSES.includes(status)) {
     throw httpError(400, `Status must be one of: ${ALL_STATUSES.join(', ')}`)
@@ -380,9 +380,6 @@ async function createReservation(db, payload, user) {
   const data = parsePayload(payload)
   const table = await findTable(db, data.tableId)
   if (!table) throw httpError(400, 'Assigned table was not found')
-  if (data.guestCount > Number(table.capacity || 4)) {
-    throw httpError(400, `${table.table_name} seats up to ${table.capacity} guests`)
-  }
 
   if (ACTIVE_STATUSES.includes(data.status)) {
     const conflict = await findConflict(db, {
@@ -425,9 +422,6 @@ async function updateReservation(db, id, payload) {
   const data = parsePayload({ ...existing, ...payload, notes: payload.notes ?? existing.notes })
   const table = await findTable(db, data.tableId)
   if (!table) throw httpError(400, 'Assigned table was not found')
-  if (data.guestCount > Number(table.capacity || 4)) {
-    throw httpError(400, `${table.table_name} seats up to ${table.capacity} guests`)
-  }
 
   if (ACTIVE_STATUSES.includes(data.status)) {
     const conflict = await findConflict(db, {

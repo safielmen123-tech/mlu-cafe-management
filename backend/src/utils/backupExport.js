@@ -115,7 +115,7 @@ function buildExportSheets(period) {
     {
       name: 'Menu Items',
       query: `
-        SELECT id, name, category, price, is_available
+        SELECT id, name, category, price, hot_price, iced_price, is_available
         FROM menu_items
         ORDER BY category, name
       `,

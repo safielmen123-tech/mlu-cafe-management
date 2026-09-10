@@ -38,14 +38,13 @@ mirrors it to the URL hash) rather than react-router, so the view ids in
 mlu-cafe-system/
 ├── package.json              # Convenience scripts that delegate to backend/ and frontend/
 ├── README.md
-├── THESIS_DIAGRAMS.md        # System diagrams as tables + Mermaid source
-├── THESIS_DIAGRAMS.drawio    # The same diagrams drawn, for app.diagrams.net
+├── menu-photos/              # Drop camera photos here. Filename = dish (espresso.jpg)
 │
 ├── backend/                  # Express + MySQL API
 │   ├── server.js             # Entry point — starts the API and mounts all routes
 │   ├── db.js                 # MySQL connection pool
 │   ├── .env.example          # Copy to .env and fill in
-│   ├── scripts/              # One-off seeding scripts (admin user, sample sales)
+│   ├── scripts/              # One-off seeding scripts (admin user, sample sales, menu photos)
 │   ├── seeds/                # Numbered SQL migrations, applied on startup
 │   └── src/
 │       ├── config/           # env.js (validated env vars), store.js (business constants)
@@ -60,8 +59,11 @@ mlu-cafe-system/
     ├── .env.example          # Copy to .env and fill in
     ├── public/
     │   ├── favicon.svg
-    │   ├── logo/             # Brand marks used by the login screen and sidebar
-    │   └── menu-images/      # Menu item photos served at /menu-images/<file>
+    │   ├── logo/
+    │   │   ├── logo.png            # Login screen
+    │   │   └── sidebar-logo.png    # Sidebar
+    │   └── menu-images/            # Photos the app serves (same names as menu-photos/)
+    │       └── thumbs/             # Small WebP previews used on Order / Menu
     └── src/
         ├── main.jsx          # React entry point + global providers
         ├── App.jsx           # View routing and access control
@@ -157,8 +159,8 @@ npm run seed:admin
 Optionally load sample transactions so the dashboard and reports have data to show:
 
 ```bash
-npm run seed:sales        # ~180 days of history
-npm run seed:12months     # 12 months of history
+npm run seed:sales        # June 2025 → today, current menu names
+npm run seed:expenses     # operating costs that follow those sale dates
 ```
 
 ### 5. Run the app

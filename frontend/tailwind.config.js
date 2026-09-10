@@ -56,6 +56,19 @@ export default {
           500: '#10b981',
         },
 
+        cocoa: {
+          50: '#faf6f1',
+          100: '#f0e6d8',
+          200: '#e0cbb0',
+          300: '#c9a882',
+          400: '#b0895c',
+          500: '#8b5e34',
+          600: '#734c2a',
+          700: '#5c3d24',
+          800: '#46301d',
+          900: '#2c1e14',
+        },
+
         obsidian: {
           50: '#f5f5f7',
           100: '#e5e5e7',
@@ -74,13 +87,12 @@ export default {
 
       fontFamily: {
         sans: [
+          '"Noto Sans"',
+          '"Noto Sans Khmer"',
+          'system-ui',
           '-apple-system',
           'BlinkMacSystemFont',
-          '"SF Pro Display"',
-          '"SF Pro Text"',
-          '"Helvetica Neue"',
-          'Inter',
-          'system-ui',
+          '"Segoe UI"',
           'sans-serif',
         ],
       },

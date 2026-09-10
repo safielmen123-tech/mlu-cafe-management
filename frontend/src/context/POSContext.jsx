@@ -8,7 +8,7 @@ import {
   mergeCartIntoItems,
   normalizeBillItem,
 } from '../utils/posHelpers'
-import { DEFAULT_HISTORY_DAYS } from '../utils/salesHistoryAnalytics'
+import { buildSalesHistoryQuery } from '../utils/salesHistoryAnalytics'
 import { formatOrderDate, formatTime12Hour } from '../utils/dateTimeFormat'
 import {
   readActiveOrdersSnapshot,
@@ -51,6 +51,7 @@ function mapBillItemsForApi(items) {
       menu_item_id: Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null,
       name: item.name,
       notes: item.notes || '',
+      serving: item.serving || null,
       quantity: item.qty,
       price: item.unitPrice,
     }
@@ -63,16 +64,7 @@ async function postOrderToServer(destinationId, safeCartItems) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       ...buildOrderTargetPayload(destinationId),
-      items: safeCartItems.map((item) => {
-        const parsedId = Number.parseInt(item.id, 10)
-        return {
-          menu_item_id: Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null,
-          name: item.name,
-          notes: item.notes || '',
-          quantity: item.qty,
-          price: item.unitPrice,
-        }
-      }),
+      items: mapBillItemsForApi(safeCartItems),
     }),
   })
 
@@ -123,12 +115,13 @@ export function POSProvider({ children }) {
     setPaymentTargetId(null)
   }, [])
 
-  const loadSalesHistory = useCallback(async (days = DEFAULT_HISTORY_DAYS) => {
+  const loadSalesHistory = useCallback(async (options) => {
     const token = getAuthToken()
     if (!token) return null
 
     try {
-      const response = await apiFetch(`/orders/history?days=${days}`, { token })
+      const query = buildSalesHistoryQuery(options)
+      const response = await apiFetch(`/orders/history?${query}`, { token })
       if (response.status === 401) return null
       if (!response.ok) throw new Error(`Server status returned ${response.status}`)
       const historyRows = await response.json()
@@ -271,6 +264,7 @@ export function POSProvider({ children }) {
         notes: item.notes || '',
         qty: item.qty || item.quantity || 1,
         unitPrice: item.unitPrice || item.price || 0,
+        serving: item.serving || null,
       }),
     )
 

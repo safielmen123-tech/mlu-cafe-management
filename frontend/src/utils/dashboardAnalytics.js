@@ -71,6 +71,30 @@ export function buildDashboardStats(orders, user, todaySpending = 0) {
   }
 }
 
+export function buildPopularPicks(orders, limit = 6) {
+  const counts = new Map()
+
+  for (const order of orders) {
+    if (order.status && order.status !== 'Completed') continue
+    const lines = Array.isArray(order.items) ? order.items : []
+    for (const line of lines) {
+      const name = String(line?.name || '').trim()
+      if (!name) continue
+      const quantity = Number.parseFloat(line.qty)
+      counts.set(name, (counts.get(name) || 0) + (Number.isFinite(quantity) ? quantity : 0))
+    }
+  }
+
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([name, sold], index) => ({
+      rank: index + 1,
+      name,
+      sold: Math.round(sold),
+    }))
+}
+
 export function buildRecentOrders(orders, limit = 4) {
   return sortOrdersByDateTime(
     orders.filter((order) => !order.status || order.status === 'Completed'),

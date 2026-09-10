@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, Wallet } from 'lucide-react'
 import { apiFetch } from '../../services/apiClient'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
@@ -11,6 +12,16 @@ const EXPENSE_CATEGORIES = [
   'Maintenance',
   'Other',
 ]
+
+const CATEGORY_I18N_KEYS = {
+  'Inventory Restock': 'expenses.categories.inventoryRestock',
+  'Daily Overhead': 'expenses.categories.dailyOverhead',
+  Utilities: 'expenses.categories.utilities',
+  'Staff / Payroll': 'expenses.categories.staffPayroll',
+  Maintenance: 'expenses.categories.maintenance',
+  Other: 'expenses.categories.other',
+}
+
 const PAGE_SIZE = 25
 
 function todayIso() {
@@ -21,7 +32,13 @@ function todayIso() {
   return `${year}-${month}-${day}`
 }
 
+function categoryLabel(t, category) {
+  const key = CATEGORY_I18N_KEYS[category]
+  return key ? t(key) : category
+}
+
 export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChanged }) {
+  const { t } = useTranslation()
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -46,17 +63,17 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
     setError('')
     try {
       const res = await apiFetch(`/expenses?days=${days}`)
-      if (!res.ok) throw new Error('Failed to load expenses')
+      if (!res.ok) throw new Error(t('expenses.errors.load'))
       const data = await res.json()
       setExpenses(Array.isArray(data) ? data : [])
     } catch (err) {
       console.error(err)
-      setError('Could not load spending records.')
+      setError(t('expenses.errors.couldNotLoad'))
       setExpenses([])
     } finally {
       setLoading(false)
     }
-  }, [days])
+  }, [days, t])
 
   useEffect(() => {
     loadExpenses()
@@ -96,7 +113,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.message || 'Failed to save expense')
+      if (!res.ok) throw new Error(data.message || t('expenses.errors.save'))
       setShowForm(false)
       setForm({
         category: EXPENSE_CATEGORIES[0],
@@ -107,7 +124,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
       await loadExpenses()
       onChanged?.()
     } catch (err) {
-      setError(err.message || 'Failed to save expense')
+      setError(err.message || t('expenses.errors.save'))
     } finally {
       setSaving(false)
     }
@@ -116,11 +133,11 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
   const handleDelete = async (id) => {
     try {
       const res = await apiFetch(`/expenses/${id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Failed to delete expense')
+      if (!res.ok) throw new Error(t('expenses.errors.delete'))
       setExpenses((prev) => prev.filter((row) => row.id !== id))
       onChanged?.()
     } catch (err) {
-      setError(err.message || 'Failed to delete expense')
+      setError(err.message || t('expenses.errors.delete'))
     }
   }
 
@@ -128,9 +145,9 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h4 className="text-heading text-base font-semibold">Expense / Spending</h4>
+          <h4 className="text-heading text-base font-semibold">{t('expenses.title')}</h4>
           <p className="text-muted text-sm">
-            Log restocks and overheads · Total ${totalSpending.toFixed(2)}
+            {t('expenses.summary', { total: `$${totalSpending.toFixed(2)}` })}
           </p>
         </div>
         <button
@@ -139,7 +156,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
           className="btn-primary inline-flex items-center justify-center gap-2 px-4 py-2 text-sm"
         >
           <Plus className="h-4 w-4" />
-          Add Expense
+          {t('expenses.add')}
         </button>
       </div>
 
@@ -153,33 +170,33 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead>
             <tr className="table-head">
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Description</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">By</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th className="px-4 py-3">{t('reservations.date')}</th>
+              <th className="px-4 py-3">{t('common.category')}</th>
+              <th className="px-4 py-3">{t('common.description')}</th>
+              <th className="px-4 py-3">{t('common.amount')}</th>
+              <th className="px-4 py-3">{t('common.by')}</th>
+              <th className="px-4 py-3 text-right">{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody className="table-divider">
             {loading ? (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-muted">
-                  Loading expenses…
+                  {t('expenses.loading')}
                 </td>
               </tr>
             ) : visibleExpenses.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-muted">
                   <Wallet className="mx-auto mb-2 h-8 w-8 opacity-40" />
-                  No spending logged yet.
+                  {t('expenses.empty')}
                 </td>
               </tr>
             ) : (
               pagedExpenses.map((row) => (
                 <tr key={row.id} className="table-row">
                   <td className="px-4 py-3 tabular-nums text-muted">{row.expense_date}</td>
-                  <td className="px-4 py-3 font-medium text-heading">{row.category}</td>
+                  <td className="px-4 py-3 font-medium text-heading">{categoryLabel(t, row.category)}</td>
                   <td className="px-4 py-3 text-muted">{row.description || '—'}</td>
                   <td className="px-4 py-3 font-semibold tabular-nums text-heading">
                     ${Number(row.amount).toFixed(2)}
@@ -190,7 +207,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                       type="button"
                       onClick={() => handleDelete(row.id)}
                       className="rounded-lg p-2 text-stone-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-                      aria-label="Delete expense"
+                      aria-label={t('a11y.deleteExpense')}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -205,8 +222,11 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
       {visibleExpenses.length > PAGE_SIZE ? (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted text-xs">
-            Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, visibleExpenses.length)} of{' '}
-            {visibleExpenses.length} records
+            {t('expenses.pagination', {
+              from: (currentPage - 1) * PAGE_SIZE + 1,
+              to: Math.min(currentPage * PAGE_SIZE, visibleExpenses.length),
+              total: visibleExpenses.length,
+            })}
           </p>
           <div className="flex gap-2">
             <button
@@ -215,7 +235,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
               className="btn-secondary px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Previous
+              {t('common.previous')}
             </button>
             <button
               type="button"
@@ -223,7 +243,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
               onClick={() => setPage((prev) => Math.min(pageCount, prev + 1))}
               className="btn-secondary px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Next
+              {t('common.next')}
             </button>
           </div>
         </div>
@@ -233,7 +253,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t('a11y.close')}
             className="modal-backdrop"
             onClick={() => setShowForm(false)}
           />
@@ -244,11 +264,11 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
             aria-modal="true"
             className="surface-card relative z-10 w-full max-w-md p-6 shadow-xl"
           >
-            <h5 className="text-heading text-lg font-semibold">Log Expense</h5>
+            <h5 className="text-heading text-lg font-semibold">{t('expenses.logExpense')}</h5>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                  Category
+                  {t('common.category')}
                 </label>
                 <select
                   value={form.category}
@@ -257,14 +277,14 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                 >
                   {EXPENSE_CATEGORIES.map((category) => (
                     <option key={category} value={category}>
-                      {category}
+                      {categoryLabel(t, category)}
                     </option>
                   ))}
                 </select>
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                  Amount ($)
+                  {t('expenses.amountLabel')}
                 </label>
                 <input
                   type="number"
@@ -278,7 +298,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                  Date
+                  {t('reservations.date')}
                 </label>
                 <input
                   type="date"
@@ -290,13 +310,13 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-stone-700 dark:text-zinc-300">
-                  Description
+                  {t('common.description')}
                 </label>
                 <input
                   type="text"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  placeholder="e.g. Weekly milk restock"
+                  placeholder={t('expenses.descriptionPlaceholder')}
                   className="input-field"
                 />
               </div>
@@ -306,10 +326,10 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
                   onClick={() => setShowForm(false)}
                   className="btn-secondary flex-1 py-2.5 text-sm"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button type="submit" disabled={saving} className="btn-primary flex-1 py-2.5 text-sm">
-                  {saving ? 'Saving…' : 'Save Expense'}
+                  {saving ? t('common.saving') : t('expenses.save')}
                 </button>
               </div>
             </form>
