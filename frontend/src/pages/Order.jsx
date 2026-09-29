@@ -27,6 +27,11 @@ import {
   lineIdentity,
   needsSugarLevel,
 } from '../utils/sugarLevel'
+import {
+  menuNameMatchesQuery,
+  translateDrinkNotes,
+  translateMenuName,
+} from '../utils/menuNameTranslations'
 
 const CATEGORY_FILTERS = [
   { id: 'All', labelKey: 'order.categories.all' },
@@ -66,7 +71,7 @@ function statusSuffix(status, t) {
 }
 
 export default function Order() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { assignmentTargets, assignOrder, orderTargetId, clearOrderTarget } = usePOS()
   const [menuItems, setMenuItems] = useState([])
   const [usingFallbackMenu, setUsingFallbackMenu] = useState(false)
@@ -127,7 +132,8 @@ export default function Order() {
         String(item.category || '').toLowerCase() === activeCategory.toLowerCase()
       const matchesSearch =
         !query ||
-        String(item.name || '')
+        menuNameMatchesQuery(item.name, query, i18n.language, t) ||
+        String(categoryLabel(item.category, t) || '')
           .toLowerCase()
           .includes(query) ||
         String(item.category || '')
@@ -135,7 +141,7 @@ export default function Order() {
           .includes(query)
       return matchesCategory && matchesSearch
     })
-  }, [menuItems, activeCategory, searchQuery])
+  }, [menuItems, activeCategory, searchQuery, i18n.language, t])
 
   const addToCart = (item, options = {}) => {
     const notes = options.notes != null ? String(options.notes) : item.notes || ''
@@ -253,7 +259,7 @@ export default function Order() {
               />
             </div>
 
-            <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex flex-wrap gap-2">
               {CATEGORY_FILTERS.map(({ id, labelKey }) => {
                 const isActive = activeCategory === id
                 return (
@@ -263,8 +269,8 @@ export default function Order() {
                     onClick={() => setActiveCategory(id)}
                     className={
                       isActive
-                        ? 'shrink-0 rounded-full bg-forest-500 px-4 py-1.5 text-sm font-medium text-white shadow-sm'
-                        : 'shrink-0 rounded-full bg-cocoa-50 px-4 py-1.5 text-sm text-cocoa-800 hover:bg-cocoa-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+                        ? 'rounded-full bg-forest-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm sm:px-4'
+                        : 'rounded-full bg-cocoa-50 px-3 py-1.5 text-sm text-cocoa-800 hover:bg-cocoa-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 sm:px-4'
                     }
                   >
                     {t(labelKey)}
@@ -275,33 +281,33 @@ export default function Order() {
           </div>
 
           <div className="order-menu-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-6">
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-2 content-start items-start gap-4 lg:grid-cols-3">
               {filteredMenuItems.map((item, index) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => handleMenuItemClick(item)}
-                  className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-cocoa-100 bg-white p-4 text-left transition-colors hover:border-forest-400 hover:shadow-sm dark:border-zinc-800/80 dark:bg-zinc-900"
+                  className="group flex w-full cursor-pointer flex-col self-start rounded-2xl border border-cocoa-100 bg-white p-4 text-left transition-colors hover:border-forest-400 hover:shadow-sm dark:border-zinc-800/80 dark:bg-zinc-900"
                 >
                   <div className="flex justify-center">
                     <MenuItemImage
                       imageUrl={item.image_url}
-                      alt={item.name}
+                      alt={translateMenuName(item.name, i18n.language, t)}
                       eager={index < 9}
                       className="h-16 w-16 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
                     />
                   </div>
 
                   <div className="mt-3 min-w-0 text-center">
-                    <p className="line-clamp-1 text-sm font-semibold text-slate-900 dark:text-zinc-100">
-                      {item.name}
+                    <p className="text-sm font-semibold leading-snug text-slate-900 dark:text-zinc-100">
+                      {translateMenuName(item.name, i18n.language, t)}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-400 dark:text-zinc-500">
                       {categoryLabel(item.category, t)}
                     </p>
                   </div>
 
-                    <p className="mt-2 text-center text-base font-bold text-forest-600">
+                  <p className="mt-2 text-center text-base font-bold text-forest-600">
                     {formatMenuPrice(item)}
                   </p>
                 </button>
@@ -374,10 +380,12 @@ export default function Order() {
                 >
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-slate-900 dark:text-zinc-100">
-                      {item.originalName || item.name}
+                      {translateMenuName(item.originalName || item.name, i18n.language, t)}
                     </p>
                     {item.notes ? (
-                      <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">{item.notes}</p>
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
+                        {translateDrinkNotes(item.notes, t)}
+                      </p>
                     ) : null}
                     <p className="mt-0.5 text-sm font-medium text-[#10b981]">
                       {t('order.each', { price: `$${Number(item.price).toFixed(2)}` })}
@@ -388,7 +396,9 @@ export default function Order() {
                       type="button"
                       onClick={() => updateQuantity(item.id, -1)}
                       className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 active:scale-95 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                      aria-label={t('a11y.decreaseItem', { item: item.originalName || item.name })}
+                      aria-label={t('a11y.decreaseItem', {
+                        item: translateMenuName(item.originalName || item.name, i18n.language, t),
+                      })}
                     >
                       <Minus className="h-4 w-4" />
                     </button>
@@ -399,7 +409,9 @@ export default function Order() {
                       type="button"
                       onClick={() => updateQuantity(item.id, 1)}
                       className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 active:scale-95 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                      aria-label={t('a11y.increaseItem', { item: item.originalName || item.name })}
+                      aria-label={t('a11y.increaseItem', {
+                        item: translateMenuName(item.originalName || item.name, i18n.language, t),
+                      })}
                     >
                       <Plus className="h-4 w-4" />
                     </button>

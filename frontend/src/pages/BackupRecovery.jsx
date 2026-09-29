@@ -14,7 +14,9 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { apiDownload, apiUpload } from '../services/apiClient'
 
-function buildPeriodOptions(locale, allTimeLabel) {
+import { formatMonthYear } from '../utils/dateTimeFormat'
+
+function buildPeriodOptions(t, allTimeLabel) {
   const options = [{ value: 'all', label: allTimeLabel, month: null, year: null }]
   const now = new Date()
 
@@ -23,7 +25,7 @@ function buildPeriodOptions(locale, allTimeLabel) {
     const month = date.getMonth() + 1
     const year = date.getFullYear()
     const value = `${year}-${String(month).padStart(2, '0')}`
-    const label = date.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+    const label = formatMonthYear(date, t)
 
     options.push({ value, label, month, year })
   }
@@ -37,7 +39,7 @@ function buildPeriodQuery(selectedPeriod) {
   return { month, year }
 }
 
-function OptionCard({ icon: Icon, title, description, badge, children, variant = 'default' }) {
+function OptionCard({ icon: Icon, title, badge, children, variant = 'default' }) {
   const accent =
     variant === 'danger'
       ? 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'
@@ -58,7 +60,6 @@ function OptionCard({ icon: Icon, title, description, badge, children, variant =
               </span>
             ) : null}
           </div>
-          <p className="text-muted mt-2 text-sm leading-relaxed">{description}</p>
         </div>
       </div>
       {children}
@@ -68,7 +69,6 @@ function OptionCard({ icon: Icon, title, description, badge, children, variant =
 
 function PeriodSelector({ value, onChange, id, options }) {
   const { t } = useTranslation()
-  const selectedLabel = options.find((option) => option.value === value)?.label || t('dates.allTime')
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -90,21 +90,17 @@ function PeriodSelector({ value, onChange, id, options }) {
           ))}
         </select>
       </div>
-      <span className="text-muted text-xs">
-        {t('backup.selectedPeriod', { period: selectedLabel })}
-      </span>
     </div>
   )
 }
 
 export default function BackupRecovery() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { isAdmin } = useAuth()
   const fileInputRef = useRef(null)
-  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
   const periodOptions = useMemo(
-    () => buildPeriodOptions(dateLocale, t('dates.allTime')),
-    [dateLocale, t],
+    () => buildPeriodOptions(t, t('dates.allTime')),
+    [t],
   )
 
   const [selectedPeriod, setSelectedPeriod] = useState('all')
@@ -190,7 +186,6 @@ export default function BackupRecovery() {
     <div className="space-y-6">
       <div>
         <h3 className="text-heading text-lg">{t('nav.backupRecovery')}</h3>
-        <p className="text-muted text-sm">{t('backup.subtitle')}</p>
       </div>
 
       {(statusMessage || errorMessage) && (
@@ -209,7 +204,6 @@ export default function BackupRecovery() {
         <OptionCard
           icon={FileSpreadsheet}
           title={t('backup.exportExcelTitle')}
-          description={t('backup.exportExcelDescription')}
           badge={t('backup.excelBadge')}
         >
           <div className="space-y-4">
@@ -236,7 +230,6 @@ export default function BackupRecovery() {
         <OptionCard
           icon={Database}
           title={t('backup.sqlTitle')}
-          description={t('backup.sqlDescription')}
           badge={isAdmin ? t('backup.admin') : t('backup.adminOnly')}
         >
           {isAdmin ? (
@@ -268,7 +261,6 @@ export default function BackupRecovery() {
       <OptionCard
         icon={Upload}
         title={t('backup.restoreTitle')}
-        description={t('backup.restoreDescription')}
         badge={isAdmin ? t('backup.safeOverwrite') : t('backup.adminOnly')}
         variant="danger"
       >

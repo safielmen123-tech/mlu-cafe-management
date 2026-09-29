@@ -29,7 +29,7 @@ export function AlertsProvider({ children }) {
     try {
       const path = refresh ? '/alerts?refresh=1' : '/alerts'
       const response = await apiFetch(path, { token })
-      if (response.status === 401) {
+      if (response.status === 401 || response.status === 403) {
         setError(null)
         setAlerts([])
         setRawCounts({ total: 0, critical: 0, warning: 0, info: 0 })

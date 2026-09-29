@@ -39,6 +39,14 @@ function errorHandler(err, req, res, next) {
     return res.status(503).json({ message: getDatabaseErrorMessage(err) })
   }
 
+  const isJsonParseError =
+    err?.type === 'entity.parse.failed' ||
+    (err instanceof SyntaxError && Number(err.status) === 400 && Object.prototype.hasOwnProperty.call(err, 'body'))
+
+  if (isJsonParseError) {
+    return res.status(400).json({ message: 'Invalid request', errorId })
+  }
+
   const status = Number.isInteger(err?.status) ? err.status : 500
 
   // Only deliberately-marked client errors keep their message. Everything else,

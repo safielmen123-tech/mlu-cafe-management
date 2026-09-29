@@ -1,22 +1,9 @@
 import { formatSlotRange12Hour } from '../utils/dateTimeFormat'
-import {
-  ALL_TIME_SLOTS,
-  CLOSED_WEEKDAY,
-  getTimeSlotsForDate,
-  isMonday,
-  LOW_SEASON_TIME_SLOTS,
-  nextOpenDate,
-} from '../config/siteData'
 
 export const BOOKING_STATUSES = ['Pending', 'Confirmed', 'Paid']
 export const RESERVATION_STATUSES = [...BOOKING_STATUSES, 'Canceled']
 export const CHECK_IN_STATUSES = ['Pending', 'Confirmed', 'Paid', 'Reserved']
 export const SEATED_STATUS = 'Seated'
-
-/** Default bookable slots (low season). Prefer getTimeSlotsForDate(date) in the UI. */
-export const TIME_SLOTS = LOW_SEASON_TIME_SLOTS
-
-export { ALL_TIME_SLOTS, getTimeSlotsForDate, isMonday, nextOpenDate, CLOSED_WEEKDAY }
 
 export const RESERVATION_STATUS_META = {
   Pending: {

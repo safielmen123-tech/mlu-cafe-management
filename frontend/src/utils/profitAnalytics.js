@@ -24,7 +24,7 @@ export function summarizeExpenses(expenses) {
   for (const expense of expenses) {
     const amount = Number.parseFloat(expense.amount || 0)
     total += amount
-    const category = expense.category || 'Other'
+    const category = expense.category || 'Others'
     byCategory[category] = roundMoney((byCategory[category] || 0) + amount)
   }
 

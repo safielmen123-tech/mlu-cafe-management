@@ -1,40 +1,51 @@
 const express = require('express')
-const jwt = require('jsonwebtoken')
 const db = require('../../db')
-const { env } = require('../config/env')
 const { normalizePermissions } = require('../constants/permissions')
-const { loginLimiter } = require('../middleware/rateLimit')
+const { createPasswordResetLimiter } = require('../middleware/rateLimit')
 const { JWT_SECRET, authenticateToken } = require('../middleware/auth')
+const { getClientIp } = require('../utils/clientIp')
+const { resolveRequestFingerprint } = require('../utils/deviceFingerprint')
 const {
   normalizeLoginInput,
   resolveStoredPasswordHash,
   verifyPassword,
   equalizeFailedLoginTiming,
-  buildTokenPayload,
   assertJwtSecret,
 } = require('../utils/loginAuth')
+const {
+  processLoginAttempt,
+  applyLoginResult,
+  createMysqlSecurityStore,
+} = require('../utils/loginSecurity')
 const {
   isDatabaseConnectionError,
   getDatabaseErrorMessage,
 } = require('../utils/dbErrors')
 const { writeAuditLog } = require('../utils/auditLog')
 const { logError, logSecurity } = require('../utils/logger')
-const { sendAdminPasswordResetEmail } = require('../utils/mailer')
+const { sendSecurityAlertEmail } = require('../utils/mailer')
+const { hashPassword, updateUserPasswordHash } = require('../utils/userAccounts')
+const { passwordPolicyError } = require('../utils/accountPolicy')
 const {
-  isAdminAccount,
-  generateTemporaryPassword,
-  hashPassword,
-  findUserForRecovery,
-  listAdminUsers,
-  updateUserPasswordHash,
-} = require('../utils/userAccounts')
-const { createAdminNotification } = require('../utils/adminNotifications')
-
-const GENERIC_RESET_MESSAGE =
-  'If an account exists for that username, a reset request has been sent. An administrator will follow up shortly.'
+  ensureSessionSecuritySchema,
+  signSessionToken,
+  revokePresentedToken,
+  invalidateUserTokens,
+} = require('../utils/sessionSecurity')
 
 const publicAuthRouter = express.Router()
 const privateAuthRouter = express.Router()
+const loginSecurityStore = createMysqlSecurityStore(db)
+
+async function findLoginUser(username) {
+  const [rows] = await db.execute(
+    `SELECT id, display_name, username, role, permissions, password_hash,
+            must_change_password, is_active
+     FROM users WHERE BINARY username = ? LIMIT 1`,
+    [username],
+  )
+  return rows[0] ?? null
+}
 
 function rejectPublicSignup(req, res) {
   logSecurity('public_signup_blocked', {
@@ -52,51 +63,42 @@ async function handleLogin(req, res) {
     req.body?.password,
   )
 
-  const INVALID_CREDENTIALS = 'Invalid username or password'
-
   if (!normalizedUsername || !plainPassword) {
     return res.status(400).json({ message: 'Please provide both username and password' })
   }
 
   try {
-    const [rows] = await db.execute(
-      `SELECT id, display_name, username, role, permissions, password_hash
-       FROM users WHERE BINARY username = ? LIMIT 1`,
-      [normalizedUsername],
-    )
+    await ensureSessionSecuritySchema(db)
+    const outcome = await processLoginAttempt({
+      username: normalizedUsername,
+      password: plainPassword,
+      ip: req.clientIp || getClientIp(req),
+      fingerprint: req.deviceFingerprint || resolveRequestFingerprint(req),
+      userAgent: req.get('user-agent') || '',
+      acceptLanguage: req.get('accept-language') || '',
+      store: loginSecurityStore,
+      findUser: findLoginUser,
+      verifyPassword: async (plain, storedHash) => {
+        const hash = resolveStoredPasswordHash({ password_hash: storedHash })
+        if (!hash) return false
+        return verifyPassword(plain, hash)
+      },
+      equalizeFailedLoginTiming,
+      onSecurityAlert: (alert) => sendSecurityAlertEmail(alert),
+    })
 
-    const user = rows[0] ?? null
-    const storedHash = user ? resolveStoredPasswordHash(user) : null
-
-    let isPasswordMatch = false
-    try {
-      if (storedHash) {
-        isPasswordMatch = await verifyPassword(plainPassword, storedHash)
-      } else {
-        await equalizeFailedLoginTiming(plainPassword)
-      }
-    } catch (compareError) {
-      logError(compareError, { route: 'POST /api/auth/login', stage: 'password-compare' })
-      return res.status(401).json({ message: INVALID_CREDENTIALS })
+    if (!outcome.ok) {
+      return applyLoginResult(res, outcome)
     }
 
-    if (!user || !storedHash || !isPasswordMatch) {
-      logSecurity('login_failed', {
-        ip: req.ip,
-        username: normalizedUsername.slice(0, 64),
-        reason: !user ? 'unknown_user' : !storedHash ? 'no_password_hash' : 'bad_password',
-      })
-      return res.status(401).json({ message: INVALID_CREDENTIALS })
+    const user = outcome.user
+    if (Number(user.is_active) === 0) {
+      return res.status(401).json({ message: 'Username or password is incorrect.' })
     }
 
     const userPermissions = normalizePermissions(user.permissions)
-    const tokenPayload = buildTokenPayload(user)
-    const jwtSecret = assertJwtSecret(JWT_SECRET)
-
-    const token = jwt.sign(tokenPayload, jwtSecret, {
-      expiresIn: env.jwtExpiresIn,
-      algorithm: 'HS256',
-    })
+    assertJwtSecret(JWT_SECRET)
+    const token = signSessionToken(user)
 
     await writeAuditLog(db, {
       userId: user.id,
@@ -118,6 +120,7 @@ async function handleLogin(req, res) {
         username: user.username,
         role: user.role,
         permissions: userPermissions,
+        must_change_password: Number(user.must_change_password) === 1,
       },
     })
   } catch (error) {
@@ -131,127 +134,72 @@ async function handleLogin(req, res) {
       return res.status(500).json({ message: 'Server authentication is misconfigured' })
     }
 
-    console.error('Login Server Error:', error)
     res.status(500).json({ message: 'Internal server error occurred during login' })
   }
 }
 
 async function handleForgotPassword(req, res) {
-  const identifier = String(req.body?.username || req.body?.email || '').trim()
+  logSecurity('password_reset_public_blocked', {
+    ip: req.ip,
+    path: req.originalUrl,
+  })
+  return res.status(403).json({
+    message: 'Password reset is only available to an administrator in User Management.',
+  })
+}
 
-  if (!identifier) {
-    return res.status(400).json({ message: 'Please enter your username.' })
+async function handleChangePassword(req, res) {
+  const password = String(req.body?.password ?? '')
+  const confirmPassword = String(req.body?.confirmPassword ?? '')
+  const policyError = passwordPolicyError(password)
+
+  if (policyError) {
+    return res.status(400).json({ message: policyError })
+  }
+  if (password !== confirmPassword) {
+    return res.status(400).json({ message: 'Passwords do not match.' })
   }
 
   try {
-    const user = await findUserForRecovery(db, identifier)
+    const passwordHash = await hashPassword(password)
+    await updateUserPasswordHash(db, req.user.id, passwordHash)
+    await db.execute('UPDATE users SET must_change_password = 0 WHERE id = ?', [req.user.id])
+    await invalidateUserTokens(db, req.user.id)
 
-    if (!user) {
-      await equalizeFailedLoginTiming(identifier)
-      logSecurity('password_reset_unknown_user', {
-        ip: req.ip,
-        username: identifier.slice(0, 64),
-      })
-      return res.status(200).json({ message: GENERIC_RESET_MESSAGE })
-    }
+    const token = signSessionToken(req.user)
 
-    const temporaryPassword = generateTemporaryPassword()
-    const passwordHash = await hashPassword(temporaryPassword)
+    await writeAuditLog(db, {
+      userId: req.user.id,
+      userRole: req.user.role,
+      username: req.user.username,
+      action: 'password_changed',
+      module: 'Auth',
+      description: `User ${req.user.username} changed their password`,
+    })
 
-    if (isAdminAccount(user)) {
-      await sendAdminPasswordResetEmail({
-        username: user.username,
-        temporaryPassword,
-      })
-      await updateUserPasswordHash(db, user.id, passwordHash)
-
-      await writeAuditLog(db, {
-        userId: user.id,
-        userRole: user.role,
-        username: user.username,
-        action: 'admin_password_reset',
-        module: 'Auth',
-        description: `Administrator password reset emailed to ${env.adminEmail}`,
-      })
-
-      logSecurity('admin_password_reset', {
-        ip: req.ip,
-        username: user.username,
-        userId: user.id,
-      })
-    } else {
-      const admins = await listAdminUsers(db)
-      const displayName = user.display_name || user.username
-      const title = 'Staff password reset requested'
-      const message = [
-        `${displayName} (${user.username}) requested a password reset.`,
-        user.role ? `Role: ${user.role}.` : '',
-        user.email ? `Email: ${user.email}.` : '',
-        'A temporary password is attached for retrieval.',
-      ]
-        .filter(Boolean)
-        .join(' ')
-
-      if (!admins.length) {
-        logSecurity('staff_password_reset_no_admin', {
-          ip: req.ip,
-          username: user.username,
-        })
-      }
-
-      await Promise.all(
-        admins.map((admin) =>
-          createAdminNotification(db, {
-            recipientUserId: admin.id,
-            type: 'password_reset',
-            title,
-            message,
-            meta: {
-              username: user.username,
-              displayName,
-              role: user.role || 'Staff',
-              email: user.email || null,
-              requesterUserId: user.id,
-              temporaryPassword,
-            },
-          }),
-        ),
-      )
-      await updateUserPasswordHash(db, user.id, passwordHash)
-
-      await writeAuditLog(db, {
-        userId: user.id,
-        userRole: user.role,
-        username: user.username,
-        action: 'staff_password_reset',
-        module: 'Auth',
-        description: `Staff ${user.username} requested a password reset`,
-      })
-
-      logSecurity('staff_password_reset', {
-        ip: req.ip,
-        username: user.username,
-        userId: user.id,
-      })
-    }
-
-    return res.status(200).json({ message: GENERIC_RESET_MESSAGE })
+    return res.status(200).json({
+      message: 'Password updated',
+      token,
+      user: {
+        id: req.user.id,
+        display_name: req.user.display_name,
+        username: req.user.username,
+        role: req.user.role,
+        permissions: req.user.permissions,
+        must_change_password: false,
+      },
+    })
   } catch (error) {
-    logError(error, { route: 'POST /api/auth/forgot-password' })
-
+    logError(error, { route: 'POST /api/auth/change-password' })
     if (isDatabaseConnectionError(error)) {
       return res.status(503).json({ message: getDatabaseErrorMessage(error) })
     }
-
-    console.error('Forgot password error:', error)
-    return res.status(500).json({
-      message: 'Unable to process the reset request right now. Please try again shortly.',
-    })
+    return res.status(500).json({ message: 'Something went wrong' })
   }
 }
 
-publicAuthRouter.post('/login', loginLimiter, handleLogin)
-publicAuthRouter.post('/forgot-password', loginLimiter, handleForgotPassword)
+publicAuthRouter.post('/login', handleLogin)
+publicAuthRouter.post('/forgot-password', createPasswordResetLimiter(), handleForgotPassword)
 publicAuthRouter.post('/register', rejectPublicSignup)
 publicAuthRouter.post('/signup', rejectPublicSignup)
 publicAuthRouter.get('/register', rejectPublicSignup)
@@ -261,7 +209,15 @@ privateAuthRouter.get('/me', authenticateToken, async (req, res) => {
   res.status(200).json({ user: req.user })
 })
 
+privateAuthRouter.post('/change-password', createPasswordResetLimiter(), authenticateToken, handleChangePassword)
+
 privateAuthRouter.post('/logout', authenticateToken, async (req, res) => {
+  try {
+    await revokePresentedToken(db, req.tokenClaims, req.user?.id)
+  } catch (error) {
+    logError(error, { route: 'POST /api/auth/logout' })
+  }
+
   await writeAuditLog(db, {
     userId: req.user?.id ?? null,
     userRole: req.user?.role ?? null,

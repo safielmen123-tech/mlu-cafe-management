@@ -7,6 +7,7 @@ import MenuItemImage from '../components/menu/MenuItemImage'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { formatMenuPrice, isDrinkMenuCategory } from '../utils/drinkOptions'
+import { menuNameMatchesQuery, translateMenuName } from '../utils/menuNameTranslations'
 
 const CATEGORIES = ['Coffee', 'Tea', 'Cold Drinks', 'Beer', 'Starters', 'Mains', 'Soup', 'Vegetable', 'Dessert']
 
@@ -38,7 +39,7 @@ function categoryLabel(category, t) {
 }
 
 export default function MenuManagement() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [items, setItems] = useState([])
   const [isLoadingMenu, setIsLoadingMenu] = useState(true)
   const [usingFallbackMenu, setUsingFallbackMenu] = useState(false)
@@ -86,7 +87,7 @@ export default function MenuManagement() {
 
   const filtered = items.filter((item) => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory
-    const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase())
+    const matchesSearch = menuNameMatchesQuery(item.name, search, i18n.language, t)
     return matchesCategory && matchesSearch
   })
 
@@ -187,7 +188,10 @@ export default function MenuManagement() {
   }
 
   const requestDeleteMenuItem = (item) => {
-    setMenuDeleteTarget({ id: item.id, name: item.name })
+    setMenuDeleteTarget({
+      id: item.id,
+      name: translateMenuName(item.name, i18n.language, t),
+    })
   }
 
   const confirmDeleteMenuItem = async () => {
@@ -223,7 +227,6 @@ export default function MenuManagement() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="page-title">{t('nav.menuManagement')}</h3>
-          <p className="page-subtitle">{t('menuAdmin.subtitle')}</p>
         </div>
         <button
           type="button"
@@ -235,9 +238,9 @@ export default function MenuManagement() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3">
         <form
-          className="relative flex-1"
+          className="relative"
           onSubmit={(event) => {
             event.preventDefault()
           }}
@@ -251,13 +254,13 @@ export default function MenuManagement() {
             className="input-field pl-10"
           />
         </form>
-        <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex flex-wrap gap-2">
           {categories.map((category) => (
             <button
               key={category}
               type="button"
               onClick={() => setActiveCategory(category)}
-              className={`tab-pill shrink-0 ${
+              className={`tab-pill ${
                 activeCategory === category ? 'tab-pill-active' : 'tab-pill-inactive'
               }`}
             >
@@ -282,7 +285,7 @@ export default function MenuManagement() {
               <div className="flex items-start justify-between gap-2">
                 <MenuItemImage
                   imageUrl={item.image_url}
-                  alt={item.name}
+                  alt={translateMenuName(item.name, i18n.language, t)}
                   eager={index < 8}
                   className="h-14 w-14 shrink-0 rounded-2xl border border-slate-100 object-cover ring-1 ring-border dark:border-zinc-800"
                 />
@@ -307,7 +310,7 @@ export default function MenuManagement() {
                 </div>
               </div>
 
-              <h4 className="text-heading mt-4 text-lg">{item.name}</h4>
+              <h4 className="text-heading mt-4 text-lg">{translateMenuName(item.name, i18n.language, t)}</h4>
               <p className="mt-1 text-2xl font-bold text-forest-600 dark:text-forest-400">
                 {formatMenuPrice(item)}
               </p>
@@ -337,11 +340,11 @@ export default function MenuManagement() {
     </div>
 
       {showDetailsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overscroll-contain">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overscroll-contain">
           <button
             type="button"
             aria-label={t('a11y.closeModal')}
-            className="absolute inset-0 cursor-default"
+            className="modal-backdrop"
             onClick={handleCloseDetailsModal}
           />
           <div
@@ -349,7 +352,7 @@ export default function MenuManagement() {
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
-            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl outline-none"
+            className="modal-panel relative z-10 max-h-[90vh] w-full max-w-lg p-6"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-heading text-lg">

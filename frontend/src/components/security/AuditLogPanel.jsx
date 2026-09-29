@@ -5,11 +5,10 @@ import { apiFetch } from '../../services/apiClient'
 import { formatDateTimeDisplay } from '../../utils/dateTimeFormat'
 
 export default function AuditLogPanel() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
 
   const loadLogs = useCallback(async () => {
     setLoading(true)
@@ -40,7 +39,6 @@ export default function AuditLogPanel() {
         </div>
         <div>
           <h4 className="text-heading font-semibold">{t('audit.title')}</h4>
-          <p className="text-muted text-sm">{t('audit.subtitle')}</p>
         </div>
       </div>
 
@@ -78,18 +76,10 @@ export default function AuditLogPanel() {
             ) : (
               logs.map((log) => {
                 const created = log.created_at ? new Date(log.created_at) : null
-                const date = created ? created.toISOString().slice(0, 10) : ''
-                const time = created
-                  ? created.toLocaleTimeString(dateLocale, {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                      hour12: true,
-                    })
-                  : ''
                 return (
                   <tr key={log.id} className="table-row">
                     <td className="px-4 py-3 tabular-nums text-muted">
-                      {created ? formatDateTimeDisplay(date, time) : '—'}
+                      {created ? formatDateTimeDisplay(created, created) : '—'}
                     </td>
                     <td className="px-4 py-3 font-medium text-heading">
                       {log.username || `#${log.user_id || '—'}`}

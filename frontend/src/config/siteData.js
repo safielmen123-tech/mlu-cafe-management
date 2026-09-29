@@ -2,7 +2,7 @@
  * Store schedule and public-facing hours for Mlu Kitchen & Cafe Siem Reap.
  * Single source of truth for reservation slots, banners, settings, and receipts.
  */
-import { formatTime12Hour, formatTimeRange12Hour } from '../utils/dateTimeFormat'
+import { formatTimeRange12Hour } from '../utils/dateTimeFormat'
 
 export const CLOSED_WEEKDAY = 1 // Monday (Date#getDay)
 
@@ -102,13 +102,6 @@ export function getTimeSlotsForDate(dateInput, seasonMode = 'auto') {
   return generateTimeSlots(isHighSeasonMonth(dateInput, seasonMode))
 }
 
-export const LOW_SEASON_TIME_SLOTS = generateTimeSlots(false)
-export const HIGH_SEASON_TIME_SLOTS = generateTimeSlots(true)
-export const ALL_TIME_SLOTS = [
-  ...HIGH_SEASON_TIME_SLOTS,
-  ...LOW_SEASON_TIME_SLOTS.filter((slot) => !HIGH_SEASON_TIME_SLOTS.some((entry) => entry.value === slot.value)),
-]
-
 export function nextOpenDate(from = new Date()) {
   const date = from instanceof Date ? new Date(from.getTime()) : parseIsoDate(from)
   while (date.getDay() === CLOSED_WEEKDAY) {
@@ -125,5 +118,3 @@ export function isValidReservationSlot(dateInput, timeSlot, seasonMode = 'auto')
   const start = String(timeSlot || '').slice(0, 5)
   return getTimeSlotsForDate(dateInput, seasonMode).some((slot) => slot.value === start)
 }
-
-export { formatTime12Hour, formatTimeRange12Hour }

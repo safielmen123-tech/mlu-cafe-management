@@ -29,7 +29,7 @@ import {
 } from '../data/reservations'
 import { getTimeSlotsForDate, isMonday, isValidReservationSlot, nextOpenDate } from '../config/siteData'
 import { floorTables } from '../data/tables'
-import { formatTime12Hour } from '../utils/dateTimeFormat'
+import { formatLongDate, formatMonthYear, formatTime12Hour } from '../utils/dateTimeFormat'
 import { canIssueConfirmationLetter } from '../utils/reservationLetter'
 import { useAlerts } from '../context/AlertsContext'
 
@@ -82,8 +82,7 @@ function reservationTableLabel(reservation, t) {
 }
 
 function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDate, onChangeMonth }) {
-  const { t, i18n } = useTranslation()
-  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
+  const { t } = useTranslation()
   const year = monthDate.getFullYear()
   const month = monthDate.getMonth()
   const firstDay = new Date(year, month, 1).getDay()
@@ -104,7 +103,7 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
         <div>
           <p className="text-heading text-sm font-semibold">{t('reservations.calendar')}</p>
           <p className="text-muted text-xs">
-            {monthDate.toLocaleString(dateLocale, { month: 'long', year: 'numeric' })}
+            {formatMonthYear(monthDate, t)}
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -415,8 +414,7 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
 }
 
 export default function Reservations() {
-  const { t, i18n } = useTranslation()
-  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
+  const { t } = useTranslation()
   const { refresh: refreshAlerts } = useAlerts()
   const today = toLocalDateISO()
   const [monthDate, setMonthDate] = useState(() => parseISODate(today))
@@ -640,7 +638,6 @@ export default function Reservations() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-heading text-lg">{t('nav.reservations')}</h3>
-          <p className="text-muted text-sm">{t('reservations.subtitle')}</p>
         </div>
         <button type="button" onClick={openCreate} className="btn-primary inline-flex items-center gap-2 px-4 py-2 text-sm">
           <Plus className="h-4 w-4" />
@@ -667,11 +664,7 @@ export default function Reservations() {
             <div className="flex items-center gap-2">
               <CalendarDays className="h-4 w-4 text-forest-600 dark:text-forest-400" />
               <p className="text-heading text-sm font-semibold">
-                {parseISODate(selectedDate).toLocaleDateString(dateLocale, {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                })}
+                {formatLongDate(parseISODate(selectedDate), t)}
               </p>
             </div>
             <p className="text-muted mt-2 text-sm">

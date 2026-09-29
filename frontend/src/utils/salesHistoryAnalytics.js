@@ -1,3 +1,5 @@
+import { formatMonthYearFromKey } from './dateTimeFormat'
+
 export const DEFAULT_HISTORY_DAYS = 730
 
 export function getCurrentMonthKey(date = new Date()) {
@@ -21,10 +23,13 @@ export function buildSalesHistoryQuery(options) {
   return `month=${encodeURIComponent(getCurrentMonthKey())}`
 }
 
-export function formatMonthLabel(monthKey, locale = 'en-US') {
-  const [year, month] = monthKey.split('-').map(Number)
+export function formatMonthLabel(monthKey, t) {
+  if (typeof t === 'function') {
+    return formatMonthYearFromKey(monthKey, t) || monthKey
+  }
+  const [year, month] = String(monthKey || '').split('-').map(Number)
   if (!year || !month) return monthKey
-  return new Date(year, month - 1, 1).toLocaleDateString(locale, {
+  return new Date(year, month - 1, 1).toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',
   })
@@ -33,7 +38,7 @@ export function formatMonthLabel(monthKey, locale = 'en-US') {
 export function buildMonthFilterOptions(
   lookbackMonths = 6,
   referenceDate = new Date(),
-  locale = 'en-US',
+  t,
   allMonthsLabel = 'All months in range',
 ) {
   const options = [{ value: 'all', label: allMonthsLabel }]
@@ -43,7 +48,7 @@ export function buildMonthFilterOptions(
     const value = getCurrentMonthKey(date)
     options.push({
       value,
-      label: formatMonthLabel(value, locale),
+      label: formatMonthLabel(value, t),
     })
   }
 

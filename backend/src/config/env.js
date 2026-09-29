@@ -66,15 +66,15 @@ const env = {
     database: process.env.DB_NAME,
   },
   jwtSecret: String(process.env.JWT_SECRET || '').trim(),
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
-  adminEmail: String(process.env.ADMIN_EMAIL || 'antagonistslayer9000@gmail.com').trim().toLowerCase(),
+  jwtExpiresIn: '2h',
+  adminEmail: String(process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
   smtp: {
     host: String(process.env.SMTP_HOST || '').trim(),
     port: parseIntOr(process.env.SMTP_PORT, 587),
     secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
     user: String(process.env.SMTP_USER || '').trim(),
     pass: String(process.env.SMTP_PASS || '').trim(),
-    from: String(process.env.SMTP_FROM || process.env.ADMIN_EMAIL || 'antagonistslayer9000@gmail.com').trim(),
+    from: String(process.env.SMTP_FROM || process.env.ADMIN_EMAIL || 'Mlu Kitchen & Cafe <noreply@localhost>').trim(),
   },
   frontendUrl,
   liveConditions: {
@@ -88,7 +88,7 @@ const env = {
     // spoof X-Forwarded-For and walk straight past the rate limiter.
     trustProxy: String(process.env.TRUST_PROXY || '').toLowerCase() === 'true',
     loginAttemptLimit: parseIntOr(process.env.LOGIN_ATTEMPT_LIMIT, 10),
-    apiRequestLimit: parseIntOr(process.env.API_RATE_LIMIT, 1000),
+    apiRequestLimit: parseIntOr(process.env.API_RATE_LIMIT, 300),
     sensitiveOperationLimit: parseIntOr(process.env.SENSITIVE_RATE_LIMIT, 20),
     jsonBodyLimit: process.env.JSON_BODY_LIMIT || '1mb',
   },

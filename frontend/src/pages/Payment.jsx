@@ -5,11 +5,12 @@ import { usePOS } from '../context/POSContext'
 import { useNotifications } from '../context/NotificationContext'
 import { PAYMENT_QUEUE_STATUS } from '../data/tables'
 import { buildPreCheckoutReceipt, calculateTotals } from '../utils/posHelpers'
+import { translateDrinkNotes, translateMenuName, translateMenuSummary } from '../utils/menuNameTranslations'
 import PaymentModule from '../components/pos/PaymentModule'
 import ReceiptModal from '../components/pos/ReceiptModal'
 
 function ActiveBillList({ bills, selectedId, onSelect }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   if (bills.length === 0) {
     return (
@@ -42,7 +43,9 @@ function ActiveBillList({ bills, selectedId, onSelect }) {
               <div className="min-w-0">
                 <p className="text-heading truncate font-semibold">{bill.name}</p>
                 {bill.orderSummary && (
-                  <p className="text-muted mt-1 line-clamp-2 text-xs">{bill.orderSummary}</p>
+                  <p className="text-muted mt-1 line-clamp-2 text-xs">
+                    {translateMenuSummary(bill.orderSummary, i18n.language, t)}
+                  </p>
                 )}
               </div>
               <span
@@ -68,7 +71,7 @@ function BillManager({
   onPrintBill,
   onPaymentComplete,
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   // Drafts hold only in-progress edits; anything untouched reads straight from the bill.
   const [priceDrafts, setPriceDrafts] = useState({})
   const [draftBillId, setDraftBillId] = useState(bill.id)
@@ -114,9 +117,11 @@ function BillManager({
             className="surface-inset flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="min-w-0 flex-1">
-              <p className="text-heading font-medium">{item.name}</p>
+              <p className="text-heading font-medium">
+                {translateMenuName(item.name, i18n.language, t)}
+              </p>
               {item.notes && !String(item.name || '').includes(item.notes) ? (
-                <p className="text-muted mt-0.5 text-xs">{item.notes}</p>
+                <p className="text-muted mt-0.5 text-xs">{translateDrinkNotes(item.notes, t)}</p>
               ) : null}
               <p className="text-muted text-xs">
                 {t('payment.quantity', { count: item.qty || item.quantity || 1 })}
@@ -128,7 +133,9 @@ function BillManager({
                 type="button"
                 onClick={() => onDecrementItem(item.id)}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-red-800 dark:hover:bg-red-950/30 dark:hover:text-red-400"
-                aria-label={t('a11y.removeOneItem', { item: item.name })}
+                aria-label={t('a11y.removeOneItem', {
+                  item: translateMenuName(item.name, i18n.language, t),
+                })}
               >
                 <Minus className="h-4 w-4" />
               </button>
@@ -321,7 +328,7 @@ export default function Payment() {
       {previewReceipt && (
         <ReceiptModal
           transaction={previewReceipt}
-          variant="invoice"
+          variant="bill"
           onClose={() => setPreviewReceipt(null)}
         />
       )}

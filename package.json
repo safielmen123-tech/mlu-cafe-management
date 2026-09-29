@@ -11,6 +11,7 @@
     "start:backend": "npm --prefix backend run start",
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
-    "lint": "npm --prefix frontend run lint"
+    "lint": "npm --prefix frontend run lint",
+    "test": "npm --prefix backend test"
   }
 }

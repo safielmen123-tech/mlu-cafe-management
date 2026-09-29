@@ -18,12 +18,14 @@ async function ensureUsersEmailColumn(db) {
         await db.execute('ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL AFTER username')
       }
 
-      await db.execute(
-        `UPDATE users
-         SET email = ?
-         WHERE LOWER(role) = 'admin' AND (email IS NULL OR email = '')`,
-        [env.adminEmail],
-      )
+      if (env.adminEmail) {
+        await db.execute(
+          `UPDATE users
+           SET email = ?
+           WHERE LOWER(role) = 'admin' AND (email IS NULL OR email = '')`,
+          [env.adminEmail],
+        )
+      }
     })().catch((error) => {
       emailColumnReady = null
       throw error
@@ -39,7 +41,7 @@ function normalizeEmail(value) {
 function isAdminAccount(user) {
   if (!user) return false
   if (isAdminRole(user.role)) return true
-  return normalizeEmail(user.email) === env.adminEmail
+  return Boolean(env.adminEmail) && normalizeEmail(user.email) === env.adminEmail
 }
 
 function generateTemporaryPassword(length = 14) {
@@ -47,6 +49,9 @@ function generateTemporaryPassword(length = 14) {
   let password = ''
   for (let i = 0; i < length; i += 1) {
     password += TEMP_PASSWORD_ALPHABET[bytes[i] % TEMP_PASSWORD_ALPHABET.length]
+  }
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+    return `${password}A7`
   }
   return password
 }

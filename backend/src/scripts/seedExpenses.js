@@ -1,7 +1,11 @@
 /**
  * Seeds cafe operating expenses that follow completed sales dates.
- * Target mix: ~24% inventory, ~28% payroll, ~8% daily overhead,
- * plus monthly utilities/maintenance — leaving a healthy cafe profit.
+ *
+ * Categories:
+ *   Payroll            — $200 × 6 staff, paid on the 1st of every month
+ *   Inventory Restock  — stock buys on sale days
+ *   Others             — small miscellaneous costs
+ *
  * Run: npm run seed:expenses
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') })
@@ -10,6 +14,9 @@ const db = require('../../db')
 const { ensureExpensesSchema } = require('../utils/expenses')
 
 const SEED_NAME = 'Demo Seed'
+const STAFF_COUNT = 6
+const PAY_PER_PERSON = 200
+const MONTHLY_PAYROLL = STAFF_COUNT * PAY_PER_PERSON
 
 function roundMoney(value) {
   return Math.round((Number(value) || 0) * 100) / 100
@@ -52,6 +59,15 @@ function eachDate(start, end, visit) {
   }
 }
 
+function eachMonthFirst(start, end, visit) {
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
+  const last = new Date(end.getFullYear(), end.getMonth(), 1)
+  while (cursor <= last) {
+    visit(new Date(cursor))
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+}
+
 async function loadDailySales() {
   const [rows] = await db.execute(`
     SELECT
@@ -72,12 +88,6 @@ async function loadDailySales() {
 
 function buildExpenses(dailySales, rand) {
   const revenueByDate = Object.fromEntries(dailySales.map((row) => [row.date, row.revenue]))
-  const revenueByMonth = {}
-  for (const row of dailySales) {
-    const monthKey = row.date.slice(0, 7)
-    revenueByMonth[monthKey] = (revenueByMonth[monthKey] || 0) + row.revenue
-  }
-
   const start = parseIsoDate(dailySales[0].date)
   const end = parseIsoDate(dailySales[dailySales.length - 1].date)
   const rows = []
@@ -88,26 +98,20 @@ function buildExpenses(dailySales, rand) {
     rows.push([category, description, value, expenseDate, SEED_NAME])
   }
 
+  eachMonthFirst(start, end, (day) => {
+    push(
+      toIsoDate(day),
+      'Payroll',
+      `Staff wages — ${STAFF_COUNT} people × $${PAY_PER_PERSON}`,
+      MONTHLY_PAYROLL,
+    )
+  })
+
   eachDate(start, end, (day) => {
     const iso = toIsoDate(day)
-    const monthKey = iso.slice(0, 7)
     const weekday = day.getDay()
     const dateNum = day.getDate()
-    const month = day.getMonth() + 1
     const dayRevenue = revenueByDate[iso] || 0
-    const monthRevenue = revenueByMonth[monthKey] || 0
-    const isOperatingMonth = monthRevenue >= 500
-    const isHotSeason = month >= 3 && month <= 5
-    const isHighSeason = month === 11 || month === 12 || month <= 2
-
-    if (dayRevenue > 0) {
-      push(
-        iso,
-        'Daily Overhead',
-        'Gas, packaging, napkins, and cleaning supplies',
-        dayRevenue * 0.08 + randomBetween(rand, 4, 11),
-      )
-    }
 
     if (dayRevenue > 0 && (weekday === 2 || weekday === 4 || weekday === 6)) {
       const share = weekday === 4 ? 0.09 : weekday === 2 ? 0.08 : 0.07
@@ -116,49 +120,18 @@ function buildExpenses(dailySales, rand) {
         4: 'Fresh milk, dairy, and bakery ingredients',
         6: 'Produce, fruit, and dry goods restock',
       }
-      push(iso, 'Inventory Restock', labels[weekday], dayRevenue * share * 6 + randomBetween(rand, 8, 22))
-    }
-
-    if (isOperatingMonth && (dateNum === 1 || (dateNum === 2 && weekday === 1))) {
       push(
         iso,
-        'Staff / Payroll',
-        'Kitchen and floor wages (1–15)',
-        monthRevenue * 0.14 + randomBetween(rand, 20, 45),
+        'Inventory Restock',
+        labels[weekday],
+        dayRevenue * share * 6 + randomBetween(rand, 8, 22),
       )
     }
 
-    if (isOperatingMonth && (dateNum === 16 || (dateNum === 17 && weekday === 1))) {
+    if (dayRevenue > 0 && dateNum === 22 && rand() < 0.55) {
       push(
         iso,
-        'Staff / Payroll',
-        'Kitchen and floor wages (16–end)',
-        monthRevenue * 0.14 + randomBetween(rand, 20, 45),
-      )
-    }
-
-    if (isOperatingMonth && (dateNum === 5 || (dateNum === 6 && weekday === 1))) {
-      const utilities =
-        165 +
-        (isHotSeason ? 95 : 0) +
-        (isHighSeason ? 35 : 0) +
-        randomBetween(rand, 12, 40)
-      push(iso, 'Utilities', 'Electricity, water, and internet', utilities)
-    }
-
-    if (isOperatingMonth && (dateNum === 12 || (dateNum === 13 && weekday === 1))) {
-      push(
-        iso,
-        'Maintenance',
-        'Espresso machine, fridge, and fixture service',
-        randomBetween(rand, 38, 92) + (isHotSeason ? 18 : 0),
-      )
-    }
-
-    if (isOperatingMonth && dateNum === 22 && rand() < 0.55) {
-      push(
-        iso,
-        'Other',
+        'Others',
         rand() < 0.5 ? 'Market herbs, flowers, and smallwares' : 'Printer paper, soap, and office supplies',
         randomBetween(rand, 14, 48),
       )
@@ -198,6 +171,7 @@ async function seedExpenses() {
   const salesTotal = dailySales.reduce((sum, row) => sum + row.revenue, 0)
   console.log(`[1/3] Linked to ${dailySales.length} sale days · $${salesTotal.toFixed(2)} revenue`)
   console.log(`      ${dailySales[0].date} → ${dailySales[dailySales.length - 1].date}`)
+  console.log(`      Payroll: ${STAFF_COUNT} × $${PAY_PER_PERSON} = $${MONTHLY_PAYROLL}/month on the 1st`)
 
   const [deleted] = await db.execute('DELETE FROM expenses WHERE created_by_name = ?', [SEED_NAME])
   console.log(`[2/3] Cleared ${deleted.affectedRows} previous demo expenses`)

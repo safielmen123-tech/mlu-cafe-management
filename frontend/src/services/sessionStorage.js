@@ -69,14 +69,6 @@ export function consumeConnectionLost() {
   }
 }
 
-export function createSession(user, activePage = 'dashboard') {
-  return {
-    token: `rc_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-    user,
-    activePage: resolveActivePage(activePage),
-  }
-}
-
 export function formatDisplayName(username) {
   if (!username?.trim()) return 'Staff User'
   const cleaned = username.trim()

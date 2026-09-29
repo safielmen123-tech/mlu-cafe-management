@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
-import { orderLogs as initialOrderLogs } from '../data/orderLogs'
 import {
   applyItemsToBill,
   calculateTotals,
@@ -149,7 +148,7 @@ export function POSProvider({ children }) {
       }
     } catch (err) {
       console.error('Error loading historical database entries:', err)
-      setSalesHistory(initialOrderLogs)
+      setSalesHistory([])
     }
     return null
   }, [])

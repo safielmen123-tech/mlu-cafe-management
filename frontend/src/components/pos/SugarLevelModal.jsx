@@ -10,9 +10,10 @@ import {
   TEA_SELECTION_FLAVORS,
 } from '../../utils/drinkOptions'
 import { DEFAULT_SUGAR_LEVEL, SUGAR_LEVELS } from '../../utils/sugarLevel'
+import { translateMenuName } from '../../utils/menuNameTranslations'
 
 export default function SugarLevelModal({ item, onConfirm, onClose }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const servings = availableServings(item)
   const [serving, setServing] = useState(defaultServing(item))
   const [sugarLevel, setSugarLevel] = useState(DEFAULT_SUGAR_LEVEL)
@@ -54,11 +55,11 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 overscroll-contain">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 overscroll-contain">
       <button
         type="button"
         aria-label={t('a11y.closeSugarLevelOptions')}
-        className="absolute inset-0 cursor-default"
+        className="modal-backdrop"
         onClick={onClose}
       />
       <div
@@ -80,7 +81,9 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
                   <h3 id="sugar-level-title" className="text-heading text-lg font-semibold">
                     {t('order.sugar.title')}
                   </h3>
-                  <p className="text-heading mt-1 truncate text-sm font-medium">{item.name}</p>
+                  <p className="text-heading mt-1 truncate text-sm font-medium">
+                    {translateMenuName(item.name, i18n.language, t)}
+                  </p>
                   <p className="text-muted mt-1 text-xs">{t('order.sugar.description')}</p>
                 </div>
               </div>

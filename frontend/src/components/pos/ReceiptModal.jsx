@@ -1,12 +1,20 @@
+import { useTranslation } from 'react-i18next'
 import { BadgeCheck, Printer, X } from 'lucide-react'
 import { STORE } from '../../config/store'
-import { OPERATING_HOURS_NOTICE } from '../../config/siteData'
 import { formatDateTimeDisplay } from '../../utils/dateTimeFormat'
 import { calculateTotals } from '../../utils/posHelpers'
+import { translateDrinkNotes, translateMenuName } from '../../utils/menuNameTranslations'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 import BrandLogo from '../common/BrandLogo'
 
+function paymentMethodLabel(method, t) {
+  if (method === 'Bank Scan') return t('payment.methods.bankScan')
+  if (method === 'Cash') return t('payment.methods.cash')
+  return method
+}
+
 function ModalShell({ onClose, printLabel, documentContent }) {
+  const { t } = useTranslation()
   const panelRef = useModalKeyboard({
     isOpen: true,
     onEscape: onClose,
@@ -18,11 +26,11 @@ function ModalShell({ onClose, printLabel, documentContent }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-md print:relative print:inset-auto print:block print:bg-transparent print:p-0 print:backdrop-blur-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 print:relative print:inset-auto print:block print:bg-transparent print:p-0">
       <button
         type="button"
-        aria-label="Close document preview"
-        className="absolute inset-0 print:hidden"
+        aria-label={t('a11y.close')}
+        className="modal-backdrop print:hidden"
         onClick={onClose}
       />
 
@@ -37,7 +45,7 @@ function ModalShell({ onClose, printLabel, documentContent }) {
           type="button"
           onClick={onClose}
           className="absolute right-4 top-4 z-10 flex min-h-9 min-w-9 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 print:hidden"
-          aria-label="Close receipt"
+          aria-label={t('a11y.close')}
         >
           <X className="h-5 w-5" />
         </button>
@@ -60,7 +68,7 @@ function ModalShell({ onClose, printLabel, documentContent }) {
             onClick={onClose}
             className="w-full rounded-2xl py-2.5 font-medium text-slate-600 transition hover:bg-slate-200/50"
           >
-            Done
+            {t('common.done')}
           </button>
         </div>
       </div>
@@ -68,7 +76,9 @@ function ModalShell({ onClose, printLabel, documentContent }) {
   )
 }
 
-function InvoiceTemplate({ transaction }) {
+function BillTemplate({ transaction }) {
+  const { t, i18n } = useTranslation()
+
   return (
     <div
       id="receipt-print-area"
@@ -82,35 +92,37 @@ function InvoiceTemplate({ transaction }) {
       </div>
 
       <div className="mt-4 flex justify-center">
-        <div className="rounded-full border border-orange-300 bg-orange-50 px-5 py-2">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-800">
-            Status: Unpaid / Pending
+        <div className="rounded-full border border-orange-300 bg-orange-50 px-4 py-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-orange-800">
+            {t('payment.unpaid')}
           </p>
         </div>
       </div>
 
       <div className="mt-4 space-y-1 border-b border-dashed border-stone-300 pb-4 text-sm">
         <div className="flex justify-between gap-4">
-          <span className="text-stone-500">Reference No.</span>
+          <span className="text-stone-500">{t('payment.billNo')}</span>
           <span className="font-semibold tabular-nums">{transaction.id}</span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-stone-500">Account / Table</span>
+          <span className="text-stone-500">{t('tables.table')}</span>
           <span className="font-medium">{transaction.source}</span>
         </div>
       </div>
 
       <div className="py-4">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-500">
-          Itemized Charges
+          {t('payment.items')}
         </p>
         <div className="space-y-2.5">
           {transaction.items.map((item, index) => (
             <div key={`${item.id ?? 'line'}-${item.name}-${index}`} className="flex justify-between gap-3 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="font-medium text-stone-900">{item.name}</p>
+                <p className="font-medium text-stone-900">
+                  {translateMenuName(item.name, i18n.language, t)}
+                </p>
                 {item.notes && !String(item.name || '').includes(item.notes) ? (
-                  <p className="text-xs text-stone-500">{item.notes}</p>
+                  <p className="text-xs text-stone-500">{translateDrinkNotes(item.notes, t)}</p>
                 ) : null}
                 <p className="text-xs text-stone-500">
                   {item.qty} × ${item.unitPrice.toFixed(2)}
@@ -126,26 +138,25 @@ function InvoiceTemplate({ transaction }) {
 
       <div className="space-y-1.5 border-t border-dashed border-stone-300 pt-4 text-sm">
         <div className="flex justify-between text-stone-600">
-          <span>Subtotal</span>
+          <span>{t('common.subtotal')}</span>
           <span className="tabular-nums">${transaction.subtotal.toFixed(2)}</span>
         </div>
         <div className="flex justify-between border-t border-stone-200 pt-2 text-base font-bold text-stone-900">
-          <span>Total Balance Due</span>
+          <span>{t('common.total')}</span>
           <span className="tabular-nums">${transaction.total.toFixed(2)}</span>
         </div>
       </div>
 
-      <p className="mt-6 border-t border-dashed border-stone-300 pt-4 text-center text-xs font-medium leading-relaxed text-stone-600">
-        Please present this invoice at the counter to settle your payment.
-        <br />
-        {OPERATING_HOURS_NOTICE}
+      <p className="mt-6 border-t border-dashed border-stone-300 pt-4 text-center text-xs leading-relaxed text-stone-500">
+        {t('settings.operatingHoursNotice')}
       </p>
     </div>
   )
 }
 
 function ReceiptTemplate({ transaction }) {
-  const paymentMethod = transaction.payment || 'Cash'
+  const { t, i18n } = useTranslation()
+  const paymentMethod = paymentMethodLabel(transaction.payment || 'Cash', t)
 
   return (
     <div
@@ -160,36 +171,40 @@ function ReceiptTemplate({ transaction }) {
 
         <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-400 bg-emerald-50 px-4 py-1.5">
           <BadgeCheck className="h-4 w-4 text-emerald-600" />
-          <span className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-800">
-            Official Receipt
+          <span className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+            {t('payment.receiptTitle')}
           </span>
         </div>
       </div>
 
       <div className="space-y-1 border-b border-dashed border-emerald-200 py-4 text-sm">
         <div className="flex justify-between gap-4">
-          <span className="text-stone-500">Invoice No.</span>
+          <span className="text-stone-500">{t('payment.receiptNo')}</span>
           <span className="font-semibold tabular-nums">{transaction.id}</span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-stone-500">Date / Time</span>
+          <span className="text-stone-500">{t('common.dateTime')}</span>
           <span className="tabular-nums">{formatDateTimeDisplay(transaction.date, transaction.time)}</span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-stone-500">Table / Source</span>
+          <span className="text-stone-500">{t('tables.table')}</span>
           <span className="font-medium">{transaction.source}</span>
         </div>
       </div>
 
       <div className="py-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-400">Items</p>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-400">
+          {t('payment.items')}
+        </p>
         <div className="space-y-2.5">
           {transaction.items.map((item, index) => (
             <div key={`${item.id ?? 'line'}-${item.name}-${index}`} className="flex justify-between gap-3 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="font-medium text-stone-900">{item.name}</p>
+                <p className="font-medium text-stone-900">
+                  {translateMenuName(item.name, i18n.language, t)}
+                </p>
                 {item.notes && !String(item.name || '').includes(item.notes) ? (
-                  <p className="text-xs text-stone-500">{item.notes}</p>
+                  <p className="text-xs text-stone-500">{translateDrinkNotes(item.notes, t)}</p>
                 ) : null}
                 <p className="text-xs text-stone-500">
                   {item.qty} × ${item.unitPrice.toFixed(2)}
@@ -205,20 +220,20 @@ function ReceiptTemplate({ transaction }) {
 
       <div className="space-y-1.5 border-t border-dashed border-emerald-200 pt-4 text-sm">
         <div className="flex justify-between text-stone-600">
-          <span>Subtotal</span>
+          <span>{t('common.subtotal')}</span>
           <span className="tabular-nums">${transaction.subtotal.toFixed(2)}</span>
         </div>
         <div className="flex justify-between border-t border-emerald-100 pt-2 text-base font-bold text-stone-900">
-          <span>Total Paid</span>
+          <span>{t('payment.totalPaid')}</span>
           <span className="tabular-nums">${transaction.total.toFixed(2)}</span>
         </div>
       </div>
 
-      <div className="mt-4 rounded-lg border-2 border-dashed border-emerald-400 bg-emerald-50 px-4 py-3 text-center">
-        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-700">
-          Paid Via
+      <div className="mt-4 rounded-lg border border-dashed border-emerald-400 bg-emerald-50 px-4 py-3 text-center">
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+          {t('payment.paidVia')}
         </p>
-        <p className="mt-1 text-sm font-black uppercase tracking-wide text-emerald-900">
+        <p className="mt-1 text-sm font-semibold uppercase tracking-wide text-emerald-900">
           {paymentMethod}
         </p>
       </div>
@@ -226,40 +241,39 @@ function ReceiptTemplate({ transaction }) {
       <p className="mt-6 text-center text-xs leading-relaxed text-stone-500">
         {STORE.receiptThanks}
         <br />
-        Have a wonderful day!
-        <br />
-        {OPERATING_HOURS_NOTICE}
+        {t('settings.operatingHoursNotice')}
       </p>
     </div>
   )
 }
 
 export default function ReceiptModal({ transaction, onClose, isPreCheckout = false, variant }) {
+  const { t } = useTranslation()
   if (!transaction) return null
 
   const items = Array.isArray(transaction.items) ? transaction.items : []
   const hasTotals =
     typeof transaction.subtotal === 'number' && typeof transaction.total === 'number'
   const totals = hasTotals
-    ? { subtotal: transaction.subtotal, tax: 0, total: transaction.subtotal }
+    ? { subtotal: transaction.subtotal, tax: 0, total: transaction.total }
     : calculateTotals(items)
   const normalizedTransaction = {
     ...transaction,
     items,
     subtotal: totals.subtotal,
     tax: 0,
-    total: totals.subtotal,
+    total: totals.total,
   }
 
-  const isInvoice = variant === 'invoice' || isPreCheckout || transaction.isPreCheckout
+  const isBill = variant === 'bill' || variant === 'invoice' || isPreCheckout || transaction.isPreCheckout
 
   return (
     <ModalShell
       onClose={onClose}
-      printLabel={isInvoice ? 'Print Bill / Invoice' : 'Print Receipt'}
+      printLabel={isBill ? t('payment.printInvoice') : t('sales.printReceipt')}
       documentContent={
-        isInvoice ? (
-          <InvoiceTemplate transaction={normalizedTransaction} />
+        isBill ? (
+          <BillTemplate transaction={normalizedTransaction} />
         ) : (
           <ReceiptTemplate transaction={normalizedTransaction} />
         )

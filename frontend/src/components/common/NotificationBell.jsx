@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bell } from 'lucide-react'
 import AlertCenter from '../alerts/AlertCenter'
-import { useAlerts } from '../../hooks/useAlerts'
+import { useAlerts } from '../../context/AlertsContext'
 import { useAuth } from '../../context/AuthContext'
 
 export default function NotificationBell({ onNavigate }) {
@@ -19,6 +19,7 @@ export default function NotificationBell({ onNavigate }) {
     lowStockAlertsEnabled,
   } = useAlerts()
   const hasSecurityAlerts = alerts.some((alert) => alert.category === 'password_reset')
+  const hasLoginLockAlerts = alerts.some((alert) => alert.category === 'security_alert')
   const hasReservationAlerts = alerts.some((alert) => alert.category === 'reservation')
   const showNotifications = isAdmin || hasSecurityAlerts || hasReservationAlerts || lowStockAlertsEnabled
   const [isOpen, setIsOpen] = useState(false)
@@ -51,7 +52,7 @@ export default function NotificationBell({ onNavigate }) {
   }, [isOpen])
 
   const handleAction = (alert) => {
-    const target = alert?.action?.navigateTo || (alert?.category === 'password_reset' ? 'users' : alert?.category === 'reservation' ? 'reservations' : 'inventory')
+    const target = alert?.action?.navigateTo || (alert?.category === 'security_alert' ? 'security_alerts' : alert?.category === 'password_reset' ? 'users' : alert?.category === 'reservation' ? 'reservations' : 'inventory')
     onNavigate?.(target)
     setIsOpen(false)
   }
@@ -95,7 +96,7 @@ export default function NotificationBell({ onNavigate }) {
             onAction={handleAction}
             onDismiss={markNotificationRead}
             onViewAll={() => {
-              onNavigate?.(hasSecurityAlerts ? 'users' : hasReservationAlerts ? 'reservations' : 'inventory')
+              onNavigate?.(hasLoginLockAlerts ? 'security_alerts' : hasSecurityAlerts ? 'users' : hasReservationAlerts ? 'reservations' : 'inventory')
               setIsOpen(false)
             }}
             variant="panel"

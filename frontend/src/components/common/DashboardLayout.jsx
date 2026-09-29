@@ -8,6 +8,14 @@ import NotificationBell from './NotificationBell'
 import { useAuth } from '../../context/AuthContext'
 import { useSettings } from '../../context/SettingsContext'
 
+const ENGLISH_ROLE_TITLES = new Set([
+  'system administrator',
+  'administrator',
+  'admin',
+  'cashier',
+  'staff',
+])
+
 function formatNavRoleLabel(user, t) {
   if (!user?.role) return t('nav.defaultRole')
   const role = String(user.role).trim()
@@ -17,11 +25,20 @@ function formatNavRoleLabel(user, t) {
   return role
 }
 
+function formatHeaderName(user, t) {
+  const storedName = String(user?.display_name || user?.displayName || '').trim()
+  const roleLabel = formatNavRoleLabel(user, t)
+  if (!storedName || ENGLISH_ROLE_TITLES.has(storedName.toLowerCase())) {
+    return roleLabel
+  }
+  return storedName
+}
+
 export default function DashboardLayout({ children, activePage, onNavigate }) {
   const { t } = useTranslation()
   const { user } = useAuth()
   const { isLiquidGlass } = useSettings()
-  const displayName = user?.display_name || user?.displayName || t('nav.defaultRole')
+  const headerName = formatHeaderName(user, t)
   const navRoleLabel = formatNavRoleLabel(user, t)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
@@ -68,9 +85,11 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold tracking-tight text-foreground">
-              {displayName}
+              {headerName}
             </p>
-            <p className="truncate text-[11px] text-cocoa-600 dark:text-cocoa-300">{navRoleLabel}</p>
+            {navRoleLabel && navRoleLabel !== headerName ? (
+              <p className="truncate text-[11px] text-cocoa-600 dark:text-cocoa-300">{navRoleLabel}</p>
+            ) : null}
           </div>
 
           <div className="flex shrink-0 items-center gap-2">

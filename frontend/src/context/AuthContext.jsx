@@ -73,7 +73,17 @@ export function AuthProvider({ children }) {
     const data = await res.json().catch(() => ({}))
 
     if (!res.ok) {
-      throw new Error(data.message || 'Invalid username or password')
+      const retryHeader = Number.parseInt(res.headers.get('Retry-After') || '', 10)
+      const retryAfterSeconds = Number(data.retryAfterSeconds)
+        || (Number.isFinite(retryHeader) ? retryHeader : 0)
+      const error = new Error(
+        res.status === 429
+          ? 'Too many attempts. Please try again later.'
+          : 'Username or password is incorrect.',
+      )
+      error.status = res.status
+      error.retryAfterSeconds = res.status === 429 ? retryAfterSeconds : 0
+      throw error
     }
 
     consumeConnectionLost()
@@ -113,6 +123,34 @@ export function AuthProvider({ children }) {
       return next
     })
   }, [])
+
+  const adoptSession = useCallback((token, user) => {
+    const current = readSession()
+    const nextUser = {
+      ...user,
+      permissions: normalizePermissions(user?.permissions),
+      must_change_password: Boolean(user?.must_change_password),
+    }
+    const nextSession = {
+      token,
+      user: nextUser,
+      activePage: current?.activePage || 'dashboard',
+    }
+    writeSession(nextSession)
+    setSession(nextSession)
+  }, [])
+
+  const completePasswordChange = useCallback(async ({ password, confirmPassword }) => {
+    const res = await apiFetch('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ password, confirmPassword }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(data.message || 'Could not update the password.')
+    }
+    adoptSession(data.token, data.user)
+  }, [adoptSession])
 
   useEffect(() => {
     if (!session?.token) return undefined
@@ -180,9 +218,11 @@ export function AuthProvider({ children }) {
       logout,
       setActivePage,
       refreshUser,
+      adoptSession,
+      completePasswordChange,
       canAccess: (viewId) => canAccessView(user, viewId),
     }),
-    [session, user, login, logout, setActivePage, refreshUser],
+    [session, user, login, logout, setActivePage, refreshUser, adoptSession, completePasswordChange],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

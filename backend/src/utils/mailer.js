@@ -102,8 +102,32 @@ async function sendAdminPasswordResetEmail({ username, temporaryPassword }) {
   return sendMail({ to, subject, text, html })
 }
 
+async function sendSecurityAlertEmail(alert) {
+  const to = env.adminEmail
+  const subject = `${STORE.officialName} — 24-hour login lockout`
+  const text = [
+    `A login on ${STORE.officialName} was locked for 24 hours after repeated failures.`,
+    '',
+    `Username: ${alert.username}`,
+    `IP address: ${alert.ipAddress}`,
+    `Location: ${alert.location || 'Unknown'}`,
+    `Browser: ${alert.browser || 'Unknown'}`,
+    `Operating system: ${alert.osName || 'Unknown'}`,
+    `Device: ${alert.deviceType || 'Unknown'}`,
+    `Failed attempts: ${alert.failedAttempts}`,
+    `Stage: ${alert.stage}`,
+    `Time: ${alert.createdAt}`,
+    '',
+    'Open Security Alerts in the admin dashboard to review or block this device.',
+    'This message does not include a password.',
+  ].join('\n')
+
+  return sendMail({ to, subject, text })
+}
+
 module.exports = {
   smtpIsConfigured,
   sendMail,
   sendAdminPasswordResetEmail,
+  sendSecurityAlertEmail,
 }

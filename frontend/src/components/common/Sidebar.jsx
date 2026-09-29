@@ -27,6 +27,8 @@ import {
 
   Users,
 
+  ShieldAlert,
+
   Settings,
 
   HardDrive,
@@ -52,6 +54,8 @@ const primaryNavigationItems = [
   { id: 'dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
 
   { id: 'users', labelKey: 'nav.users', icon: Users, adminOnly: true },
+
+  { id: 'security_alerts', labelKey: 'nav.securityAlerts', icon: ShieldAlert, adminOnly: true },
 
   { id: 'order', labelKey: 'nav.order', icon: ShoppingCart },
 

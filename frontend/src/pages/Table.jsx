@@ -6,6 +6,7 @@ import { useAlerts } from '../context/AlertsContext'
 import { FLOOR_STATUS_KEYS, TABLE_STATUS_META } from '../data/tables'
 import { canCheckInReservation, SEATED_STATUS, slotLabel } from '../data/reservations'
 import { calculateTotals } from '../utils/posHelpers'
+import { translateMenuSummary } from '../utils/menuNameTranslations'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 
@@ -51,12 +52,12 @@ function ReservationPreview({
     : { labelKey: 'statuses.reserved' }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <button type="button" aria-label={t('a11y.closeReservationPreview')} className="absolute inset-0 cursor-default" onClick={onClose} />
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <button type="button" aria-label={t('a11y.closeReservationPreview')} className="modal-backdrop" onClick={onClose} />
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="relative z-10 max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"
+        className="modal-panel relative z-10 max-h-[90vh] w-full max-w-sm"
         role="dialog"
         aria-modal="true"
         aria-labelledby="reserved-table-title"
@@ -182,7 +183,7 @@ function ReservationPreview({
 }
 
 function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const floorStatus = getFloorStatus(bill, reservation)
   const meta = TABLE_STATUS_META[floorStatus]
   const isEmpty = floorStatus === 'empty'
@@ -218,7 +219,9 @@ function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
             {floorTableDisplayName(bill, t)}
           </p>
           {!isEmpty && !isReserved && bill.orderSummary && hasItems && (
-            <p className="text-muted mt-1 line-clamp-2 text-xs">{bill.orderSummary}</p>
+            <p className="text-muted mt-1 line-clamp-2 text-xs">
+              {translateMenuSummary(bill.orderSummary, i18n.language, t)}
+            </p>
           )}
           {isReserved && (
             <p className="mt-1 line-clamp-2 text-xs text-violet-700 dark:text-violet-300">
@@ -271,7 +274,7 @@ function TableCard({ bill, reservation, onSendToCheckout, onOpenReservation }) {
 }
 
 function TakeOutCard({ bill, onSendToCheckout }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const floorStatus = getFloorStatus(bill)
   const meta = TABLE_STATUS_META[floorStatus]
   const isEmpty = floorStatus === 'empty'
@@ -301,7 +304,7 @@ function TakeOutCard({ bill, onSendToCheckout }) {
             <p className="text-muted mt-1 text-sm">
               {isEmpty
                 ? t('tables.noTakeOutTickets')
-                : bill.orderSummary}
+                : translateMenuSummary(bill.orderSummary, i18n.language, t)}
             </p>
           </div>
         </div>
@@ -457,7 +460,6 @@ export default function Table() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="page-title">{t('nav.table')}</h3>
-          <p className="page-subtitle">{t('tables.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="badge-olive inline-flex items-center gap-2 self-start px-3 py-1.5 text-sm">

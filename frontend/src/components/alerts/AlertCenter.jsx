@@ -6,6 +6,7 @@ import {
   Copy,
   KeyRound,
   Package,
+  ShieldAlert,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -54,10 +55,12 @@ const CATEGORY_ICONS = {
   stock: Package,
   password_reset: KeyRound,
   reservation: CalendarClock,
+  security_alert: ShieldAlert,
 }
 
 function categoryLabel(t, category) {
   if (category === 'password_reset') return t('alerts.category.security')
+  if (category === 'security_alert') return t('alerts.category.loginSecurity')
   if (category === 'reservation') return t('alerts.category.reservation')
   return category
 }

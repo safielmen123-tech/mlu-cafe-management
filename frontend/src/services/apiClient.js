@@ -1,4 +1,5 @@
 import { readSession, writeSession } from './sessionStorage'
+import { deviceHeaders } from '../utils/deviceFingerprint'
 
 const DEFAULT_API_BASE = 'http://localhost:5500/api'
 
@@ -39,6 +40,7 @@ export async function apiFetch(path, options = {}) {
   delete fetchOptions.token
   const headers = {
     ...(fetchOptions.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(await deviceHeaders()),
     ...(fetchOptions.headers || {}),
   }
 
@@ -125,7 +127,7 @@ export async function apiUpload(path, fieldName, file) {
 
   const response = await fetch(`${API_BASE}${normalizedPath}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, ...(await deviceHeaders()) },
     body: formData,
   })
 

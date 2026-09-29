@@ -26,6 +26,24 @@ const loginLimiter = rateLimit({
   },
 })
 
+/** Public reset and admin password-reset routes. Counts every request. */
+function createPasswordResetLimiter() {
+  return rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 5,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    handler: (req, res) => {
+      logSecurity('password_reset_rate_limited', { ip: req.ip, route: req.originalUrl })
+      res.status(429).json({
+        message: 'Too many password reset attempts. Please wait and try again.',
+      })
+    },
+  })
+}
+
+const passwordResetLimiter = createPasswordResetLimiter()
+
 /** Broad ceiling for the authenticated API surface. */
 const apiLimiter = rateLimit({
   windowMs: FIFTEEN_MINUTES,
@@ -52,6 +70,8 @@ const sensitiveOperationLimiter = rateLimit({
 
 module.exports = {
   loginLimiter,
+  passwordResetLimiter,
+  createPasswordResetLimiter,
   apiLimiter,
   sensitiveOperationLimiter,
 }

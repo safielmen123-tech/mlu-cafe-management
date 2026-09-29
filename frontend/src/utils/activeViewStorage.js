@@ -15,6 +15,7 @@ export const VALID_VIEWS = new Set([
   'reports_analysis',
   'settings',
   'backup_recovery',
+  'security_alerts',
 ])
 
 const LEGACY_VIEW_ALIASES = {

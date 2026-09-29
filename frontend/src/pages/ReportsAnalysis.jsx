@@ -39,11 +39,10 @@ import {
 } from '../utils/profitAnalytics'
 
 const EXPENSE_CATEGORY_KEYS = {
-  'Inventory Restock': 'inventoryRestock',
-  'Daily Overhead': 'dailyOverhead',
-  Utilities: 'utilities',
+  Payroll: 'staffPayroll',
   'Staff / Payroll': 'staffPayroll',
-  Maintenance: 'maintenance',
+  'Inventory Restock': 'inventoryRestock',
+  Others: 'other',
   Other: 'other',
 }
 
@@ -69,7 +68,7 @@ function ProfitTooltip({ active, payload, label }) {
 }
 
 export default function ReportsAnalysis() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { salesHistory, loadSalesHistory } = usePOS()
   const { isDark } = useTheme()
   const [selectedMonth, setSelectedMonth] = useState('all')
@@ -77,10 +76,9 @@ export default function ReportsAnalysis() {
   const [expenseError, setExpenseError] = useState('')
   const [expenseTick, setExpenseTick] = useState(0)
 
-  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
   const monthOptions = useMemo(
-    () => buildMonthFilterOptions(16, new Date(), dateLocale, t('reports.allMonthsInRange')),
-    [dateLocale, t],
+    () => buildMonthFilterOptions(16, new Date(), t, t('reports.allMonthsInRange')),
+    [t],
   )
 
   useEffect(() => {
@@ -144,14 +142,14 @@ export default function ReportsAnalysis() {
     selectedMonth === 'all'
       ? t('reports.monthlyChartTitle')
       : t('reports.dailyChartTitle', {
-          month: formatMonthLabel(selectedMonth, dateLocale),
+          month: formatMonthLabel(selectedMonth, t),
         })
 
   const axisColor = isDark ? '#c2cbc5' : '#57534e'
   const gridColor = isDark ? '#323b36' : '#d5efd5'
-  const incomeColor = isDark ? '#3da83d' : '#228b22'
-  const expenseColor = isDark ? '#d97706' : '#b45309'
-  const profitColor = isDark ? '#86a373' : '#4d7c0f'
+  const incomeColor = isDark ? '#34d399' : '#059669'
+  const expenseColor = isDark ? '#f59e0b' : '#c2410c'
+  const profitColor = isDark ? '#60a5fa' : '#2563eb'
   const hasChartValues = chartData.some(
     (point) => point.revenue > 0 || point.expenses > 0,
   )
@@ -164,31 +162,24 @@ export default function ReportsAnalysis() {
     {
       label: incomeLabel,
       value: `$${profit.revenue.toFixed(2)}`,
-      hint: t('reports.completedOrders', { count: profit.orders }),
       icon: TrendingUp,
       accent: 'bg-forest-500',
     },
     {
       label: expensesLabel,
       value: `$${profit.expenses.toFixed(2)}`,
-      hint: t('reports.spendingRecords', { count: monthScopedExpenses.length }),
       icon: TrendingDown,
       accent: 'bg-amber-700',
     },
     {
       label: t('reports.netProfit'),
       value: `$${profit.profit.toFixed(2)}`,
-      hint: t('reports.incomeMinusExpenses'),
       icon: Wallet,
-      accent: profit.profit >= 0 ? 'bg-olive-600' : 'bg-red-600',
+      accent: profit.profit >= 0 ? 'bg-blue-600' : 'bg-red-600',
     },
     {
       label: t('reports.ordersFulfilled'),
       value: profit.orders.toString(),
-      hint:
-        selectedMonth === 'all'
-          ? t('reports.allMonthsInRange')
-          : formatMonthLabel(selectedMonth, dateLocale),
       icon: ShoppingBag,
       accent: 'bg-forest-700',
     },
@@ -200,7 +191,6 @@ export default function ReportsAnalysis() {
     <div className="space-y-8">
       <div>
         <h3 className="text-heading text-lg">{t('nav.reports')}</h3>
-        <p className="text-muted text-sm">{t('reports.subtitle')}</p>
       </div>
 
       <div className="surface-card p-4">
@@ -209,7 +199,6 @@ export default function ReportsAnalysis() {
           onMonthChange={setSelectedMonth}
           monthOptions={monthOptions}
         />
-        <p className="text-muted mt-3 text-sm">{t('reports.filterHint')}</p>
       </div>
 
       {expenseError ? (
@@ -219,13 +208,12 @@ export default function ReportsAnalysis() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map(({ label, value, hint, icon: Icon, accent }) => (
+        {statCards.map(({ label, value, icon: Icon, accent }) => (
           <div key={label} className="surface-card p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-muted text-sm">{label}</p>
                 <p className="text-heading mt-2 text-2xl font-bold tabular-nums">{value}</p>
-                <p className="text-muted mt-1 text-xs">{hint}</p>
               </div>
               <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${accent} text-white`}>
                 <Icon className="h-5 w-5" />
@@ -241,10 +229,7 @@ export default function ReportsAnalysis() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-forest-100 dark:bg-forest-900/40">
               <BarChart3 className="h-5 w-5 text-forest-600 dark:text-forest-400" />
             </div>
-            <div>
-              <h4 className="text-heading font-semibold">{chartLabel}</h4>
-              <p className="text-muted text-sm">{t('reports.chartDescription')}</p>
-            </div>
+            <h4 className="text-heading font-semibold">{chartLabel}</h4>
           </div>
         </div>
         <div className="h-80 p-4">
@@ -282,10 +267,7 @@ export default function ReportsAnalysis() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-950/40">
               <Receipt className="h-5 w-5 text-amber-800 dark:text-amber-300" />
             </div>
-            <div>
-              <h4 className="text-heading font-semibold">{t('reports.spendingByCategory')}</h4>
-              <p className="text-muted text-sm">{t('reports.spendingCategoryDescription')}</p>
-            </div>
+            <h4 className="text-heading font-semibold">{t('reports.spendingByCategory')}</h4>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {categoryEntries.map(([category, amount]) => (

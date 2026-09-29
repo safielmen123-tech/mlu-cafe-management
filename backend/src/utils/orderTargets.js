@@ -238,34 +238,73 @@ function parseServingFromItem(item) {
   return null
 }
 
-async function resolveLinePrice(db, item) {
-  const clientPrice = parseOptionalMoney(item?.price)
+function lineHttpError(status, message) {
+  const error = new Error(message)
+  error.status = status
+  return error
+}
+
+function validateOrderLine(item, { isAdmin }) {
+  const qty = Number(item?.quantity ?? item?.qty)
+  if (!Number.isFinite(qty) || qty <= 0) {
+    return 'Each order line needs a valid quantity'
+  }
+
   const menuId = parseMenuItemIdFromItem(item)
-  if (!menuId) return clientPrice ?? 0
+  if (menuId) return null
+
+  if (!isAdmin) {
+    return 'Only an administrator can add a line that is not on the menu'
+  }
+
+  if (parseOptionalMoney(item?.price ?? item?.unitPrice) == null) {
+    return 'A custom line needs a valid price'
+  }
+
+  return null
+}
+
+function savedMenuPrice(row, item) {
+  const serving = parseServingFromItem(item)
+  if (serving === 'iced') {
+    const iced = parseOptionalMoney(row.iced_price)
+    if (iced != null) return iced
+  }
+  if (serving === 'hot') {
+    const hot = parseOptionalMoney(row.hot_price)
+    if (hot != null) return hot
+  }
+
+  const hot = parseOptionalMoney(row.hot_price)
+  const iced = parseOptionalMoney(row.iced_price)
+  if (hot != null && iced == null) return hot
+  if (iced != null && hot == null) return iced
+  return parseOptionalMoney(row.price)
+}
+
+async function resolveLinePrice(db, item) {
+  const menuId = parseMenuItemIdFromItem(item)
+  if (!menuId) {
+    const clientPrice = parseOptionalMoney(item?.price)
+    if (clientPrice == null) {
+      throw lineHttpError(400, 'A custom line needs a valid price')
+    }
+    return clientPrice
+  }
 
   const [rows] = await db.execute(
     'SELECT price, hot_price, iced_price FROM menu_items WHERE id = ? LIMIT 1',
     [menuId],
   )
-  if (!rows[0]) return clientPrice ?? 0
-
-  const serving = parseServingFromItem(item)
-  if (serving === 'iced') {
-    const iced = parseOptionalMoney(rows[0].iced_price)
-    if (iced != null) return iced
-  }
-  if (serving === 'hot') {
-    const hot = parseOptionalMoney(rows[0].hot_price)
-    if (hot != null) return hot
+  if (!rows[0]) {
+    throw lineHttpError(400, 'Menu item was not found')
   }
 
-  const hot = parseOptionalMoney(rows[0].hot_price)
-  const iced = parseOptionalMoney(rows[0].iced_price)
-  if (hot != null && iced == null) return hot
-  if (iced != null && hot == null) return iced
-
-  const base = parseOptionalMoney(rows[0].price)
-  return base ?? clientPrice ?? 0
+  const price = savedMenuPrice(rows[0], item)
+  if (price == null) {
+    throw lineHttpError(400, 'Menu item has no saved price')
+  }
+  return price
 }
 
 async function resolveMenuItemIdForInsert(db, item) {
@@ -344,6 +383,7 @@ module.exports = {
   resolveTableForeignKey,
   createPendingOrder,
   insertOrderItem,
+  validateOrderLine,
   parseMenuItemIdFromItem,
   ensureOrderItemsSchema,
   formatOrderLineName,

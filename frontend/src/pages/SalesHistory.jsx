@@ -42,7 +42,7 @@ function statusLabel(status, t) {
 }
 
 export default function SalesHistory() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { salesHistory, loadSalesHistory } = usePOS()
   const [search, setSearch] = useState('')
   const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthKey())
@@ -50,10 +50,9 @@ export default function SalesHistory() {
   const [printingOrderId, setPrintingOrderId] = useState(null)
   const [receiptError, setReceiptError] = useState('')
 
-  const dateLocale = i18n.language === 'km' ? 'km-KH' : 'en-US'
   const monthOptions = useMemo(
-    () => buildMonthFilterOptions(16, new Date(), dateLocale, t('sales.allMonthsInRange')),
-    [dateLocale, t],
+    () => buildMonthFilterOptions(16, new Date(), t, t('sales.allMonthsInRange')),
+    [t],
   )
 
   useEffect(() => {
@@ -123,11 +122,6 @@ export default function SalesHistory() {
     <div className="space-y-6">
       <div>
         <h3 className="text-heading text-lg">{t('nav.salesHistory')}</h3>
-        <p className="text-muted text-sm">
-          {t('sales.subtitle', {
-            defaultValue: 'Review completed orders and print receipts',
-          })}
-        </p>
       </div>
 
       {receiptError && (
@@ -151,7 +145,7 @@ export default function SalesHistory() {
               <p className="text-heading mt-1 text-sm font-semibold">
                 {selectedMonth === 'all'
                   ? t('sales.allMonthsInRange')
-                  : formatMonthLabel(selectedMonth, dateLocale)}
+                  : formatMonthLabel(selectedMonth, t)}
               </p>
             </div>
             <div className="surface-inset rounded-xl px-4 py-3">
@@ -180,7 +174,7 @@ export default function SalesHistory() {
               <input
                 type="text"
                 placeholder={t('sales.searchPlaceholder', {
-                  defaultValue: 'Search by invoice, source, payment, or status...',
+                  defaultValue: 'Search by bill, source, payment, or status...',
                 })}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}

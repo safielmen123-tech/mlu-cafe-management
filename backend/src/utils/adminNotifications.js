@@ -89,7 +89,6 @@ function toAlert(row) {
     }
   }
 
-  const temporaryPassword = meta.temporaryPassword || null
   const username = meta.username || 'staff'
   const displayName = meta.displayName || username
   const role = meta.role || 'Staff'
@@ -112,7 +111,6 @@ function toAlert(row) {
       displayName,
       role,
       email,
-      temporaryPassword,
       requesterUserId: meta.requesterUserId ?? null,
       isRead: Boolean(row.is_read),
     },

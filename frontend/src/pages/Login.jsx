@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import ThemeToggle from '../components/ui/ThemeToggle'
 import LanguageToggle from '../components/ui/LanguageToggle'
-import { API_BASE } from '../services/apiClient'
 import { consumeConnectionLost } from '../services/sessionStorage'
 import BrandLogo from '../components/common/BrandLogo'
 
@@ -13,12 +12,18 @@ export default function Login({ onLogin }) {
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [lockedUntil, setLockedUntil] = useState(0)
+  const [nowTick, setNowTick] = useState(() => Date.now())
   const [showConnectionNotice, setShowConnectionNotice] = useState(false)
+  const lockSeconds = lockedUntil > nowTick ? Math.ceil((lockedUntil - nowTick) / 1000) : 0
+
+  useEffect(() => {
+    if (!lockedUntil || lockedUntil <= Date.now()) return undefined
+    const timer = setInterval(() => setNowTick(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [lockedUntil])
 
   const [resetOpen, setResetOpen] = useState(false)
-  const [resetUsername, setResetUsername] = useState('')
-  const [resetStatus, setResetStatus] = useState({ type: '', message: '' })
-  const [resetLoading, setResetLoading] = useState(false)
 
   useEffect(() => {
     if (consumeConnectionLost()) {
@@ -26,16 +31,35 @@ export default function Login({ onLogin }) {
     }
   }, [])
 
+  const formatCountdown = (totalSeconds) => {
+    const seconds = Math.max(0, totalSeconds)
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const remainder = seconds % 60
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+    }
+    return `${minutes}:${String(remainder).padStart(2, '0')}`
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
-    if (isLoading) return
+    if (isLoading || lockSeconds > 0) return
     setError('')
     setShowConnectionNotice(false)
     setIsLoading(true)
     try {
       await onLogin({ username: email.trim(), password })
     } catch (err) {
-      setError(err.message || t('auth.loginFailed'))
+      if (err.retryAfterSeconds > 0) {
+        setLockedUntil(Date.now() + err.retryAfterSeconds * 1000)
+        setNowTick(Date.now())
+        setError(t('auth.tooManyAttempts'))
+      } else if (err.status === 403) {
+        setError(t('auth.accessDenied'))
+      } else {
+        setError(t('auth.invalidCredentials'))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -43,54 +67,11 @@ export default function Login({ onLogin }) {
 
   const openResetModal = (event) => {
     event.preventDefault()
-    setResetUsername(email.trim())
-    setResetStatus({ type: '', message: '' })
     setResetOpen(true)
   }
 
   const closeResetModal = () => {
-    if (resetLoading) return
     setResetOpen(false)
-    setResetStatus({ type: '', message: '' })
-  }
-
-  const handleResetSubmit = async (event) => {
-    event.preventDefault()
-    if (resetLoading) return
-
-    const username = resetUsername.trim()
-    if (!username) {
-      setResetStatus({ type: 'error', message: t('auth.usernameRequired') })
-      return
-    }
-
-    setResetLoading(true)
-    setResetStatus({ type: '', message: '' })
-
-    try {
-      const response = await fetch(`${API_BASE}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
-      })
-      const data = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        throw new Error(data.message || t('auth.resetRequestFailed'))
-      }
-
-      setResetStatus({
-        type: 'success',
-        message: data.message || t('auth.resetRequestSent'),
-      })
-    } catch (err) {
-      setResetStatus({
-        type: 'error',
-        message: err.message || t('auth.resetRequestFailed'),
-      })
-    } finally {
-      setResetLoading(false)
-    }
   }
 
   return (
@@ -134,7 +115,7 @@ export default function Login({ onLogin }) {
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     autoComplete="username"
-                    disabled={isLoading}
+                    disabled={isLoading || lockSeconds > 0}
                     className="w-full rounded-xl border border-slate-200/80 bg-white/85 px-4 py-3.5 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:text-lg dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(255_255_255_/_0.9)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42_/_0.95)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
                   />
                 </div>
@@ -153,7 +134,7 @@ export default function Login({ onLogin }) {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     autoComplete="current-password"
-                    disabled={isLoading}
+                    disabled={isLoading || lockSeconds > 0}
                     className="w-full rounded-xl border border-slate-200/80 bg-white/85 px-4 py-3.5 text-base text-slate-900 transition-shadow focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 lg:min-h-[52px] lg:px-5 lg:text-lg dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-100 dark:focus:ring-emerald-500 [&:-webkit-autofill]:bg-transparent [&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(255_255_255_/_0.9)] [&:-webkit-autofill]:[-webkit-text-fill-color:#1d1d1f] dark:[&:-webkit-autofill]:shadow-[inset_0_0_0px_1000px_rgb(39_39_42_/_0.95)] dark:[&:-webkit-autofill]:[-webkit-text-fill-color:#fafafa]"
                   />
                   <div className="mt-2.5 flex justify-end">
@@ -181,10 +162,14 @@ export default function Login({ onLogin }) {
 
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isLoading || lockSeconds > 0}
                   className="relative w-full overflow-hidden rounded-full bg-forest-500 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-forest-600 disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[52px] lg:text-lg"
                 >
-                  <span className={isLoading ? 'opacity-0' : 'opacity-100'}>{t('auth.login')}</span>
+                  <span className={isLoading ? 'opacity-0' : 'opacity-100'}>
+                    {lockSeconds > 0
+                      ? t('auth.tryAgainIn', { time: formatCountdown(lockSeconds) })
+                      : t('auth.login')}
+                  </span>
                   {isLoading ? (
                     <span className="absolute inset-0 flex items-center justify-center">
                       <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -201,7 +186,7 @@ export default function Login({ onLogin }) {
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <button
             type="button"
-            className="absolute inset-0 bg-stone-950/50 backdrop-blur-sm"
+            className="modal-backdrop"
             aria-label={t('a11y.closePasswordReset')}
             onClick={closeResetModal}
           />
@@ -209,7 +194,7 @@ export default function Login({ onLogin }) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="reset-title"
-            className="relative w-full max-w-md rounded-3xl border border-slate-100 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+            className="modal-panel relative z-10 w-full max-w-md p-6"
           >
             <button
               type="button"
@@ -227,58 +212,15 @@ export default function Login({ onLogin }) {
               {t('auth.resetInstructions')}
             </p>
 
-            <form onSubmit={handleResetSubmit} className="mt-5 flex flex-col gap-4">
-              <div>
-                <label
-                  htmlFor="reset-username"
-                  className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-zinc-400"
-                >
-                  {t('auth.username')}
-                </label>
-                <input
-                  id="reset-username"
-                  type="text"
-                  value={resetUsername}
-                  onChange={(event) => setResetUsername(event.target.value)}
-                  autoComplete="username"
-                  disabled={resetLoading || resetStatus.type === 'success'}
-                  autoFocus
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                />
-              </div>
-
-              {resetStatus.message ? (
-                <p
-                  role="status"
-                  className={
-                    resetStatus.type === 'error'
-                      ? 'text-sm text-red-600 dark:text-red-400'
-                      : 'text-sm text-emerald-700 dark:text-emerald-400'
-                  }
-                >
-                  {resetStatus.message}
-                </p>
-              ) : null}
-
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={closeResetModal}
-                  className="rounded-full px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  {t('common.close')}
-                </button>
-                {resetStatus.type !== 'success' ? (
-                  <button
-                    type="submit"
-                    disabled={resetLoading}
-                    className="rounded-full bg-[#10b981] px-5 py-2 text-sm font-semibold text-white hover:bg-[#059669] disabled:opacity-50"
-                  >
-                    {resetLoading ? t('auth.sending') : t('auth.sendResetRequest')}
-                  </button>
-                ) : null}
-              </div>
-            </form>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={closeResetModal}
+                className="rounded-full bg-[#10b981] px-5 py-2 text-sm font-semibold text-white hover:bg-[#059669]"
+              >
+                {t('common.close')}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

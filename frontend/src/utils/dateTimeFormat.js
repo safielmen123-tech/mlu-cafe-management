@@ -88,13 +88,6 @@ export function formatSlotRange12Hour(timeSlot, durationMinutes = 120, fallbackL
   return formatTime12Hour(timeSlot)
 }
 
-export function formatHourRange12(hour24, spanHours = 1) {
-  const hour = Number(hour24)
-  const start = new Date(2000, 0, 1, Number.isFinite(hour) ? hour : 0, 0)
-  const end = new Date(start.getTime() + Number(spanHours || 1) * 60 * 60 * 1000)
-  return formatTimeRange12Hour(start, end)
-}
-
 export function formatDateTimeDisplay(dateInput, timeInput) {
   const date = formatOrderDate(dateInput)
   const time = formatTime12Hour(timeInput)
@@ -102,6 +95,30 @@ export function formatDateTimeDisplay(dateInput, timeInput) {
   if (date === '—') return time
   if (time === '—') return date
   return `${date} ${time}`
+}
+
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+const MONTH_KEYS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+export function formatMonthYear(date, t) {
+  return t('dates.monthYear', {
+    month: t(`dates.months.${MONTH_KEYS[date.getMonth()]}`),
+    year: date.getFullYear(),
+  })
+}
+
+export function formatLongDate(date, t) {
+  return t('dates.longDate', {
+    weekday: t(`dates.weekdaysLong.${WEEKDAY_KEYS[date.getDay()]}`),
+    day: date.getDate(),
+    month: t(`dates.months.${MONTH_KEYS[date.getMonth()]}`),
+  })
+}
+
+export function formatMonthYearFromKey(monthKey, t) {
+  const [year, month] = String(monthKey || '').split('-').map(Number)
+  if (!year || !month) return monthKey
+  return formatMonthYear(new Date(year, month - 1, 1), t)
 }
 
 export function parseOrderHour24(timeInput) {

@@ -79,7 +79,7 @@ function viewRequiresAnyPermission(user, requiredPermissions) {
 
 export function canAccessView(user, viewId) {
   if (!user) return false
-  if (viewId === 'users') return isAdminRole(user.role)
+  if (viewId === 'users' || viewId === 'security_alerts') return isAdminRole(user.role)
 
   const requiredPermission = VIEW_PERMISSION_MAP[viewId]
   if (!requiredPermission) return false

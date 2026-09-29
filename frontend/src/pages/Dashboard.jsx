@@ -22,7 +22,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useSettings } from '../context/SettingsContext'
-import { useAlerts } from '../hooks/useAlerts'
+import { useAlerts } from '../context/AlertsContext'
 import AlertCenter from '../components/alerts/AlertCenter'
 import LiveConditions from '../components/dashboard/LiveConditions'
 import MenuItemImage from '../components/menu/MenuItemImage'
@@ -34,6 +34,7 @@ import {
   buildRecentOrders,
   buildWeeklySalesData,
 } from '../utils/dashboardAnalytics'
+import { translateMenuName, translateMenuSummary } from '../utils/menuNameTranslations'
 
 const API_PATH = '/orders/history?days=30'
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
@@ -110,7 +111,7 @@ function paymentMethodLabel(name, t) {
 }
 
 export default function Dashboard({ onNavigate }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { user, isAdmin } = useAuth()
   const chartTheme = useChartTheme()
   const { lowStockAlertsEnabled } = useSettings()
@@ -209,15 +210,22 @@ export default function Dashboard({ onNavigate }) {
   const handleAlertAction = (alert) => {
     onNavigate?.(
       alert?.action?.navigateTo ||
-        (alert?.category === 'password_reset' ? 'users' : alert?.category === 'reservation' ? 'reservations' : 'inventory'),
+        (alert?.category === 'security_alert'
+          ? 'security_alerts'
+          : alert?.category === 'password_reset'
+            ? 'users'
+            : alert?.category === 'reservation'
+              ? 'reservations'
+              : 'inventory'),
     )
   }
 
   const hasSecurityAlerts = alerts.some((alert) => alert.category === 'password_reset')
+  const hasLoginLockAlerts = alerts.some((alert) => alert.category === 'security_alert')
   const hasReservationAlerts = alerts.some((alert) => alert.category === 'reservation')
   const showAlertCenter =
     lowStockAlertsEnabled ||
-    (isAdmin && hasSecurityAlerts) ||
+    (isAdmin && (hasSecurityAlerts || hasLoginLockAlerts)) ||
     hasReservationAlerts
 
   const stats = [
@@ -259,22 +267,7 @@ export default function Dashboard({ onNavigate }) {
     <div className="space-y-6 page-enter">
       <div>
         <h3 className="page-title">{t('nav.dashboard')}</h3>
-        <p className="page-subtitle">{t('dashboard.subtitle')}</p>
       </div>
-
-      {showAlertCenter && (
-        <AlertCenter
-          alerts={alerts}
-          counts={counts}
-          isLoading={alertsLoading}
-          error={alertsError}
-          onAction={handleAlertAction}
-          onDismiss={markNotificationRead}
-          onViewAll={() => onNavigate?.(hasSecurityAlerts ? 'users' : hasReservationAlerts ? 'reservations' : 'inventory')}
-          variant="widget"
-          maxItems={5}
-        />
-      )}
 
       <LiveConditions
         weather={liveConditions?.weather}
@@ -327,11 +320,13 @@ export default function Dashboard({ onNavigate }) {
               <div key={pick.name} className="surface-inset flex flex-col items-center px-3 py-4 text-center">
                 <MenuItemImage
                   imageUrl={pick.imageUrl}
-                  alt={pick.name}
+                  alt={translateMenuName(pick.name, i18n.language, t)}
                   eager={index < 6}
                   className="h-16 w-16 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
                 />
-                <p className="text-heading mt-3 line-clamp-2 text-sm font-semibold">{pick.name}</p>
+                <p className="text-heading mt-3 line-clamp-2 text-sm font-semibold">
+                  {translateMenuName(pick.name, i18n.language, t)}
+                </p>
                 <p className="text-muted mt-1 text-xs tabular-nums">
                   {t('dashboard.soldCount', { count: pick.sold })}
                 </p>
@@ -341,166 +336,180 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-5">
-        <div className="surface-card p-6 xl:col-span-2">
-          <h3 className="text-heading text-lg">{t('dashboard.recentOrders')}</h3>
-          <div className="mt-6 space-y-4">
-            {recentOrders.length === 0 ? (
-              <p className="text-muted text-sm">
-                {isLoading ? t('dashboard.loadingOrders') : t('dashboard.noOrders')}
-              </p>
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div className="surface-card p-6">
+          <h3 className="text-heading text-lg">{t('dashboard.weeklySales')}</h3>
+          <div className="mt-6 h-72 w-full">
+            {isLoading ? (
+              <div className="flex h-full items-center justify-center">
+                <p className="text-muted text-sm">{t('dashboard.loadingChart')}</p>
+              </div>
             ) : (
-              recentOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="surface-inset flex items-center justify-between px-4 py-3"
-                >
-                  <div className="min-w-0 pr-3">
-                    <p className="text-heading font-medium">{order.id}</p>
-                    <p className="text-muted truncate text-sm">{order.item}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="font-semibold text-primary tabular-nums">{order.total}</p>
-                    <p className="text-muted text-xs">{order.time}</p>
-                  </div>
-                </div>
-              ))
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={localizedWeeklySales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: chartTheme.axis, fontSize: 12 }}
+                    axisLine={{ stroke: chartTheme.grid }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: chartTheme.axis, fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value) => `$${value}`}
+                  />
+                  <Tooltip
+                    cursor={{ fill: chartTheme.primarySoft, opacity: 0.35 }}
+                    content={({ active, payload, label }) => (
+                      <ChartTooltip
+                        active={active}
+                        payload={payload}
+                        label={
+                          payload?.[0]?.payload?.fullLabel
+                            ? `${label} · ${payload[0].payload.fullLabel}`
+                            : label
+                        }
+                        theme={chartTheme}
+                      />
+                    )}
+                  />
+                  <Bar
+                    dataKey="revenue"
+                    radius={[8, 8, 0, 0]}
+                    fill={chartTheme.primary}
+                    maxBarSize={48}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
             )}
           </div>
         </div>
 
-        <div className="grid gap-6 sm:grid-cols-2 xl:col-span-3">
-          <div className="surface-card p-6">
-            <h3 className="text-heading text-lg">{t('dashboard.weeklySales')}</h3>
-            <div className="mt-6 h-72 w-full">
+        <div className="surface-card p-6">
+          <h3 className="text-heading text-lg">{t('dashboard.paymentSplit')}</h3>
+          <div className="mt-4 flex flex-col items-center">
+            <div className="h-52 w-full">
               {isLoading ? (
                 <div className="flex h-full items-center justify-center">
                   <p className="text-muted text-sm">{t('dashboard.loadingChart')}</p>
                 </div>
+              ) : paymentTotal === 0 ? (
+                <div className="flex h-full items-center justify-center">
+                  <p className="text-muted text-sm">{t('dashboard.noPaymentData')}</p>
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={localizedWeeklySales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: chartTheme.axis, fontSize: 12 }}
-                      axisLine={{ stroke: chartTheme.grid }}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: chartTheme.axis, fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(value) => `$${value}`}
-                    />
+                  <PieChart>
+                    <Pie
+                      data={localizedPaymentSplit}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={58}
+                      outerRadius={82}
+                      paddingAngle={3}
+                      stroke="none"
+                    >
+                      {localizedPaymentSplit.map((entry, index) => (
+                        <Cell key={entry.name} fill={paymentColors[index % paymentColors.length]} />
+                      ))}
+                    </Pie>
                     <Tooltip
-                      cursor={{ fill: chartTheme.primarySoft, opacity: 0.35 }}
-                      content={({ active, payload, label }) => (
-                        <ChartTooltip
-                          active={active}
-                          payload={payload}
-                          label={
-                            payload?.[0]?.payload?.fullLabel
-                              ? `${label} · ${payload[0].payload.fullLabel}`
-                              : label
-                          }
-                          theme={chartTheme}
-                        />
+                      content={({ active, payload }) => (
+                        <PaymentTooltip active={active} payload={payload} theme={chartTheme} />
                       )}
                     />
-                    <Bar
-                      dataKey="revenue"
-                      radius={[8, 8, 0, 0]}
-                      fill={chartTheme.primary}
-                      maxBarSize={48}
-                    />
-                  </BarChart>
+                  </PieChart>
                 </ResponsiveContainer>
               )}
             </div>
-          </div>
 
-          <div className="surface-card p-6">
-            <h3 className="text-heading text-lg">{t('dashboard.paymentSplit')}</h3>
-            <div className="mt-4 flex flex-col items-center">
-              <div className="h-52 w-full">
-                {isLoading ? (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="text-muted text-sm">{t('dashboard.loadingChart')}</p>
-                  </div>
-                ) : paymentTotal === 0 ? (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="text-muted text-sm">{t('dashboard.noPaymentData')}</p>
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={localizedPaymentSplit}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={58}
-                        outerRadius={82}
-                        paddingAngle={3}
-                        stroke="none"
-                      >
-                        {localizedPaymentSplit.map((entry, index) => (
-                          <Cell key={entry.name} fill={paymentColors[index % paymentColors.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        content={({ active, payload }) => (
-                          <PaymentTooltip active={active} payload={payload} theme={chartTheme} />
-                        )}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-
-              <div className="mt-2 w-full space-y-3">
-                {localizedPaymentSplit.map((entry, index) => {
-                  const percent = paymentTotal > 0 ? (entry.value / paymentTotal) * 100 : 0
-                  return (
-                    <div key={entry.name}>
-                      <div className="mb-1.5 flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="h-2.5 w-2.5 rounded-full"
-                            style={{ backgroundColor: paymentColors[index] }}
-                          />
-                          <span className="text-foreground">{entry.name}</span>
-                        </div>
-                        <span className="text-heading font-semibold tabular-nums">
-                          ${entry.value.toFixed(2)} ({percent.toFixed(0)}%)
-                        </span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-background/80 dark:bg-card/40">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${percent}%`,
-                            backgroundColor: paymentColors[index],
-                          }}
+            <div className="mt-2 w-full space-y-3">
+              {localizedPaymentSplit.map((entry, index) => {
+                const percent = paymentTotal > 0 ? (entry.value / paymentTotal) * 100 : 0
+                return (
+                  <div key={entry.name}>
+                    <div className="mb-1.5 flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: paymentColors[index] }}
                         />
+                        <span className="text-foreground">{entry.name}</span>
                       </div>
+                      <span className="text-heading font-semibold tabular-nums">
+                        ${entry.value.toFixed(2)} ({percent.toFixed(0)}%)
+                      </span>
                     </div>
-                  )
-                })}
-              </div>
-
-              <p className="text-muted mt-4 text-center text-xs">
-                {t('dashboard.totalProcessed')}{' '}
-                <span className="text-heading font-semibold tabular-nums">
-                  ${paymentTotal.toFixed(2)}
-                </span>
-              </p>
+                    <div className="h-2 overflow-hidden rounded-full bg-background/80 dark:bg-card/40">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${percent}%`,
+                          backgroundColor: paymentColors[index],
+                        }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
             </div>
+
+            <p className="text-muted mt-4 text-center text-xs">
+              {t('dashboard.totalProcessed')}{' '}
+              <span className="text-heading font-semibold tabular-nums">
+                ${paymentTotal.toFixed(2)}
+              </span>
+            </p>
           </div>
         </div>
       </div>
+
+      <div className="surface-card p-6">
+        <h3 className="text-heading text-lg">{t('dashboard.recentOrders')}</h3>
+        <div className="mt-6 space-y-4">
+          {recentOrders.length === 0 ? (
+            <p className="text-muted text-sm">
+              {isLoading ? t('dashboard.loadingOrders') : t('dashboard.noOrders')}
+            </p>
+          ) : (
+            recentOrders.map((order) => (
+              <div
+                key={order.id}
+                className="surface-inset flex items-center justify-between px-4 py-3"
+              >
+                <div className="min-w-0 pr-3">
+                  <p className="text-heading font-medium">{order.id}</p>
+                  <p className="text-muted truncate text-sm">
+                    {translateMenuSummary(order.item, i18n.language, t)}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-semibold text-primary tabular-nums">{order.total}</p>
+                  <p className="text-muted text-xs">{order.time}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {showAlertCenter && (
+        <AlertCenter
+          alerts={alerts}
+          counts={counts}
+          isLoading={alertsLoading}
+          error={alertsError}
+          onAction={handleAlertAction}
+          onDismiss={markNotificationRead}
+          onViewAll={() => onNavigate?.(hasSecurityAlerts ? 'users' : hasReservationAlerts ? 'reservations' : 'inventory')}
+          variant="widget"
+          maxItems={5}
+        />
+      )}
     </div>
   )
 }

@@ -5,7 +5,11 @@ export function filterAlertsBySettings(alerts, settings) {
   const lowStock = settings?.lowStockAlertsEnabled !== false
 
   return list.filter((alert) => {
-    if (alert.category === 'password_reset' || alert.category === 'reservation') return true
+    if (
+      alert.category === 'password_reset'
+      || alert.category === 'reservation'
+      || alert.category === 'security_alert'
+    ) return true
     if (!lowStock && alert.category === 'stock') return false
     return true
   })

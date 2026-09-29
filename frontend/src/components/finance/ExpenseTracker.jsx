@@ -5,20 +5,16 @@ import { apiFetch } from '../../services/apiClient'
 import { useModalKeyboard } from '../../hooks/useModalKeyboard'
 
 const EXPENSE_CATEGORIES = [
+  'Payroll',
   'Inventory Restock',
-  'Daily Overhead',
-  'Utilities',
-  'Staff / Payroll',
-  'Maintenance',
-  'Other',
+  'Others',
 ]
 
 const CATEGORY_I18N_KEYS = {
-  'Inventory Restock': 'expenses.categories.inventoryRestock',
-  'Daily Overhead': 'expenses.categories.dailyOverhead',
-  Utilities: 'expenses.categories.utilities',
+  Payroll: 'expenses.categories.staffPayroll',
   'Staff / Payroll': 'expenses.categories.staffPayroll',
-  Maintenance: 'expenses.categories.maintenance',
+  'Inventory Restock': 'expenses.categories.inventoryRestock',
+  Others: 'expenses.categories.other',
   Other: 'expenses.categories.other',
 }
 
@@ -262,7 +258,7 @@ export default function ExpenseTracker({ days = 730, filterMonth = 'all', onChan
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
-            className="surface-card relative z-10 w-full max-w-md p-6 shadow-xl"
+            className="modal-panel relative z-10 w-full max-w-md p-6"
           >
             <h5 className="text-heading text-lg font-semibold">{t('expenses.logExpense')}</h5>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">

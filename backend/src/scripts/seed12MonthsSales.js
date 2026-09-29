@@ -1,7 +1,7 @@
 /**
  * Seeds completed sales from 1 June 2025 through today using the live menu_items table.
  * Dish names always match the current catalog (no bakery / old drink names).
- * Run: npm run seed:sales   (aliases: seed:12months, seed:sales:year)
+ * Run: npm run seed:sales
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') })
 

@@ -4,7 +4,6 @@ assertRequiredEnv();
 
 const express = require('express');
 const cors = require('cors');
-const bcrypt = require('bcrypt');
 const db = require('./db'); // Import our database connection pool
 const { resolveDbHost } = require('./db');
 const {
@@ -13,15 +12,25 @@ const {
     findPendingOrderId,
     createPendingOrder,
     insertOrderItem,
+    validateOrderLine,
     logOrderError,
     pendingOrderWhereClause,
     resolveTableForeignKey,
     ensureOrderItemsSchema,
     formatOrderLineName,
 } = require('./src/utils/orderTargets');
+const { normalizeAllowedRole, passwordPolicyError } = require('./src/utils/accountPolicy');
+const { generateTemporaryPassword, hashPassword } = require('./src/utils/userAccounts');
+const {
+    ensureSessionSecuritySchema,
+    invalidateUserTokens,
+    startRevokedTokenCleanup,
+    signSessionToken,
+} = require('./src/utils/sessionSecurity');
 const { normalizePermissions, isAdminRole, VALID_PERMISSIONS } = require('./src/constants/permissions');
 const {
     authenticateToken,
+    rejectUntilPasswordChanged,
     requireAdmin,
     requirePermission,
     requireAnyPermission,
@@ -60,7 +69,7 @@ const {
 } = require('./src/utils/auditLog');
 const helmet = require('helmet');
 const { sanitizeRequest } = require('./src/middleware/sanitize');
-const { apiLimiter, sensitiveOperationLimiter } = require('./src/middleware/rateLimit');
+const { apiLimiter, createPasswordResetLimiter, sensitiveOperationLimiter } = require('./src/middleware/rateLimit');
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
 const { logError, logSecurity } = require('./src/utils/logger');
 const { publicAuthRouter, privateAuthRouter, rejectPublicSignup } = require('./src/routes/auth');
@@ -83,6 +92,19 @@ const {
 const { processReservationReminders, startReservationReminderJob } = require('./src/utils/reservationReminders');
 const { sendReservationConfirmationLetter } = require('./src/utils/reservationLetter');
 const { getLiveConditions } = require('./src/utils/liveConditions');
+const {
+    ensureAppSettingsSchema,
+    getSessionHours,
+    setSessionHours,
+} = require('./src/utils/appSettings');
+const {
+    ensureLoginSecuritySchema,
+    createMysqlSecurityStore,
+    createBlockedDeviceMiddleware,
+    listNewSecurityAlertFeed,
+    startLoginSecurityCleanup,
+} = require('./src/utils/loginSecurity');
+const { createSecurityAlertsRouter } = require('./src/routes/securityAlerts');
 
 const app = express();
 
@@ -91,6 +113,17 @@ const app = express();
 // would let anyone spoof X-Forwarded-For and bypass the login limiter.
 app.set('trust proxy', env.security.trustProxy ? 1 : false);
 app.disable('x-powered-by');
+
+// req.secure already follows the trust-proxy setting, so X-Forwarded-Proto is
+// honored only when TRUST_PROXY is on. 308 keeps the original method and body.
+if (env.isProduction) {
+    app.use((req, res, next) => {
+        if (req.secure) return next();
+        const host = req.get('host');
+        if (!host) return next();
+        return res.redirect(308, `https://${host}${req.originalUrl}`);
+    });
+}
 
 app.use(helmet({
     // The API serves JSON plus menu photo downloads; it never renders HTML itself.
@@ -119,7 +152,8 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Id'],
+    exposedHeaders: ['Retry-After'],
     maxAge: 600,
 }));
 
@@ -130,7 +164,10 @@ app.use(sanitizeRequest);
 
 // ==========================================
 // 🔐 PUBLIC AUTH (login, password reset — no JWT)
+// Blocked devices are rejected before login or any other API route.
 // ==========================================
+const loginSecurityStore = createMysqlSecurityStore(db);
+app.use('/api', createBlockedDeviceMiddleware(loginSecurityStore));
 app.use('/api/auth', publicAuthRouter);
 app.post('/api/register', rejectPublicSignup);
 app.post('/api/signup', rejectPublicSignup);
@@ -140,8 +177,12 @@ app.get('/api/signup', rejectPublicSignup);
 // ==========================================
 // 🔐 AUTHENTICATED API ROUTES (JWT + live DB permissions)
 // ==========================================
-app.use('/api', apiLimiter, authenticateToken);
+app.use('/api', apiLimiter, authenticateToken, rejectUntilPasswordChanged);
 app.use('/api/auth', privateAuthRouter);
+app.use('/api/security-alerts', createSecurityAlertsRouter({
+    store: loginSecurityStore,
+    requireAdmin,
+}));
 
 // ==========================================
 // 🛡️ FEATURE-LEVEL AUTHORIZATION GUARDS
@@ -204,9 +245,15 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         return res.status(400).json({ message: "All identification boxes are required" });
     }
 
-    const trimmedPassword = String(password).trim();
-    if (trimmedPassword.length < 6) {
-        return res.status(400).json({ message: 'Password must be at least 6 characters.' });
+    const trimmedPassword = String(password);
+    const policyError = passwordPolicyError(trimmedPassword);
+    if (policyError) {
+        return res.status(400).json({ message: policyError });
+    }
+
+    const allowedRole = normalizeAllowedRole(role || 'Staff');
+    if (!allowedRole) {
+        return res.status(400).json({ message: 'Role must be Admin or Staff.' });
     }
 
     try {
@@ -216,13 +263,12 @@ app.post('/api/users', requireAdmin, async (req, res) => {
             return res.status(400).json({ message: "Username is already taken" });
         }
 
-        const saltRounds = 10;
-        const passwordHash = await bcrypt.hash(trimmedPassword, saltRounds);
-        const permissionsString = serializePermissionsForRole(role, permissions);
+        const passwordHash = await hashPassword(trimmedPassword);
+        const permissionsString = serializePermissionsForRole(allowedRole, permissions);
 
         await db.execute(
             'INSERT INTO users (display_name, username, password_hash, role, permissions) VALUES (?, ?, ?, ?, ?)',
-            [display_name, normalizedUsername, passwordHash, role || 'Staff', permissionsString]
+            [display_name, normalizedUsername, passwordHash, allowedRole, permissionsString]
         );
 
         res.status(201).json({ message: "New user profile established securely!" });
@@ -245,6 +291,11 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         return res.status(400).json({ message: 'Display name and role are required' });
     }
 
+    const allowedRole = normalizeAllowedRole(role);
+    if (!allowedRole) {
+        return res.status(400).json({ message: 'Role must be Admin or Staff.' });
+    }
+
     try {
         const [existingRows] = await db.execute(
             'SELECT id FROM users WHERE id = ? LIMIT 1',
@@ -254,32 +305,34 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const normalizedPermissions = serializePermissionsForRole(role, permissions);
-        const trimmedPassword = password != null ? String(password).trim() : '';
+        const normalizedPermissions = serializePermissionsForRole(allowedRole, permissions);
+        const nextPassword = password != null ? String(password) : '';
 
-        if (trimmedPassword) {
-            if (trimmedPassword.length < 6) {
-                return res.status(400).json({ message: 'Password must be at least 6 characters.' });
+        if (nextPassword) {
+            const policyError = passwordPolicyError(nextPassword);
+            if (policyError) {
+                return res.status(400).json({ message: policyError });
             }
 
-            const passwordHash = await bcrypt.hash(trimmedPassword, 10);
+            const passwordHash = await hashPassword(nextPassword);
+            await invalidateUserTokens(db, userId);
             await db.execute(
                 `UPDATE users
-                 SET display_name = ?, role = ?, permissions = ?, password_hash = ?
+                 SET display_name = ?, role = ?, permissions = ?, password_hash = ?, must_change_password = 0
                  WHERE id = ?`,
-                [display_name, role, normalizedPermissions, passwordHash, userId],
+                [display_name, allowedRole, normalizedPermissions, passwordHash, userId],
             );
         } else {
             await db.execute(
                 `UPDATE users
                  SET display_name = ?, role = ?, permissions = ?
                  WHERE id = ?`,
-                [display_name, role, normalizedPermissions, userId],
+                [display_name, allowedRole, normalizedPermissions, userId],
             );
         }
 
         const [updatedRows] = await db.execute(
-            'SELECT id, display_name, username, role, permissions FROM users WHERE id = ? LIMIT 1',
+            'SELECT id, display_name, username, role, permissions, must_change_password FROM users WHERE id = ? LIMIT 1',
             [userId],
         );
 
@@ -290,15 +343,85 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             username: updated.username,
             role: updated.role,
             permissions: normalizePermissions(updated.permissions),
+            must_change_password: Number(updated.must_change_password) === 1,
         };
 
-        res.status(200).json({
+        const response = {
             message: 'User permissions updated successfully',
             user: updatedUser,
-        });
+        };
+
+        if (nextPassword && req.user?.id === userId) {
+            response.token = signSessionToken(updatedUser);
+        }
+
+        res.status(200).json(response);
     } catch (error) {
         console.error('❌ UPDATE USER ERROR:', error.message);
         res.status(500).json({ message: 'Failed to update user permissions' });
+    }
+});
+
+app.post('/api/users/:id/reset-password', createPasswordResetLimiter(), requireAdmin, async (req, res) => {
+    const userId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    try {
+        const [existingRows] = await db.execute(
+            'SELECT id, display_name, username, role, permissions FROM users WHERE id = ? LIMIT 1',
+            [userId],
+        );
+        if (!existingRows.length) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const temporaryPassword = generateTemporaryPassword();
+        const passwordHash = await hashPassword(temporaryPassword);
+        await invalidateUserTokens(db, userId);
+        await db.execute(
+            'UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?',
+            [passwordHash, userId],
+        );
+
+        const account = existingRows[0];
+        await auditFromRequest(db, req, {
+            action: 'password_reset',
+            module: 'Users',
+            description: `Administrator reset the password for ${account.username}. They must change it at next login.`,
+        });
+
+        const response = {
+            message: 'Temporary password created. It is shown once and is not stored.',
+            temporaryPassword,
+            user: {
+                id: account.id,
+                username: account.username,
+                must_change_password: true,
+            },
+        };
+
+        if (req.user?.id === userId) {
+            response.token = signSessionToken({
+                ...account,
+                permissions: normalizePermissions(account.permissions),
+                must_change_password: true,
+            });
+            response.user = {
+                id: account.id,
+                display_name: account.display_name,
+                username: account.username,
+                role: account.role,
+                permissions: normalizePermissions(account.permissions),
+                must_change_password: true,
+            };
+        }
+
+        res.status(200).json(response);
+    } catch (error) {
+        console.error('❌ RESET PASSWORD ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to reset password' });
     }
 });
 
@@ -567,13 +690,10 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
         return res.status(400).json({ message: 'Missing table target or checkout lines' });
     }
 
-    const invalidLine = items.find((item) => {
-        const qty = Number(item?.quantity ?? item?.qty);
-        const price = Number(item?.price ?? item?.unitPrice);
-        return !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0;
-    });
-    if (invalidLine) {
-        return res.status(400).json({ message: 'Each order line needs a valid quantity and price' });
+    const lineError = items.map((item) => validateOrderLine(item, { isAdmin: isAdminRole(req.user?.role) })).find(Boolean);
+    if (lineError) {
+        const status = lineError.startsWith('Only an administrator') ? 403 : 400;
+        return res.status(status).json({ message: lineError });
     }
 
     let target;
@@ -608,6 +728,9 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             description: `Placed/merged ${items.length} item(s) for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`}`,
         });
     } catch (error) {
+        if (error.status === 400 || error.status === 403) {
+            return res.status(error.status).json({ message: error.message });
+        }
         logOrderError('DATABASE ERROR IN POST /api/orders', error, {
             target_id,
             normalized_target: target.key,
@@ -627,7 +750,6 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         invoice_id,
         target_id,
         payment_method,
-        subtotal,
         table_id,
     } = req.body ?? {};
 
@@ -640,12 +762,6 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         return res.status(400).json({ message: 'Missing payment_method for checkout' });
     }
 
-    const subtotalNum = Number(subtotal);
-    if (!Number.isFinite(subtotalNum) || subtotalNum < 0) {
-        return res.status(400).json({ message: 'Checkout requires a valid subtotal' });
-    }
-    const taxNum = 0;
-
     let target;
     try {
         target = normalizeIncomingTarget(target_id);
@@ -656,28 +772,27 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
 
     try {
         const { sql, params } = pendingOrderWhereClause(target);
-        let orderId = await findPendingOrderId(db, target);
-
-        if (!orderId) {
-            orderId = await createPendingOrder(db, target, table_id);
-        }
+        const orderId = await findPendingOrderId(db, target);
 
         const resolvedTableId =
             target.sourceType === 'Take Out' ? null : await resolveTableForeignKey(db, table_id ?? target.tableId);
 
-        // Authoritative money: the total is recomputed from the order lines already
-        // persisted for this ticket rather than trusted from the request body. In the
-        // normal flow the client syncs these exact lines immediately before checkout,
-        // so this equals the submitted subtotal to the cent — but a forged or tampered
-        // checkout request can no longer undercharge the bill. Falls back to the
-        // validated request subtotal only when no lines are stored (empty ticket edge).
+        if (!orderId) {
+            return res.status(400).json({ message: 'Checkout requires saved order lines' });
+        }
+
         const [billSumRows] = await db.execute(
-            'SELECT COALESCE(SUM(quantity * price), 0) AS computed FROM order_items WHERE order_id = ?',
+            'SELECT COUNT(*) AS line_count, COALESCE(SUM(quantity * price), 0) AS computed FROM order_items WHERE order_id = ?',
             [orderId],
         );
-        const computedSubtotal = Math.round((Number(billSumRows[0]?.computed) || 0) * 100) / 100;
-        const finalSubtotal = computedSubtotal > 0 ? computedSubtotal : subtotalNum;
-        const finalTotal = finalSubtotal; // tax is 0 in this business model
+        const lineCount = Number(billSumRows[0]?.line_count) || 0;
+        if (lineCount === 0) {
+            return res.status(400).json({ message: 'Checkout requires saved order lines' });
+        }
+
+        const finalSubtotal = Math.round((Number(billSumRows[0]?.computed) || 0) * 100) / 100;
+        const finalTotal = finalSubtotal;
+        const taxNum = 0;
 
         const checkoutQuery = `
             UPDATE orders
@@ -769,13 +884,12 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
     }
 
     if (items.length > 0) {
-        const invalidLine = items.find((item) => {
-            const qty = Number(item?.quantity ?? item?.qty);
-            const price = Number(item?.price ?? item?.unitPrice);
-            return !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0;
-        });
-        if (invalidLine) {
-            return res.status(400).json({ message: 'Each bill line needs a valid quantity and price' });
+        const lineError = items
+            .map((item) => validateOrderLine(item, { isAdmin: isAdminRole(req.user?.role) }))
+            .find(Boolean);
+        if (lineError) {
+            const status = lineError.startsWith('Only an administrator') ? 403 : 400;
+            return res.status(status).json({ message: lineError });
         }
     }
 
@@ -801,6 +915,9 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
 
         res.status(200).json({ message: "Bill items updated.", orderId });
     } catch (error) {
+        if (error.status === 400 || error.status === 403) {
+            return res.status(error.status).json({ message: error.message });
+        }
         logOrderError('DATABASE ERROR IN PUT /api/orders/items', error, {
             target_id,
             normalized_target: target.key,
@@ -927,13 +1044,16 @@ function summarizeAlertCounts(alerts) {
     };
 }
 
-app.get('/api/alerts', async (req, res) => {
+app.get('/api/alerts', requirePermission('inventory_stock'), async (req, res) => {
     try {
         await processReservationReminders(db).catch(() => null);
         const bypassCache = req.query.refresh === '1';
         const payload = await buildActiveAlerts(db, { bypassCache });
         const storedAlerts = req.user?.id ? await listUnreadUserAlerts(db, req.user.id) : [];
-        const alerts = [...storedAlerts, ...(payload.alerts || [])];
+        const securityAlerts = isAdminRole(req.user?.role)
+            ? await listNewSecurityAlertFeed(db)
+            : [];
+        const alerts = [...securityAlerts, ...storedAlerts, ...(payload.alerts || [])];
         const counts = summarizeAlertCounts(alerts);
         return res.status(200).json({ ...payload, alerts, counts });
     } catch (error) {
@@ -1083,7 +1203,7 @@ app.post('/api/inventory', requirePermission('inventory_stock'), async (req, res
 
 const sqlUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 100 * 1024 * 1024 },
+    limits: { fileSize: 20 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (!file.originalname.toLowerCase().endsWith('.sql')) {
             cb(new Error('Only .sql backup files are allowed'));
@@ -1279,13 +1399,21 @@ app.get('/api/reports', requireReportsAccess, async (req, res) => {
     }
 })
 
+function sendReservationFailure(res, error, route) {
+    const errorId = logError(error, { route });
+    const status = Number(error?.status) || 500;
+    if (status >= 500) {
+        return res.status(500).json({ message: 'Something went wrong', errorId });
+    }
+    return res.status(status).json({ message: 'Invalid request', errorId });
+}
+
 app.get('/api/reservations/meta', requireReservationsAccess, async (_req, res) => {
     try {
         const tables = await listFloorTables(db)
         res.status(200).json({ tables, timeSlots: TIME_SLOTS, statuses: ALL_STATUSES })
     } catch (error) {
-        console.error('❌ RESERVATION META ERROR:', error.message)
-        res.status(500).json({ message: 'Failed to load reservation options' })
+        return sendReservationFailure(res, error, 'GET /api/reservations/meta');
     }
 })
 
@@ -1298,9 +1426,7 @@ app.get('/api/reservations/availability', requireReservationsAccess, async (req,
         })
         res.status(200).json(payload)
     } catch (error) {
-        const status = error.status || 500
-        if (status >= 500) console.error('❌ RESERVATION AVAILABILITY ERROR:', error.message)
-        res.status(status).json({ message: error.message || 'Failed to check table availability' })
+        return sendReservationFailure(res, error, 'GET /api/reservations/availability');
     }
 })
 
@@ -1309,8 +1435,7 @@ app.get('/api/reservations/floor', requireAnyPermission('reservations', 'table')
         const payload = await getLiveFloorReservations(db)
         res.status(200).json(payload)
     } catch (error) {
-        console.error('❌ RESERVATION FLOOR ERROR:', error.message)
-        res.status(500).json({ message: 'Failed to load reserved floor status' })
+        return sendReservationFailure(res, error, 'GET /api/reservations/floor');
     }
 })
 
@@ -1319,8 +1444,7 @@ app.get('/api/reservations', requireReservationsAccess, async (req, res) => {
         const reservations = await listReservations(db, req.query)
         res.status(200).json(reservations)
     } catch (error) {
-        console.error('❌ RESERVATIONS LIST ERROR:', error.message)
-        res.status(500).json({ message: 'Failed to load reservations' })
+        return sendReservationFailure(res, error, 'GET /api/reservations');
     }
 })
 
@@ -1329,9 +1453,7 @@ app.get('/api/reservations/:id', requireReservationsAccess, async (req, res) => 
         const reservation = await getReservation(db, req.params.id)
         res.status(200).json(reservation)
     } catch (error) {
-        const status = error.status || 500
-        if (status >= 500) console.error('❌ RESERVATION FETCH ERROR:', error.message)
-        res.status(status).json({ message: error.message || 'Failed to load reservation' })
+        return sendReservationFailure(res, error, 'GET /api/reservations/:id');
     }
 })
 
@@ -1340,9 +1462,7 @@ app.post('/api/reservations', requireReservationsAccess, async (req, res) => {
         const reservation = await createReservation(db, req.body, req.user)
         res.status(201).json(reservation)
     } catch (error) {
-        const status = error.status || 500
-        if (status >= 500) console.error('❌ RESERVATION CREATE ERROR:', error.message)
-        res.status(status).json({ message: error.message || 'Failed to create reservation' })
+        return sendReservationFailure(res, error, 'POST /api/reservations');
     }
 })
 
@@ -1351,9 +1471,7 @@ app.put('/api/reservations/:id', requireReservationsAccess, async (req, res) => 
         const reservation = await updateReservation(db, req.params.id, req.body)
         res.status(200).json(reservation)
     } catch (error) {
-        const status = error.status || 500
-        if (status >= 500) console.error('❌ RESERVATION UPDATE ERROR:', error.message)
-        res.status(status).json({ message: error.message || 'Failed to update reservation' })
+        return sendReservationFailure(res, error, 'PUT /api/reservations/:id');
     }
 })
 
@@ -1362,9 +1480,7 @@ app.post('/api/reservations/:id/check-in', requireReservationsAccess, async (req
         const reservation = await checkInReservation(db, req.params.id)
         res.status(200).json(reservation)
     } catch (error) {
-        const status = error.status || 500
-        if (status >= 500) console.error('❌ RESERVATION CHECK-IN ERROR:', error.message)
-        res.status(status).json({ message: error.message || 'Failed to check in reservation' })
+        return sendReservationFailure(res, error, 'POST /api/reservations/:id/check-in');
     }
 })
 
@@ -1388,9 +1504,7 @@ app.post('/api/reservations/:id/confirmation-letter', requireReservationsAccess,
             method: result.method,
         })
     } catch (error) {
-        const status = error.status || 500
-        if (status >= 500) console.error('❌ RESERVATION LETTER ERROR:', error.message)
-        res.status(status).json({ message: error.message || 'Failed to send confirmation letter' })
+        return sendReservationFailure(res, error, 'POST /api/reservations/:id/confirmation-letter');
     }
 })
 
@@ -1399,11 +1513,37 @@ app.delete('/api/reservations/:id', requireReservationsAccess, async (req, res) 
         const reservation = await deleteReservation(db, req.params.id)
         res.status(200).json({ message: 'Reservation deleted', reservation })
     } catch (error) {
-        const status = error.status || 500
-        if (status >= 500) console.error('❌ RESERVATION DELETE ERROR:', error.message)
-        res.status(status).json({ message: error.message || 'Failed to delete reservation' })
+        return sendReservationFailure(res, error, 'DELETE /api/reservations/:id');
     }
 })
+
+// ==========================================
+// ⚙️ APP SETTINGS
+// ==========================================
+app.get('/api/settings', async (req, res) => {
+    try {
+        const sessionHours = await getSessionHours(db);
+        res.status(200).json({ sessionHours });
+    } catch (error) {
+        logError(error, { route: 'GET /api/settings' });
+        res.status(500).json({ message: 'Failed to load settings' });
+    }
+});
+
+app.put('/api/settings/session-hours', requireAdmin, async (req, res) => {
+    try {
+        const sessionHours = await setSessionHours(db, req.body?.hours);
+        await auditFromRequest(db, req, {
+            action: 'settings_update',
+            module: 'Settings',
+            description: `Session length set to ${sessionHours} hours`,
+        });
+        res.status(200).json({ sessionHours });
+    } catch (error) {
+        logError(error, { route: 'PUT /api/settings/session-hours' });
+        res.status(500).json({ message: 'Failed to update session hours' });
+    }
+});
 
 // ==========================================
 // 🔐 AUDIT LOGS (ADMIN)
@@ -1447,7 +1587,7 @@ process.on('uncaughtException', (error) => {
 app.listen(PORT, async () => {
     console.log(`🚀 ${STORE.officialName} Backend running smoothly on port ${PORT}`);
     console.log(`   CORS allowed origins: ${env.security.allowedOrigins.join(', ')}`);
-    console.log(`   Security: helmet on, rate limiting on, JWT expiry ${env.jwtExpiresIn}`);
+    console.log(`   Security: helmet on, rate limiting on, JWT expiry 2h`);
 
     try {
         await db.execute('SELECT 1');
@@ -1461,7 +1601,14 @@ app.listen(PORT, async () => {
         await ensureUsersEmailColumn(db);
         await ensureAdminNotificationsSchema(db);
         await ensureReservationsSchema(db);
+        await ensureAppSettingsSchema(db);
+        await ensureLoginSecuritySchema(db);
+        await ensureSessionSecuritySchema(db);
         startReservationReminderJob(db);
+        startLoginSecurityCleanup(db);
+        startRevokedTokenCleanup(db);
+        console.log('   Login security schema: OK');
+        console.log('   Session tokens expire after 2 hours');
         console.log('   Inventory schema: OK');
         if (restoredSaleDates > 0) {
             console.log(`   Orders sale dates restored: ${restoredSaleDates} (updated_at <- created_at)`);

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import Login from './pages/Login'
+import ForcePasswordChange from './pages/ForcePasswordChange'
 import DashboardLayout from './components/common/DashboardLayout'
 import ErrorBoundary from './components/common/ErrorBoundary'
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -21,16 +23,17 @@ import ReportsAnalysis from './pages/ReportsAnalysis'
 import Users from './pages/Users'
 import Settings from './pages/Settings'
 import BackupRecovery from './pages/BackupRecovery'
+import SecurityAlerts from './pages/SecurityAlerts'
 
 function AccessDenied({ onGoHome }) {
+  const { t } = useTranslation()
+
   return (
     <div className="surface-card mx-auto flex max-w-lg flex-col items-center px-8 py-12 text-center">
-      <h3 className="text-heading text-lg font-semibold">Access restricted</h3>
-      <p className="text-muted mt-2 text-sm">
-        Your account does not have permission to open this section.
-      </p>
+      <h3 className="text-heading text-lg font-semibold">{t('common.accessRestricted')}</h3>
+      <p className="text-muted mt-2 text-sm">{t('common.accessRestrictedDescription')}</p>
       <button type="button" onClick={onGoHome} className="btn-primary mt-6 px-4 py-2 text-sm">
-        Go to allowed page
+        {t('common.goToAllowedPage')}
       </button>
     </div>
   )
@@ -116,8 +119,10 @@ function AuthenticatedApp() {
         return <Settings />
       case 'backup_recovery':
         return <BackupRecovery />
+      case 'security_alerts':
+        return <SecurityAlerts />
       default:
-        return <Dashboard />
+        return <Dashboard onNavigate={handleNavigate} />
     }
   }
 
@@ -131,7 +136,7 @@ function AuthenticatedApp() {
 }
 
 function AppRoutes() {
-  const { isAuthenticated, login } = useAuth()
+  const { isAuthenticated, login, user } = useAuth()
 
   if (!isAuthenticated) {
     return (
@@ -139,6 +144,10 @@ function AppRoutes() {
         <Login onLogin={login} />
       </div>
     )
+  }
+
+  if (user?.must_change_password) {
+    return <ForcePasswordChange />
   }
 
   return (

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
+import { KeyRound, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
@@ -32,6 +32,12 @@ const PERMISSION_LABEL_KEYS = {
   reports: 'nav.reports',
 }
 
+const ALLOWED_ROLES = ['Admin', 'Staff']
+
+function passwordMeetsPolicy(password) {
+  return password.length >= 8 && /[A-Za-z]/.test(password) && /[0-9]/.test(password)
+}
+
 function roleLabel(t, role) {
   const key = ROLE_LABEL_KEYS[role]
   return key ? t(key) : role
@@ -58,7 +64,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
   const [username, setUsername] = useState(user?.username || '')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [role, setRole] = useState(user?.role || 'Staff')
+  const [role, setRole] = useState(ALLOWED_ROLES.includes(user?.role) ? user.role : 'Staff')
   const [permissions, setPermissions] = useState(() => normalizePermissions(user?.permissions || []))
   const [error, setError] = useState('')
   const isAdminUser = isAdminRole(role)
@@ -97,7 +103,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
       return
     }
 
-    if (password && password.length < 6) {
+    if (password && !passwordMeetsPolicy(password)) {
       setError(t('users.errors.passwordLength'))
       return
     }
@@ -122,9 +128,9 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" className="absolute inset-0 bg-stone-950/40 backdrop-blur-sm dark:bg-obsidian-950/60" onClick={onClose} />
+      <button type="button" className="modal-backdrop" onClick={onClose} />
 
-      <div className="surface-card relative max-h-[90vh] w-full max-w-md overflow-y-auto p-6 shadow-xl transition-all duration-300">
+      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-md p-6">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-olive-100 text-forest-600 dark:bg-olive-900/40 dark:text-forest-400">
@@ -206,7 +212,6 @@ function UserFormModal({ mode, user, onClose, onSave }) {
             <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.assignmentRole')}</label>
             <select value={role} onChange={(e) => setRole(e.target.value)} className="input-field bg-white px-3 py-2 text-sm dark:bg-obsidian-900">
               <option value="Staff">{t('users.roles.staff')}</option>
-              <option value="Cashier">{t('users.roles.cashier')}</option>
               <option value="Admin">{t('users.roles.admin')}</option>
             </select>
           </div>
@@ -253,13 +258,15 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 
 export default function Users() {
   const { t } = useTranslation()
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, adoptSession } = useAuth()
   const [users, setUsers] = useState([])
   const [modalMode, setModalMode] = useState(null)
   const [selectedUser, setSelectedUser] = useState(null)
   const [userToDelete, setUserToDelete] = useState(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [resetNotice, setResetNotice] = useState(null)
+  const [resettingId, setResettingId] = useState(null)
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -308,11 +315,40 @@ export default function Users() {
         throw new Error(data.message || t('users.errors.save'))
       }
 
+      if (data.token && data.user) {
+        adoptSession(data.token, data.user)
+      }
+
       closeModal()
       fetchUsers()
     } catch (err) {
       setError(err.message || t('users.errors.save'))
       throw err
+    }
+  }
+
+  const resetUserPassword = async (event, account) => {
+    event.stopPropagation()
+    if (resettingId) return
+    setError('')
+    setResettingId(account.id)
+    try {
+      const res = await apiFetch(`/users/${account.id}/reset-password`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.message || t('users.errors.reset'))
+      }
+      if (data.token && data.user) {
+        adoptSession(data.token, data.user)
+      }
+      setResetNotice({
+        username: account.username,
+        temporaryPassword: data.temporaryPassword || '',
+      })
+    } catch (err) {
+      setError(err.message || t('users.errors.reset'))
+    } finally {
+      setResettingId(null)
     }
   }
 
@@ -363,9 +399,6 @@ export default function Users() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-heading text-lg font-bold">{t('nav.users')}</h3>
-          <p className="text-muted text-sm">
-            {t('users.subtitle')}
-          </p>
         </div>
         <button type="button" onClick={openCreateModal} className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold">
           <UserPlus className="h-4 w-4" />
@@ -424,6 +457,16 @@ export default function Users() {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right" onClick={(event) => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={(event) => resetUserPassword(event, user)}
+                      disabled={resettingId === user.id}
+                      title={t('users.resetPassword')}
+                      aria-label={t('users.resetPassword')}
+                      className="rounded-lg p-2 text-stone-400 transition hover:bg-forest-50 hover:text-forest-700 disabled:opacity-40 dark:hover:bg-forest-950/40 dark:hover:text-forest-300"
+                    >
+                      <KeyRound className="h-4 w-4" />
+                    </button>
                     {(() => {
                       const { canDelete, title } = getDeleteGuard(user)
                       return (
@@ -456,6 +499,28 @@ export default function Users() {
           onSave={handleSaveUser}
         />
       )}
+      {resetNotice ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label={t('common.close')}
+            onClick={() => setResetNotice(null)}
+          />
+          <div role="dialog" aria-modal="true" className="modal-panel relative z-10 w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">{t('users.resetPasswordTitle')}</h2>
+            <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">{t('users.resetPasswordBody', { username: resetNotice.username })}</p>
+            <p className="mt-4 break-all rounded-xl bg-stone-100 px-4 py-3 font-mono text-sm text-slate-900 dark:bg-zinc-800 dark:text-zinc-100">
+              {resetNotice.temporaryPassword}
+            </p>
+            <div className="mt-4 flex justify-end">
+              <button type="button" className="btn-primary px-4 py-2 text-sm" onClick={() => setResetNotice(null)}>
+                {t('common.close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <ConfirmDeleteModal
         isOpen={Boolean(userToDelete)}
         title={t('users.deleteTitle')}

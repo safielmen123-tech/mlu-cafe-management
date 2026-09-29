@@ -1,14 +1,15 @@
 import { Bell, Clock, Droplets, Palette, Shield } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ThemeToggle from '../components/ui/ThemeToggle'
 import SettingToggle from '../components/ui/SettingToggle'
 import AuditLogPanel from '../components/security/AuditLogPanel'
-import OperatingHoursNotice from '../components/common/OperatingHoursNotice'
 import { useTheme } from '../context/ThemeContext'
 import { useSettings } from '../context/SettingsContext'
 import { useAuth } from '../context/AuthContext'
 import { isAdminRole } from '../utils/permissions'
 import { getSeasonForDate } from '../config/siteData'
+import { apiFetch } from '../services/apiClient'
 
 function SettingRow({ icon: Icon, label, description, children }) {
   return (
@@ -19,7 +20,7 @@ function SettingRow({ icon: Icon, label, description, children }) {
         </div>
         <div>
           <p className="text-heading font-semibold">{label}</p>
-          <p className="text-muted mt-1 text-sm">{description}</p>
+          {description ? <p className="text-muted mt-1 text-sm">{description}</p> : null}
         </div>
       </div>
       {children}
@@ -40,16 +41,49 @@ export default function Settings() {
 
   const isAdmin = isAdminRole(user?.role)
   const currentSeason = getSeasonForDate(new Date())
+  const [sessionHours, setSessionHours] = useState(2)
+  const [savingSession, setSavingSession] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    apiFetch('/settings')
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json().catch(() => ({}))
+        const hours = Number.parseInt(data.sessionHours, 10)
+        if (!cancelled && hours === 2) {
+          setSessionHours(hours)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleSessionHoursChange = async (hours) => {
+    if (!isAdmin || hours === sessionHours || savingSession) return
+    setSavingSession(true)
+    try {
+      const res = await apiFetch('/settings/session-hours', {
+        method: 'PUT',
+        body: JSON.stringify({ hours }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message)
+      const next = Number.parseInt(data.sessionHours, 10)
+      setSessionHours(next === 2 ? 2 : sessionHours)
+    } catch (error) {
+      console.error('Failed to update session hours:', error)
+    } finally {
+      setSavingSession(false)
+    }
+  }
 
   return (
     <div className="space-y-8 page-enter">
       <div>
         <h3 className="page-title">{t('nav.settings')}</h3>
-        <p className="page-subtitle">
-          {t('settings.subtitle', {
-            defaultValue: 'Manage appearance, notifications, and system preferences',
-          })}
-        </p>
       </div>
 
       <div className="space-y-4">
@@ -70,7 +104,6 @@ export default function Settings() {
             {currentSeason.id === 'high' ? t('settings.highSeason') : t('settings.lowSeason')}
           </span>
         </SettingRow>
-        <OperatingHoursNotice />
       </div>
 
       <div className="space-y-4">
@@ -152,14 +185,30 @@ export default function Settings() {
 
         <SettingRow
           icon={Shield}
-          label={t('settings.session', { defaultValue: 'Session Management' })}
-          description={t('settings.sessionDesc', {
-            defaultValue: 'Your session expires 8 hours after sign-in for security.',
-          })}
+          label={t('settings.sessionEndsAfter', { hours: sessionHours })}
         >
-          <span className="text-muted text-sm font-medium">
-            {t('settings.standard', { defaultValue: 'Standard' })}
-          </span>
+          {isAdmin ? (
+            <div className="flex gap-2">
+              {[2].map((hours) => {
+                const selected = sessionHours === hours
+                return (
+                  <button
+                    key={hours}
+                    type="button"
+                    disabled={savingSession}
+                    onClick={() => handleSessionHoursChange(hours)}
+                    className={
+                      selected
+                        ? 'rounded-full bg-forest-500 px-4 py-1.5 text-sm font-medium text-white shadow-sm disabled:opacity-70'
+                        : 'rounded-full bg-cocoa-50 px-4 py-1.5 text-sm text-cocoa-800 hover:bg-cocoa-100 disabled:opacity-70 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+                    }
+                  >
+                    {t('settings.sessionHoursOption', { hours })}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </SettingRow>
       </div>
 

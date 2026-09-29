@@ -204,14 +204,14 @@ function RestockModal({ item, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" className="absolute inset-0 bg-forest-950/50 backdrop-blur-sm dark:bg-obsidian-950/70" onClick={onClose} />
+      <button type="button" className="modal-backdrop" onClick={onClose} />
 
       <div
         ref={panelRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className="surface-card relative w-full max-w-md p-6 shadow-2xl outline-none"
+        className="modal-panel relative z-10 w-full max-w-md p-6"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -357,7 +357,6 @@ export default function InventoryStock() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-heading text-lg">{t('nav.inventoryStock')}</h3>
-          <p className="text-muted text-sm">{t('inventory.subtitle')}</p>
         </div>
         <div className="relative max-w-xs flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
