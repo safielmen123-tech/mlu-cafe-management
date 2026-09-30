@@ -90,14 +90,14 @@ function buildStockAlerts(inventory) {
     const atOrBelowReorder = reorderPoint > 0 && stock <= reorderPoint;
     const statusFlag = item.stock_status || item.stockStatus;
     const flaggedLowStock = statusFlag === 'LOW_STOCK' || statusFlag === 'OUT_OF_STOCK';
-    const criticallyLow = stock === 0 || (criticalPoint != null && stock <= criticalPoint);
+    const criticallyLow = stock <= 0 || (criticalPoint != null && stock <= criticalPoint);
 
     if (!atOrBelowReorder && !criticallyLow && !flaggedLowStock) continue;
 
-    const severity = criticallyLow || stock === 0 ? 'critical' : 'warning';
+    const severity = criticallyLow || stock <= 0 ? 'critical' : 'warning';
     let message;
-    if (stock === 0) {
-      message = `${name} is out of stock (0 ${unit} remaining).`;
+    if (stock <= 0) {
+      message = `${name} is out of stock (${stock} ${unit} on hand).`;
     } else {
       message = `${name} is at ${stock} ${unit} — at or below reorder point (${reorderPoint} ${unit}).`;
     }

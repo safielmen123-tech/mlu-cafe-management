@@ -14,24 +14,15 @@ import {
   getCurrentMonthKey,
   summarizeSalesMetrics,
 } from '../utils/salesHistoryAnalytics'
-import { formatDateTimeDisplay, sortOrdersByDateTime } from '../utils/dateTimeFormat'
+import { formatOrderDate, formatTime12Hour, sortOrdersByDateTime } from '../utils/dateTimeFormat'
+import PaymentMethodBadge from '../components/common/PaymentMethodBadge'
+import StatusBadge from '../components/common/StatusBadge'
 
 const statusStyles = {
   Completed:
     'border border-emerald-500/30 bg-emerald-500/10 text-emerald-900 ring-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-500/30 ring-1',
   Refunded:
     'bg-red-500/10 text-red-900 ring-red-500/30 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-500/30 ring-1',
-}
-
-const paymentStyles = {
-  Cash: 'badge-olive',
-  'Bank Scan': 'badge-forest',
-}
-
-function paymentMethodLabel(method, t) {
-  if (method === 'Bank Scan') return t('payment.methods.bankScan')
-  if (method === 'Cash') return t('payment.methods.cash')
-  return method
 }
 
 function statusLabel(status, t) {
@@ -182,23 +173,84 @@ export default function SalesHistory() {
               />
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+          <div className="lg:hidden">
+            {filteredLogs.length === 0 ? (
+              <p className="px-4 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
+                {t('sales.emptyLogs', {
+                  defaultValue: 'No completed orders found for this month and search filter.',
+                })}
+              </p>
+            ) : (
+              filteredLogs.map((order) => {
+                const sStyle =
+                  statusStyles[order.status] ||
+                  'bg-stone-50 text-stone-700 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700'
+                const isPrinting = printingOrderId === order.id
+                return (
+                  <article key={order.id} className="min-w-0 border-b border-border/60 px-4 py-4 last:border-b-0">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <p className="min-w-0 whitespace-nowrap font-semibold text-forest-600 dark:text-forest-400">
+                        {order.id}
+                      </p>
+                      <PaymentMethodBadge method={order.payment} />
+                    </div>
+                    <p className="mt-2 min-w-0 break-words text-sm text-stone-600 dark:text-stone-300">
+                      {order.source ?? '—'}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <p className="tabular-nums leading-tight text-stone-600 dark:text-stone-300">
+                        <span className="block">{formatOrderDate(order.date)}</span>
+                        <span className="block">{formatTime12Hour(order.time)}</span>
+                      </p>
+                      <p className="font-semibold tabular-nums text-heading">${(order.total || 0).toFixed(2)}</p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <StatusBadge className={sStyle}>
+                        {statusLabel(order.status, t)}
+                      </StatusBadge>
+                      <button
+                        type="button"
+                        onClick={() => handlePrintReceipt(order)}
+                        disabled={isPrinting}
+                        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
+                      >
+                        <Printer className="h-3.5 w-3.5 shrink-0" />
+                        {isPrinting
+                          ? t('common.loading', { defaultValue: 'Loading...' })
+                          : t('sales.printReceipt', { defaultValue: 'Print Receipt' })}
+                      </button>
+                    </div>
+                  </article>
+                )
+              })
+            )}
+          </div>
+          <div className="hidden min-w-0 lg:block">
+            <table className="w-full table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-[13%]" />
+                <col />
+                <col className="w-[12%]" />
+                <col className="w-[17%]" />
+                <col className="w-[11%]" />
+                <col className="w-[13%]" />
+                <col className="w-[22%]" />
+              </colgroup>
               <thead>
                 <tr className="table-head">
-                  <th className="px-6 py-3">{t('sales.orderId')}</th>
-                  <th className="px-6 py-3">{t('common.source', { defaultValue: 'Source' })}</th>
-                  <th className="px-6 py-3">{t('common.dateTime', { defaultValue: 'Date / Time' })}</th>
-                  <th className="px-6 py-3">{t('common.payment', { defaultValue: 'Payment' })}</th>
-                  <th className="px-6 py-3">{t('common.total', { defaultValue: 'Total' })}</th>
-                  <th className="px-6 py-3">{t('common.status', { defaultValue: 'Status' })}</th>
-                  <th className="px-6 py-3 text-right">{t('common.actions', { defaultValue: 'Actions' })}</th>
+                  <th className="px-2 py-3">{t('sales.orderId')}</th>
+                  <th className="px-2 py-3">{t('common.source', { defaultValue: 'Source' })}</th>
+                  <th className="px-2 py-3">{t('common.dateTime', { defaultValue: 'Date / Time' })}</th>
+                  <th className="px-2 py-3">{t('common.payment', { defaultValue: 'Payment' })}</th>
+                  <th className="px-2 py-3">{t('common.total', { defaultValue: 'Total' })}</th>
+                  <th className="px-2 py-3">{t('common.status', { defaultValue: 'Status' })}</th>
+                  <th className="px-2 py-3 text-right">{t('common.actions', { defaultValue: 'Actions' })}</th>
                 </tr>
               </thead>
               <tbody className="table-divider">
                 {filteredLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
+                    <td colSpan={7} className="px-2 py-10 text-center text-sm text-stone-500 dark:text-zinc-400">
                       {t('sales.emptyLogs', {
                         defaultValue: 'No completed orders found for this month and search filter.',
                       })}
@@ -206,9 +258,6 @@ export default function SalesHistory() {
                   </tr>
                 ) : (
                   filteredLogs.map((order) => {
-                    const pStyle =
-                      paymentStyles[order.payment] ||
-                      'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300'
                     const sStyle =
                       statusStyles[order.status] ||
                       'bg-stone-50 text-stone-700 ring-1 ring-stone-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700'
@@ -216,38 +265,35 @@ export default function SalesHistory() {
 
                     return (
                       <tr key={order.id} className="table-row">
-                        <td className="px-6 py-4 font-semibold text-forest-600 dark:text-forest-400">
+                        <td className="whitespace-nowrap px-2 py-3 font-semibold text-forest-600 dark:text-forest-400">
                           {order.id}
                         </td>
-                        <td className="px-6 py-4 text-stone-600 dark:text-stone-300">
+                        <td className="min-w-0 break-words px-2 py-3 text-stone-600 dark:text-stone-300">
                           {order.source ?? '—'}
                         </td>
-                        <td className="px-6 py-4 text-stone-600 tabular-nums dark:text-stone-300">
-                          {formatDateTimeDisplay(order.date, order.time)}
+                        <td className="px-2 py-3 tabular-nums leading-tight text-stone-600 dark:text-stone-300">
+                          <span className="block whitespace-nowrap">{formatOrderDate(order.date)}</span>
+                          <span className="block whitespace-nowrap">{formatTime12Hour(order.time)}</span>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className={`rounded px-2.5 py-1 text-xs font-semibold ${pStyle}`}>
-                            {paymentMethodLabel(order.payment, t)}
-                          </span>
+                        <td className="px-2 py-3">
+                          <PaymentMethodBadge method={order.payment} />
                         </td>
-                        <td className="px-6 py-4 font-semibold text-heading tabular-nums">
+                        <td className="whitespace-nowrap px-2 py-3 font-semibold tabular-nums text-heading">
                           ${(order.total || 0).toFixed(2)}
                         </td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${sStyle}`}
-                          >
+                        <td className="px-2 py-3">
+                          <StatusBadge className={sStyle}>
                             {statusLabel(order.status, t)}
-                          </span>
+                          </StatusBadge>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-2 py-3 text-right">
                           <button
                             type="button"
                             onClick={() => handlePrintReceipt(order)}
                             disabled={isPrinting}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-card/50 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
+                            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card/30"
                           >
-                            <Printer className="h-3.5 w-3.5" />
+                            <Printer className="h-3.5 w-3.5 shrink-0" />
                             {isPrinting
                               ? t('common.loading', { defaultValue: 'Loading...' })
                               : t('sales.printReceipt', { defaultValue: 'Print Receipt' })}

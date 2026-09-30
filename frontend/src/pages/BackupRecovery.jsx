@@ -5,6 +5,7 @@ import {
   Database,
   Download,
   FileSpreadsheet,
+  FileText,
   HardDrive,
   Loader2,
   Upload,
@@ -104,7 +105,9 @@ export default function BackupRecovery() {
   )
 
   const [selectedPeriod, setSelectedPeriod] = useState('all')
+  const [pdfPeriod, setPdfPeriod] = useState('all')
   const [excelLoading, setExcelLoading] = useState(false)
+  const [pdfLoading, setPdfLoading] = useState(false)
   const [sqlLoading, setSqlLoading] = useState(false)
   const [restoreLoading, setRestoreLoading] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
@@ -113,6 +116,8 @@ export default function BackupRecovery() {
 
   const selectedPeriodLabel =
     periodOptions.find((option) => option.value === selectedPeriod)?.label || t('dates.allTime')
+  const pdfPeriodLabel =
+    periodOptions.find((option) => option.value === pdfPeriod)?.label || t('dates.allTime')
 
   const clearMessages = () => {
     setStatusMessage('')
@@ -134,6 +139,20 @@ export default function BackupRecovery() {
       setErrorMessage(error.message || t('backup.exportFailed'))
     } finally {
       setExcelLoading(false)
+    }
+  }
+
+  const handlePdfExport = async () => {
+    clearMessages()
+    setPdfLoading(true)
+    try {
+      const query = buildPeriodQuery(pdfPeriod)
+      const filename = await apiDownload('/system/backup/sales-pdf', 'Mlu_Sales.pdf', query)
+      setStatusMessage(t('backup.exportPdfSuccess', { filename }))
+    } catch (error) {
+      setErrorMessage(error.message || t('backup.exportPdfFailed'))
+    } finally {
+      setPdfLoading(false)
     }
   }
 
@@ -223,6 +242,33 @@ export default function BackupRecovery() {
               {excelLoading
                 ? t('backup.preparingExport')
                 : t('backup.downloadExcel', { period: selectedPeriodLabel })}
+            </button>
+          </div>
+        </OptionCard>
+
+        <OptionCard
+          icon={FileText}
+          title={t('backup.exportPdfTitle')}
+          badge={t('backup.pdfBadge')}
+        >
+          <div className="space-y-4">
+            <p className="text-muted text-sm">{t('backup.exportPdfHint')}</p>
+            <PeriodSelector
+              id="sales-pdf-period"
+              value={pdfPeriod}
+              onChange={setPdfPeriod}
+              options={periodOptions}
+            />
+            <button
+              type="button"
+              onClick={handlePdfExport}
+              disabled={pdfLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {pdfLoading
+                ? t('backup.preparingExport')
+                : t('backup.downloadPdf', { period: pdfPeriodLabel })}
             </button>
           </div>
         </OptionCard>

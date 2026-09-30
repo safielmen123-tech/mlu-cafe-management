@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BadgeCheck, Printer, X } from 'lucide-react'
 import { STORE } from '../../config/store'
@@ -13,7 +14,7 @@ function paymentMethodLabel(method, t) {
   return method
 }
 
-function ModalShell({ onClose, printLabel, documentContent }) {
+function ModalShell({ onClose, printLabel, documentContent, canPrint }) {
   const { t } = useTranslation()
   const panelRef = useModalKeyboard({
     isOpen: true,
@@ -22,6 +23,7 @@ function ModalShell({ onClose, printLabel, documentContent }) {
   })
 
   const handlePrint = () => {
+    if (!canPrint) return
     window.print()
   }
 
@@ -58,7 +60,8 @@ function ModalShell({ onClose, printLabel, documentContent }) {
           <button
             type="button"
             onClick={handlePrint}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#10b981] py-3 font-semibold text-white transition hover:bg-[#0d9668]"
+            disabled={!canPrint}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#10b981] py-3 font-semibold text-white transition hover:bg-[#0d9668] disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Printer className="h-4 w-4" />
             {printLabel}
@@ -76,85 +79,56 @@ function ModalShell({ onClose, printLabel, documentContent }) {
   )
 }
 
-function BillTemplate({ transaction }) {
-  const { t, i18n } = useTranslation()
+function ReceiptLocationQr({ onSettled }) {
+  const { t } = useTranslation()
+  const [failed, setFailed] = useState(false)
+  const imageRef = useRef(null)
+  const onSettledRef = useRef(onSettled)
+  onSettledRef.current = onSettled
+
+  useEffect(() => {
+    const image = imageRef.current
+    if (!image) return undefined
+    let settled = false
+    const finish = (loaded) => {
+      if (settled) return
+      settled = true
+      if (!loaded) setFailed(true)
+      onSettledRef.current?.()
+    }
+    if (image.complete) {
+      finish(image.naturalWidth > 0)
+      return undefined
+    }
+    const onLoad = () => finish(true)
+    const onError = () => finish(false)
+    image.addEventListener('load', onLoad)
+    image.addEventListener('error', onError)
+    return () => {
+      image.removeEventListener('load', onLoad)
+      image.removeEventListener('error', onError)
+    }
+  }, [])
+
+  if (failed) return null
 
   return (
-    <div
-      id="receipt-print-area"
-      className="mx-auto cursor-default select-none rounded-xl bg-white p-1 text-stone-900 print:rounded-none print:border print:border-stone-400 print:p-4 print:shadow-none"
-    >
-      <div className="border-b border-dashed border-stone-300 pb-5 text-center">
-        <BrandLogo className="brand-logo mx-auto mb-3 h-auto max-h-20 w-auto max-w-[140px] object-contain print:max-h-24 print:max-w-[160px]" />
-        <h2 className="text-xl font-bold tracking-tight text-stone-900">{STORE.officialName}</h2>
-        <p className="mt-1 text-[11px] text-stone-600">{STORE.address}</p>
-        <p className="text-[11px] text-stone-500">{STORE.phone}</p>
+    <div className="receipt-location-qr">
+      <div className="receipt-location-qr-frame">
+        <img
+          ref={imageRef}
+          data-receipt-qr=""
+          src={STORE.locationQr.src}
+          alt=""
+          draggable={false}
+        />
       </div>
-
-      <div className="mt-4 flex justify-center">
-        <div className="rounded-full border border-orange-300 bg-orange-50 px-4 py-1.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-orange-800">
-            {t('payment.unpaid')}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-1 border-b border-dashed border-stone-300 pb-4 text-sm">
-        <div className="flex justify-between gap-4">
-          <span className="text-stone-500">{t('payment.billNo')}</span>
-          <span className="font-semibold tabular-nums">{transaction.id}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-stone-500">{t('tables.table')}</span>
-          <span className="font-medium">{transaction.source}</span>
-        </div>
-      </div>
-
-      <div className="py-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-500">
-          {t('payment.items')}
-        </p>
-        <div className="space-y-2.5">
-          {transaction.items.map((item, index) => (
-            <div key={`${item.id ?? 'line'}-${item.name}-${index}`} className="flex justify-between gap-3 text-sm">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-stone-900">
-                  {translateMenuName(item.name, i18n.language, t)}
-                </p>
-                {item.notes && !String(item.name || '').includes(item.notes) ? (
-                  <p className="text-xs text-stone-500">{translateDrinkNotes(item.notes, t)}</p>
-                ) : null}
-                <p className="text-xs text-stone-500">
-                  {item.qty} × ${item.unitPrice.toFixed(2)}
-                </p>
-              </div>
-              <p className="shrink-0 font-semibold tabular-nums text-stone-900">
-                ${item.lineTotal.toFixed(2)}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-1.5 border-t border-dashed border-stone-300 pt-4 text-sm">
-        <div className="flex justify-between text-stone-600">
-          <span>{t('common.subtotal')}</span>
-          <span className="tabular-nums">${transaction.subtotal.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between border-t border-stone-200 pt-2 text-base font-bold text-stone-900">
-          <span>{t('common.total')}</span>
-          <span className="tabular-nums">${transaction.total.toFixed(2)}</span>
-        </div>
-      </div>
-
-      <p className="mt-6 border-t border-dashed border-stone-300 pt-4 text-center text-xs leading-relaxed text-stone-500">
-        {t('settings.operatingHoursNotice')}
-      </p>
+      <p className="receipt-location-qr-caption">{t(STORE.locationQr.captionKey)}</p>
     </div>
   )
 }
 
-function ReceiptTemplate({ transaction }) {
+function ReceiptTemplate({ transaction, onQrSettled }) {
   const { t, i18n } = useTranslation()
   const paymentMethod = paymentMethodLabel(transaction.payment || 'Cash', t)
 
@@ -166,8 +140,7 @@ function ReceiptTemplate({ transaction }) {
       <div className="flex flex-col items-center border-b border-dashed border-emerald-200 pb-5 text-center">
         <BrandLogo className="brand-logo mx-auto h-auto max-h-20 w-auto max-w-[140px] object-contain print:max-h-24 print:max-w-[160px]" />
         <h2 className="mt-3 text-xl font-bold tracking-tight text-stone-900">{STORE.officialName}</h2>
-        <p className="mt-2 text-[11px] text-stone-600">{STORE.address}</p>
-        <p className="mt-0.5 text-[11px] text-stone-500">{STORE.phone}</p>
+        <p className="mt-2 text-[11px] text-stone-500">{STORE.phone}</p>
 
         <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-400 bg-emerald-50 px-4 py-1.5">
           <BadgeCheck className="h-4 w-4 text-emerald-600" />
@@ -238,17 +211,15 @@ function ReceiptTemplate({ transaction }) {
         </p>
       </div>
 
-      <p className="mt-6 text-center text-xs leading-relaxed text-stone-500">
-        {STORE.receiptThanks}
-        <br />
-        {t('settings.operatingHoursNotice')}
-      </p>
+      <p className="receipt-thanks">{t(STORE.receiptThanksKey)}</p>
+      <ReceiptLocationQr onSettled={onQrSettled} />
     </div>
   )
 }
 
-export default function ReceiptModal({ transaction, onClose, isPreCheckout = false, variant }) {
+export default function ReceiptModal({ transaction, onClose }) {
   const { t } = useTranslation()
+  const [canPrint, setCanPrint] = useState(false)
   if (!transaction) return null
 
   const items = Array.isArray(transaction.items) ? transaction.items : []
@@ -265,18 +236,16 @@ export default function ReceiptModal({ transaction, onClose, isPreCheckout = fal
     total: totals.total,
   }
 
-  const isBill = variant === 'bill' || variant === 'invoice' || isPreCheckout || transaction.isPreCheckout
-
   return (
     <ModalShell
       onClose={onClose}
-      printLabel={isBill ? t('payment.printInvoice') : t('sales.printReceipt')}
+      printLabel={t('sales.printReceipt')}
+      canPrint={canPrint}
       documentContent={
-        isBill ? (
-          <BillTemplate transaction={normalizedTransaction} />
-        ) : (
-          <ReceiptTemplate transaction={normalizedTransaction} />
-        )
+        <ReceiptTemplate
+          transaction={normalizedTransaction}
+          onQrSettled={() => setCanPrint(true)}
+        />
       }
     />
   )

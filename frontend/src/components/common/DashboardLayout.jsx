@@ -46,7 +46,7 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
 
   return (
     <div
-      className={`flex h-screen w-full max-w-[100vw] overflow-x-hidden bg-background text-foreground transition-colors duration-300${
+      className={`flex h-screen w-full max-w-[100vw] overflow-hidden bg-background text-foreground transition-colors duration-300${
         isLiquidGlass ? ' liquid-glass' : ''
       }`}
     >

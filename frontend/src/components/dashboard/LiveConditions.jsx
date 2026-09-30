@@ -36,14 +36,6 @@ export default function LiveConditions({ weather, exchange, isLoading }) {
               <p className="text-heading mt-1 text-2xl font-semibold tabular-nums">
                 {weather.temperatureC}°C
               </p>
-              <p className="text-muted mt-1 truncate text-sm">
-                {t(`dashboard.weatherConditions.${weather.condition}`, {
-                  defaultValue: t('dashboard.weatherConditions.unknown'),
-                })}
-                {weather.humidity != null
-                  ? ` · ${t('dashboard.humidity', { value: weather.humidity })}`
-                  : ''}
-              </p>
             </>
           ) : (
             <p className="text-muted mt-1 text-sm">{t('dashboard.liveUnavailable')}</p>
@@ -64,7 +56,6 @@ export default function LiveConditions({ weather, exchange, isLoading }) {
               <p className="text-heading mt-1 text-2xl font-semibold tabular-nums">
                 {t('dashboard.usdToKhr', { rate: formatKhr(exchange.khrPerUsd) })}
               </p>
-              <p className="text-muted mt-1 text-sm">{t('dashboard.exchangeHint')}</p>
             </>
           ) : (
             <p className="text-muted mt-1 text-sm">{t('dashboard.liveUnavailable')}</p>

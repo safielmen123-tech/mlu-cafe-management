@@ -86,11 +86,16 @@ export function canAccessView(user, viewId) {
   return viewRequiresAnyPermission(user, requiredPermission)
 }
 
-export function filterAccessibleNavItems(items, user) {
-  return items.filter((item) => {
-    if (item.adminOnly) return canAccessView(user, 'users')
-    return canAccessView(user, item.id)
-  })
+export function canSeeNavItem(user, item) {
+  if (!user || !item) return false
+  const allowed = new Set((item.roles || []).map((role) => String(role).toLowerCase()))
+  const role = String(user.role || '').trim().toLowerCase()
+  const roleAllowed =
+    allowed.has(role) ||
+    (!isAdminRole(role) && allowed.has('staff'))
+  if (!roleAllowed) return false
+  if (item.adminOnly) return isAdminRole(user.role)
+  return canAccessView(user, item.id)
 }
 
 export function getAccessibleViews(user) {

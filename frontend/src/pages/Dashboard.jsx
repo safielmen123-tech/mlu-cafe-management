@@ -192,6 +192,7 @@ export default function Dashboard({ onNavigate }) {
       return {
         ...pick,
         imageUrl: menuItem?.image_url || '',
+        menuItemId: menuItem?.id ?? null,
       }
     })
   }, [orders, menuItems])
@@ -206,6 +207,15 @@ export default function Dashboard({ onNavigate }) {
     [paymentSplit, t],
   )
   const paymentTotal = localizedPaymentSplit.reduce((sum, item) => sum + item.value, 0)
+
+  const openPopularPick = (pick) => {
+    if (pick.menuItemId == null) return
+    onNavigate?.('order')
+    if (!window.location.hash.startsWith('#/order')) return
+    const url = new URL(window.location.href)
+    url.searchParams.set('item', String(pick.menuItemId))
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+  }
 
   const handleAlertAction = (alert) => {
     onNavigate?.(
@@ -275,25 +285,25 @@ export default function Dashboard({ onNavigate }) {
         isLoading={liveLoading}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => {
           const Icon = stat.icon
           return (
             <div
               key={stat.title}
-              className="surface-card p-5"
+              className="surface-card min-w-0 p-5"
             >
-              <div className="flex items-start justify-between">
-                <div>
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
                   <p className="text-muted text-sm font-medium">{stat.title}</p>
-                  <p className="text-heading mt-2 text-3xl font-semibold tracking-tight tabular-nums">{stat.value}</p>
-                  <p className={`mt-2 inline-flex items-center gap-1 ${stat.light}`}>
-                    <TrendingUp className="h-3 w-3" />
-                    {stat.change}
+                  <p className="text-heading mt-2 line-clamp-2 break-words text-3xl font-semibold tracking-tight tabular-nums">{stat.value}</p>
+                  <p className={`mt-2 inline-flex max-w-full items-center gap-1 ${stat.light}`}>
+                    <TrendingUp className="h-3 w-3 shrink-0" />
+                    <span className="min-w-0 truncate">{stat.change}</span>
                   </p>
                 </div>
                 <div
-                  className={`flex h-11 w-11 items-center justify-center rounded-full ${stat.color} text-white shadow-sm`}
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${stat.color} text-white shadow-sm`}
                 >
                   <Icon className="h-6 w-6" />
                 </div>
@@ -316,22 +326,32 @@ export default function Dashboard({ onNavigate }) {
               {isLoading ? t('dashboard.loadingOrders') : t('dashboard.noPopularPicks')}
             </p>
           ) : (
-            popularPicks.map((pick, index) => (
-              <div key={pick.name} className="surface-inset flex flex-col items-center px-3 py-4 text-center">
-                <MenuItemImage
-                  imageUrl={pick.imageUrl}
-                  alt={translateMenuName(pick.name, i18n.language, t)}
-                  eager={index < 6}
-                  className="h-16 w-16 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
-                />
-                <p className="text-heading mt-3 line-clamp-2 text-sm font-semibold">
-                  {translateMenuName(pick.name, i18n.language, t)}
-                </p>
-                <p className="text-muted mt-1 text-xs tabular-nums">
-                  {t('dashboard.soldCount', { count: pick.sold })}
-                </p>
-              </div>
-            ))
+            popularPicks.map((pick, index) => {
+              const label = translateMenuName(pick.name, i18n.language, t)
+              return (
+                <button
+                  key={pick.menuItemId ?? pick.name}
+                  type="button"
+                  disabled={pick.menuItemId == null}
+                  onClick={() => openPopularPick(pick)}
+                  aria-label={label}
+                  className="surface-inset flex w-full cursor-pointer flex-col items-center px-3 py-4 text-center transition hover:border-forest-400 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-forest-600 disabled:cursor-default disabled:shadow-none"
+                >
+                  <MenuItemImage
+                    imageUrl={pick.imageUrl}
+                    alt=""
+                    eager={index < 6}
+                    className="h-16 w-16 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
+                  />
+                  <p className="text-heading mt-3 line-clamp-2 text-sm font-semibold">
+                    {label}
+                  </p>
+                  <p className="text-muted mt-1 text-xs tabular-nums">
+                    {t('dashboard.soldCount', { count: pick.sold })}
+                  </p>
+                </button>
+              )
+            })
           )}
         </div>
       </div>

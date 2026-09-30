@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   CheckCircle2,
@@ -11,6 +11,7 @@ import {
   UtensilsCrossed,
 } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
+import { useNotifications } from '../context/NotificationContext'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
 import { TABLE_STATUS_META } from '../data/tables'
@@ -73,7 +74,9 @@ function statusSuffix(status, t) {
 export default function Order() {
   const { t, i18n } = useTranslation()
   const { assignmentTargets, assignOrder, orderTargetId, clearOrderTarget } = usePOS()
+  const { pushBanner } = useNotifications()
   const [menuItems, setMenuItems] = useState([])
+  const [menuReady, setMenuReady] = useState(false)
   const [usingFallbackMenu, setUsingFallbackMenu] = useState(false)
   const [cart, setCart] = useState([])
   const [selectedDestination, setSelectedDestination] = useState('')
@@ -81,10 +84,39 @@ export default function Order() {
   const [activeCategory, setActiveCategory] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
   const [sugarItem, setSugarItem] = useState(null)
+  const [highlightedId, setHighlightedId] = useState(null)
+  const [stockByMenu, setStockByMenu] = useState({})
+  const announceDeepLinkRef = useRef(false)
+
+  const loadStockLevels = useCallback(() => {
+    apiFetch('/orders/stock-levels')
+      .then(async (res) => (res.ok ? res.json() : []))
+      .then((rows) => {
+        if (!Array.isArray(rows)) return
+        const next = {}
+        for (const row of rows) {
+          const list = next[row.menu_item_id] || []
+          list.push({
+            name: row.item_name,
+            stock: Number(row.stock_quantity),
+          })
+          next[row.menu_item_id] = list
+        }
+        setStockByMenu(next)
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    loadStockLevels()
+  }, [loadStockLevels])
 
   useEffect(() => {
     const token = getAuthToken()
-    if (!token) return undefined
+    if (!token) {
+      setMenuReady(true)
+      return undefined
+    }
 
     let cancelled = false
     apiFetch('/menu', { token })
@@ -99,17 +131,20 @@ export default function Order() {
         if (items.length === 0) {
           setMenuItems(getMenuFallback())
           setUsingFallbackMenu(true)
+          setMenuReady(true)
           return
         }
         cacheMenuItems(items)
         setMenuItems(items)
         setUsingFallbackMenu(false)
+        setMenuReady(true)
       })
       .catch((err) => {
         if (cancelled) return
         console.error('Error pulling menu for ordering page:', err)
         setMenuItems(getMenuFallback())
         setUsingFallbackMenu(true)
+        setMenuReady(true)
       })
 
     return () => {
@@ -176,24 +211,91 @@ export default function Order() {
     })
   }
 
-  const handleMenuItemClick = (item) => {
+  const announceAdded = (item) => {
+    pushBanner({
+      title: t('order.addedFromPick', {
+        name: translateMenuName(item.originalName || item.name, i18n.language, t),
+      }),
+      tone: 'success',
+      durationMs: 2500,
+    })
+  }
+
+  const handleMenuItemClick = (item, announce = false) => {
     if (needsSugarLevel(item) || hasServingOptions(item)) {
+      announceDeepLinkRef.current = announce
       setSugarItem(item)
       return
     }
     addToCart(item)
+    if (announce) announceAdded(item)
   }
 
   const handleSugarConfirm = ({ serving, sugarLevel, extraNotes, teaFlavor, price }) => {
     if (!sugarItem) return
+    const shouldAnnounce = announceDeepLinkRef.current
+    announceDeepLinkRef.current = false
     addToCart(sugarItem, {
       serving,
       sugarLevel,
       price,
       notes: formatDrinkNotes({ serving, sugarLevel, extraNotes, teaFlavor }),
     })
+    if (shouldAnnounce) announceAdded(sugarItem)
     setSugarItem(null)
   }
+
+  const applyMenuItemRef = useRef(handleMenuItemClick)
+  applyMenuItemRef.current = handleMenuItemClick
+
+  useEffect(() => {
+    if (!menuReady) return undefined
+    const raw = new URLSearchParams(window.location.search).get('item')
+    if (raw == null || raw === '') return undefined
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      if (cancelled) return
+      const url = new URL(window.location.href)
+      url.searchParams.delete('item')
+      const search = url.searchParams.toString()
+      window.history.replaceState(
+        null,
+        '',
+        `${url.pathname}${search ? `?${search}` : ''}${url.hash}`,
+      )
+
+      const id = /^\d+$/.test(raw) ? Number(raw) : NaN
+      const item = menuItems.find((entry) => Number(entry.id) === id)
+      const unavailable = !item || item.is_available === false || item.is_available === 0
+      if (unavailable) {
+        pushBanner({
+          title: t('order.pickUnavailable'),
+          tone: 'error',
+          durationMs: 2500,
+        })
+        return
+      }
+
+      setActiveCategory('All')
+      setSearchQuery('')
+      setHighlightedId(item.id)
+      applyMenuItemRef.current(item, true)
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [menuReady, menuItems, pushBanner, t])
+
+  useEffect(() => {
+    if (highlightedId == null) return undefined
+    const node = document.getElementById(`menu-item-${highlightedId}`)
+    node?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    const timer = window.setTimeout(() => setHighlightedId(null), 1500)
+    return () => window.clearTimeout(timer)
+  }, [highlightedId, filteredMenuItems])
 
   const updateQuantity = (id, delta) => {
     setSentConfirmation(null)
@@ -224,6 +326,7 @@ export default function Order() {
       setSentConfirmation(target?.name ?? t('order.fallbackDestination'))
       setCart([])
       setSelectedDestination('')
+      loadStockLevels()
       setTimeout(() => setSentConfirmation(null), 2500)
     }
   }
@@ -285,9 +388,14 @@ export default function Order() {
               {filteredMenuItems.map((item, index) => (
                 <button
                   key={item.id}
+                  id={`menu-item-${item.id}`}
                   type="button"
                   onClick={() => handleMenuItemClick(item)}
-                  className="group flex w-full cursor-pointer flex-col self-start rounded-2xl border border-cocoa-100 bg-white p-4 text-left transition-colors hover:border-forest-400 hover:shadow-sm dark:border-zinc-800/80 dark:bg-zinc-900"
+                  className={`group flex w-full cursor-pointer flex-col self-start rounded-2xl border bg-white p-4 text-left transition-colors hover:border-forest-400 hover:shadow-sm dark:bg-zinc-900 ${
+                    Number(highlightedId) === Number(item.id)
+                      ? 'border-forest-500 ring-2 ring-forest-400'
+                      : 'border-cocoa-100 dark:border-zinc-800/80'
+                  }`}
                 >
                   <div className="flex justify-center">
                     <MenuItemImage
@@ -387,6 +495,17 @@ export default function Order() {
                         {translateDrinkNotes(item.notes, t)}
                       </p>
                     ) : null}
+                    {(() => {
+                      const names = (stockByMenu[item.menu_item_id] || [])
+                        .filter((row) => row.stock <= 0)
+                        .map((row) => row.name)
+                      if (!names.length) return null
+                      return (
+                        <p className="mt-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+                          {t('order.outOfStockNamed', { names: names.join(', ') })}
+                        </p>
+                      )
+                    })()}
                     <p className="mt-0.5 text-sm font-medium text-[#10b981]">
                       {t('order.each', { price: `$${Number(item.price).toFixed(2)}` })}
                     </p>
@@ -503,7 +622,10 @@ export default function Order() {
       <SugarLevelModal
         item={sugarItem}
         onConfirm={handleSugarConfirm}
-        onClose={() => setSugarItem(null)}
+        onClose={() => {
+          announceDeepLinkRef.current = false
+          setSugarItem(null)
+        }}
       />
     </div>
   )

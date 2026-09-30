@@ -15,6 +15,8 @@ import { useTranslation } from 'react-i18next'
 import ConfirmationLetterModal from '../components/reservations/ConfirmationLetterModal'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import OperatingHoursNotice from '../components/common/OperatingHoursNotice'
+import PageContainer from '../components/common/PageContainer'
+import StatusBadge from '../components/common/StatusBadge'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { apiFetch } from '../services/apiClient'
 import {
@@ -98,7 +100,7 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
   }
 
   return (
-    <div className="surface-card p-5">
+    <div className="surface-card h-full min-w-0 p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <p className="text-heading text-sm font-semibold">{t('reservations.calendar')}</p>
@@ -133,14 +135,14 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="grid min-w-0 grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {WEEKDAY_KEYS.map((day) => (
-          <div key={day} className="py-1">
+          <div key={day} className="min-w-0 break-words py-1">
             {t(`dates.weekdays.${day}`)}
           </div>
         ))}
       </div>
-      <div className="mt-1 grid grid-cols-7 gap-1">
+      <div className="mt-1 grid min-w-0 grid-cols-7 gap-1">
         {cells.map((day, index) => {
           if (!day) return <div key={`empty-${index}`} className="min-h-11" />
           const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -153,7 +155,7 @@ function ReservationCalendar({ monthDate, selectedDate, countsByDate, onSelectDa
               key={iso}
               type="button"
               onClick={() => onSelectDate(iso)}
-              className={`flex min-h-11 flex-col items-center justify-center rounded-xl px-1 py-1.5 text-sm transition ${
+              className={`flex min-h-11 min-w-0 flex-col items-center justify-center rounded-xl px-0.5 py-1.5 text-sm transition ${
                 isSelected
                   ? 'bg-forest-600 text-white shadow-sm'
                   : closed
@@ -413,6 +415,70 @@ function BookingFormModal({ isOpen, mode, form, tables, error, saving, onChange,
   )
 }
 
+function ReservationActions({
+  reservation,
+  checkingInId,
+  onCheckIn,
+  onLetter,
+  onEdit,
+  onDelete,
+  touch = false,
+}) {
+  const { t } = useTranslation()
+  const iconButton = touch
+    ? 'inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full'
+    : 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full'
+
+  return (
+    <div className={`flex items-center gap-1 ${touch ? 'flex-wrap' : 'flex-nowrap'}`}>
+      {canCheckInReservation(reservation) ? (
+        <button
+          type="button"
+          disabled={checkingInId === reservation.id}
+          onClick={() => onCheckIn(reservation)}
+          className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 ${
+            touch ? 'min-h-10 px-3 text-sm' : 'px-2.5 py-1 text-[11px]'
+          }`}
+          aria-label={t('a11y.checkInGuest', { name: reservation.customer_name })}
+        >
+          <UserCheck className={touch ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+          {checkingInId === reservation.id ? '…' : t('reservations.checkIn')}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        disabled={!canIssueConfirmationLetter(reservation)}
+        onClick={() => onLetter(reservation)}
+        className={`${iconButton} text-forest-700 hover:bg-forest-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-forest-300 dark:hover:bg-forest-950/40`}
+        aria-label={t('a11y.confirmationLetterFor', { name: reservation.customer_name })}
+        title={
+          canIssueConfirmationLetter(reservation)
+            ? t('reservations.confirmationLetter')
+            : t('reservations.confirmationUnavailableCanceled')
+        }
+      >
+        <ScrollText className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onEdit(reservation)}
+        className={`${iconButton} text-forest-700 hover:bg-forest-50 dark:text-forest-300 dark:hover:bg-forest-950/40`}
+        aria-label={t('a11y.editGuest', { name: reservation.customer_name })}
+      >
+        <Pencil className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onDelete(reservation)}
+        className={`${iconButton} text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30`}
+        aria-label={t('a11y.deleteGuest', { name: reservation.customer_name })}
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
 export default function Reservations() {
   const { t } = useTranslation()
   const { refresh: refreshAlerts } = useAlerts()
@@ -634,20 +700,20 @@ export default function Reservations() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="text-heading text-lg">{t('nav.reservations')}</h3>
-        </div>
-        <button type="button" onClick={openCreate} className="btn-primary inline-flex items-center gap-2 px-4 py-2 text-sm">
+    <PageContainer className="space-y-6">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <h3 className="min-w-0 break-words text-heading text-lg">{t('nav.reservations')}</h3>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="btn-primary inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2 text-sm"
+        >
           <Plus className="h-4 w-4" />
           {t('reservations.newBooking')}
         </button>
       </div>
 
-      <OperatingHoursNotice />
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+      <div className="grid min-w-0 grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(340px,380px)_minmax(0,1fr)]">
         <ReservationCalendar
           monthDate={monthDate}
           selectedDate={selectedDate}
@@ -659,31 +725,29 @@ export default function Reservations() {
           onChangeMonth={handleChangeMonth}
         />
 
-        <div className="surface-card flex flex-col justify-between p-5">
-          <div>
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-forest-600 dark:text-forest-400" />
-              <p className="text-heading text-sm font-semibold">
-                {formatLongDate(parseISODate(selectedDate), t)}
-              </p>
-            </div>
-            <p className="text-muted mt-2 text-sm">
-              {isMonday(selectedDate)
-                ? t('reservations.unavailableOnDate')
-                : selectedDayCount === 0
-                  ? t('reservations.noneOnDate')
-                  : t('reservations.bookingCount', { count: selectedDayCount })}
+        <div className="surface-card flex h-full min-w-0 flex-col p-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <CalendarDays className="h-4 w-4 shrink-0 text-forest-600 dark:text-forest-400" />
+            <p className="min-w-0 break-words text-heading text-sm font-semibold">
+              {formatLongDate(parseISODate(selectedDate), t)}
             </p>
           </div>
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <p className="text-muted mt-2 break-words text-sm">
+            {isMonday(selectedDate)
+              ? t('reservations.unavailableOnDate')
+              : selectedDayCount === 0
+                ? t('reservations.noneOnDate')
+                : t('reservations.bookingCount', { count: selectedDayCount })}
+          </p>
+          <div className="mt-auto grid w-full grid-cols-3 items-stretch gap-3 pt-4">
             {BOOKING_STATUSES.map((status) => {
               const count = reservations.filter(
                 (row) => row.reservation_date === selectedDate && row.status === status,
               ).length
               const meta = RESERVATION_STATUS_META[status]
               return (
-                <div key={status} className="rounded-2xl border border-border px-3 py-3">
-                  <p className="text-muted text-[11px] font-semibold uppercase tracking-wide">
+                <div key={status} className="flex h-full min-w-0 flex-col rounded-2xl border border-border px-3 py-3">
+                  <p className="text-muted break-words text-[11px] font-semibold uppercase leading-tight tracking-wide">
                     {t(meta.labelKey)}
                   </p>
                   <p className="mt-1 text-xl font-semibold tabular-nums">{count}</p>
@@ -694,28 +758,23 @@ export default function Reservations() {
         </div>
       </div>
 
-      <div className="surface-card overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-heading text-sm font-semibold">{t('reservations.sheet')}</p>
-            <p className="text-muted text-xs">
-              {showMonth ? t('reservations.showingFullMonth') : t('reservations.filteredTo', { date: selectedDate })}
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative">
+      <div className="surface-card min-w-0 overflow-hidden">
+        <div className="flex min-w-0 flex-wrap items-center gap-3 border-b border-border/60 px-5 py-4">
+          <p className="shrink-0 text-heading text-sm font-semibold">{t('reservations.sheet')}</p>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <div className="relative min-w-[12rem] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder={t('reservations.searchPlaceholder')}
-                className="input-field w-full py-2 pl-9 pr-3 text-sm sm:w-64"
+                className="input-field w-full min-w-0 py-2 pl-9 pr-3 text-sm"
               />
             </div>
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              className="input-field bg-white px-3 py-2 text-sm dark:bg-obsidian-900"
+              className="input-field shrink-0 bg-white px-3 py-2 text-sm dark:bg-obsidian-900"
             >
               <option value="all">{t('reservations.allStatuses')}</option>
               {RESERVATION_STATUSES.map((status) => {
@@ -730,126 +789,152 @@ export default function Reservations() {
             <button
               type="button"
               onClick={() => setShowMonth((prev) => !prev)}
-              className="btn-secondary px-3 py-2 text-xs font-semibold"
+              className="btn-secondary shrink-0 whitespace-nowrap px-4 py-2 text-sm font-semibold"
             >
               {showMonth ? t('reservations.showSelectedDay') : t('reservations.showFullMonth')}
             </button>
           </div>
         </div>
 
-        {error ? <p className="px-5 py-3 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+        {error ? <p className="break-words px-5 py-3 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-olive-50/70 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-900/60">
-              <tr>
-                <th className="px-5 py-3 font-semibold">{t('reservations.date')}</th>
-                <th className="px-5 py-3 font-semibold">{t('reservations.timeSlot')}</th>
-                <th className="px-5 py-3 font-semibold">{t('reservations.customerName')}</th>
-                <th className="px-5 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
-                <th className="px-5 py-3 font-semibold">{t('reservations.guestCount')}</th>
-                <th className="px-5 py-3 font-semibold">{t('tables.table')}</th>
-                <th className="px-5 py-3 font-semibold">{t('common.status')}</th>
-                <th className="px-5 py-3 font-semibold">{t('common.notes')}</th>
-                <th className="px-5 py-3 font-semibold">{t('common.actions')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={9} className="px-5 py-10 text-center text-muted-foreground">
-                    {t('reservations.loading')}
-                  </td>
-                </tr>
-              ) : sheetRows.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-5 py-10 text-center text-muted-foreground">
-                    {t('reservations.emptyFiltered')}
-                  </td>
-                </tr>
-              ) : (
-                sheetRows.map((reservation) => {
-                  const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
-                  return (
-                    <tr key={reservation.id} className="align-top hover:bg-olive-50/40 dark:hover:bg-zinc-900/40">
-                      <td className="whitespace-nowrap px-5 py-3 tabular-nums">{reservation.reservation_date}</td>
-                      <td className="whitespace-nowrap px-5 py-3">
-                        {slotLabel(
-                          reservation.time_slot,
-                          reservation.time_slot_label,
-                          reservation.duration_minutes,
-                        )}
-                      </td>
-                      <td className="px-5 py-3 font-medium">{reservation.customer_name}</td>
-                      <td className="whitespace-nowrap px-5 py-3">{reservation.phone}</td>
-                      <td className="px-5 py-3 tabular-nums">{reservation.guest_count}</td>
-                      <td className="px-5 py-3">{reservationTableLabel(reservation, t)}</td>
-                      <td className="px-5 py-3">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${meta.badge}`}>
-                          {t(meta.labelKey)}
-                        </span>
-                        {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                          <span className="text-muted mt-1 block text-[11px]">
-                            {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="max-w-[14rem] px-5 py-3 text-xs text-muted-foreground">
-                        {reservation.notes || '—'}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-1">
-                          {canCheckInReservation(reservation) ? (
-                            <button
-                              type="button"
-                              disabled={checkingInId === reservation.id}
-                              onClick={() => handleCheckIn(reservation)}
-                              className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-                              aria-label={t('a11y.checkInGuest', { name: reservation.customer_name })}
-                            >
-                              <UserCheck className="h-3.5 w-3.5" />
-                              {checkingInId === reservation.id ? '…' : t('reservations.checkIn')}
-                            </button>
+        {isLoading ? (
+          <p className="px-5 py-10 text-center text-muted-foreground">{t('reservations.loading')}</p>
+        ) : sheetRows.length === 0 ? (
+          <p className="px-5 py-10 text-center text-muted-foreground">{t('reservations.emptyFiltered')}</p>
+        ) : (
+          <>
+            <div className="lg:hidden">
+              {sheetRows.map((reservation) => {
+                const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
+                return (
+                  <article key={reservation.id} className="min-w-0 border-b border-border/60 px-4 py-4 last:border-b-0">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <p className="min-w-0 break-words font-medium">{reservation.customer_name}</p>
+                      <StatusBadge className={`shrink-0 ring-1 ${meta.badge}`}>
+                        {t(meta.labelKey)}
+                      </StatusBadge>
+                    </div>
+                    <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                      <div className="min-w-0">
+                        <dt className="text-muted text-[11px]">{t('reservations.date')}</dt>
+                        <dd className="break-words tabular-nums">{reservation.reservation_date}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted text-[11px]">{t('reservations.timeSlot')}</dt>
+                        <dd className="break-words">
+                          {slotLabel(reservation.time_slot, reservation.time_slot_label, reservation.duration_minutes)}
+                        </dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted text-[11px]">{t('reservations.phoneNumber')}</dt>
+                        <dd className="break-words">{reservation.phone}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted text-[11px]">{t('reservations.guestCount')}</dt>
+                        <dd className="tabular-nums">{reservation.guest_count}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted text-[11px]">{t('tables.table')}</dt>
+                        <dd className="break-words">{reservationTableLabel(reservation, t)}</dd>
+                      </div>
+                    </dl>
+                    {reservation.status === 'Seated' && reservation.checked_in_at ? (
+                      <p className="text-muted mt-2 text-[11px]">
+                        {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
+                      </p>
+                    ) : null}
+                    <p className="text-muted mt-3 break-words text-xs">{reservation.notes || '—'}</p>
+                    <div className="mt-3">
+                      <ReservationActions
+                        reservation={reservation}
+                        checkingInId={checkingInId}
+                        onCheckIn={handleCheckIn}
+                        onLetter={setLetterReservation}
+                        onEdit={openEdit}
+                        onDelete={setDeleteTarget}
+                        touch
+                      />
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+
+            <div className="hidden min-w-0 lg:block">
+              <table className="w-full table-fixed text-left text-sm">
+                <colgroup>
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col className="w-16" />
+                  <col />
+                  <col />
+                  <col />
+                  <col className="w-[18rem]" />
+                </colgroup>
+                <thead className="bg-olive-50/70 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-900/60">
+                  <tr>
+                    <th className="px-3 py-3 font-semibold">{t('reservations.date')}</th>
+                    <th className="px-3 py-3 font-semibold">{t('reservations.timeSlot')}</th>
+                    <th className="px-3 py-3 font-semibold">{t('reservations.customerName')}</th>
+                    <th className="px-3 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
+                    <th className="px-3 py-3 font-semibold">{t('reservations.guestCount')}</th>
+                    <th className="px-3 py-3 font-semibold">{t('tables.table')}</th>
+                    <th className="px-3 py-3 font-semibold">{t('common.status')}</th>
+                    <th className="px-3 py-3 font-semibold">{t('common.notes')}</th>
+                    <th className="w-[18rem] whitespace-nowrap px-3 py-3 font-semibold">{t('common.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {sheetRows.map((reservation) => {
+                    const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
+                    return (
+                      <tr key={reservation.id} className="align-top hover:bg-olive-50/40 dark:hover:bg-zinc-900/40">
+                        <td className="px-3 py-3 tabular-nums">{reservation.reservation_date}</td>
+                        <td className="break-words px-3 py-3">
+                          {slotLabel(
+                            reservation.time_slot,
+                            reservation.time_slot_label,
+                            reservation.duration_minutes,
+                          )}
+                        </td>
+                        <td className="min-w-0 break-words px-3 py-3 font-medium">{reservation.customer_name}</td>
+                        <td className="break-words px-3 py-3">{reservation.phone}</td>
+                        <td className="px-3 py-3 tabular-nums">{reservation.guest_count}</td>
+                        <td className="break-words px-3 py-3">{reservationTableLabel(reservation, t)}</td>
+                        <td className="px-3 py-3">
+                          <StatusBadge className={`ring-1 ${meta.badge}`}>
+                            {t(meta.labelKey)}
+                          </StatusBadge>
+                          {reservation.status === 'Seated' && reservation.checked_in_at ? (
+                            <span className="text-muted mt-1 block break-words text-[11px]">
+                              {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
+                            </span>
                           ) : null}
-                          <button
-                            type="button"
-                            disabled={!canIssueConfirmationLetter(reservation)}
-                            onClick={() => setLetterReservation(reservation)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-forest-700 hover:bg-forest-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-forest-300 dark:hover:bg-forest-950/40"
-                            aria-label={t('a11y.confirmationLetterFor', { name: reservation.customer_name })}
-                            title={
-                              canIssueConfirmationLetter(reservation)
-                                ? t('reservations.confirmationLetter')
-                                : t('reservations.confirmationUnavailableCanceled')
-                            }
-                          >
-                            <ScrollText className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openEdit(reservation)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-forest-700 hover:bg-forest-50 dark:text-forest-300 dark:hover:bg-forest-950/40"
-                            aria-label={t('a11y.editGuest', { name: reservation.customer_name })}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleteTarget(reservation)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-                            aria-label={t('a11y.deleteGuest', { name: reservation.customer_name })}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                        </td>
+                        <td className="min-w-0 break-words px-3 py-3 text-xs text-muted-foreground">
+                          {reservation.notes || '—'}
+                        </td>
+                        <td className="w-[18rem] whitespace-nowrap px-3 py-3">
+                          <ReservationActions
+                            reservation={reservation}
+                            checkingInId={checkingInId}
+                            onCheckIn={handleCheckIn}
+                            onLetter={setLetterReservation}
+                            onEdit={openEdit}
+                            onDelete={setDeleteTarget}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       <BookingFormModal
@@ -878,6 +963,6 @@ export default function Reservations() {
         onCancel={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
       />
-    </div>
+    </PageContainer>
   )
 }

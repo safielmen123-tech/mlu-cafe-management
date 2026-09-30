@@ -291,12 +291,18 @@ export function POSProvider({ children }) {
 
   const updateBillItems = (destinationId, items) => {
     const status = statusForTarget(items)
-    updateBillState(destinationId, items, status)
-    if (items.length > 0) {
-      persistBillItems(destinationId, items).catch((err) => {
-        console.error('Failed to sync bill items:', err.message)
-      })
+    if (items.length === 0) {
+      persistBillItems(destinationId, items)
+        .then(() => updateBillState(destinationId, items, status))
+        .catch((err) => {
+          console.error('Failed to clear bill items:', err.message)
+        })
+      return
     }
+    updateBillState(destinationId, items, status)
+    persistBillItems(destinationId, items).catch((err) => {
+      console.error('Failed to sync bill items:', err.message)
+    })
   }
 
   const decrementBillItem = (destinationId, itemId) => {

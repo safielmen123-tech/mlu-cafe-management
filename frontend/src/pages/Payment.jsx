@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CreditCard, Minus, Printer, Receipt } from 'lucide-react'
+import { CreditCard, Minus, Receipt } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
 import { useNotifications } from '../context/NotificationContext'
 import { PAYMENT_QUEUE_STATUS } from '../data/tables'
-import { buildPreCheckoutReceipt, calculateTotals } from '../utils/posHelpers'
+import { calculateTotals } from '../utils/posHelpers'
 import { translateDrinkNotes, translateMenuName, translateMenuSummary } from '../utils/menuNameTranslations'
 import PaymentModule from '../components/pos/PaymentModule'
 import ReceiptModal from '../components/pos/ReceiptModal'
@@ -12,15 +12,7 @@ import ReceiptModal from '../components/pos/ReceiptModal'
 function ActiveBillList({ bills, selectedId, onSelect }) {
   const { t, i18n } = useTranslation()
 
-  if (bills.length === 0) {
-    return (
-      <div className="surface-inset flex flex-col items-center justify-center px-4 py-12 text-center">
-        <CreditCard className="text-muted mb-3 h-10 w-10 opacity-40" />
-        <p className="text-heading text-sm font-semibold">{t('payment.noActiveBills')}</p>
-        <p className="text-muted mt-1 text-xs">{t('payment.noActiveBillsHint')}</p>
-      </div>
-    )
-  }
+  if (bills.length === 0) return null
 
   return (
     <div className="space-y-2">
@@ -68,7 +60,6 @@ function BillManager({
   bill,
   onDecrementItem,
   onUpdateItemPrice,
-  onPrintBill,
   onPaymentComplete,
 }) {
   const { t, i18n } = useTranslation()
@@ -182,16 +173,6 @@ function BillManager({
         </div>
 
         <div className="mt-5 space-y-3">
-          <button
-            type="button"
-            onClick={onPrintBill}
-            disabled={bill.items.length === 0}
-            className="btn-secondary flex w-full items-center justify-center gap-2 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Printer className="h-4 w-4" />
-            {t('payment.printInvoice')}
-          </button>
-
           <div>
             <p className="mb-3 text-sm font-semibold text-forest-800 dark:text-mint-200">
               {t('payment.processCheckout')}
@@ -224,7 +205,6 @@ export default function Payment() {
   const activeBills = getActiveBills()
   const [selectedId, setSelectedId] = useState(null)
   const [completedReceipt, setCompletedReceipt] = useState(null)
-  const [previewReceipt, setPreviewReceipt] = useState(null)
 
   useEffect(() => {
     if (paymentTargetId != null) {
@@ -266,11 +246,6 @@ export default function Payment() {
     }
   }
 
-  const handlePrintBill = () => {
-    if (!selectedBill || selectedBill.items.length === 0) return
-    setPreviewReceipt(buildPreCheckoutReceipt(selectedBill))
-  }
-
   return (
     <div className="space-y-6 page-enter">
       <div>
@@ -302,7 +277,6 @@ export default function Payment() {
               onUpdateItemPrice={(itemId, price) =>
                 updateBillItemPrice(selectedBill.id, itemId, price)
               }
-              onPrintBill={handlePrintBill}
               onPaymentComplete={handlePaymentComplete}
             />
           ) : selectedBill ? (
@@ -313,25 +287,14 @@ export default function Payment() {
                 {t('payment.emptyBillDescription', { name: selectedBill.name })}
               </p>
             </div>
-          ) : (
+          ) : activeBills.length > 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
               <CreditCard className="text-muted mb-4 h-12 w-12 opacity-30" />
               <p className="text-heading font-semibold">{t('payment.selectBill')}</p>
-              <p className="text-muted mt-2 max-w-sm text-sm">
-                {t('payment.selectBillDescription')}
-              </p>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
-
-      {previewReceipt && (
-        <ReceiptModal
-          transaction={previewReceipt}
-          variant="bill"
-          onClose={() => setPreviewReceipt(null)}
-        />
-      )}
 
       {completedReceipt && (
         <ReceiptModal

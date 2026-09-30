@@ -110,22 +110,3 @@ export function formatNow() {
     time: formatTime12Hour(now),
   }
 }
-
-export function buildPreCheckoutReceipt(bill) {
-  const { subtotal, tax, total } = calculateTotals(bill.items)
-  const { date, time } = formatNow()
-
-  return {
-    id: `BILL-${bill.id}`,
-    date,
-    time,
-    payment: 'Pending',
-    subtotal,
-    tax,
-    total,
-    source: bill.name,
-    summary: bill.orderSummary,
-    items: bill.items.map((item) => normalizeBillItem({ ...item })),
-    isPreCheckout: true,
-  }
-}

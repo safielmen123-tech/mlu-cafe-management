@@ -71,22 +71,35 @@ function parseFilenameFromDisposition(headerValue) {
   return match?.[1] ?? null
 }
 
-export async function apiDownload(path, fallbackFilename = 'download', query = {}) {
-  if (!getAuthToken()) {
-    throw new Error('Authentication required')
-  }
-
+function buildQueryString(query = {}) {
   const searchParams = new URLSearchParams()
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined && value !== null && value !== '') {
       searchParams.set(key, String(value))
     }
   }
-
   const queryString = searchParams.toString()
+  return queryString ? `?${queryString}` : ''
+}
+
+export function saveBlobAsDownload(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+export async function apiFetchDownload(path, fallbackFilename = 'download', query = {}) {
+  if (!getAuthToken()) {
+    throw new Error('Authentication required')
+  }
+
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  const downloadPath = queryString ? `${normalizedPath}?${queryString}` : normalizedPath
-  const response = await apiFetch(downloadPath)
+  const response = await apiFetch(`${normalizedPath}${buildQueryString(query)}`)
 
   if (!response.ok) {
     let message = 'Download failed'
@@ -102,16 +115,12 @@ export async function apiDownload(path, fallbackFilename = 'download', query = {
   const blob = await response.blob()
   const filename =
     parseFilenameFromDisposition(response.headers.get('Content-Disposition')) || fallbackFilename
+  return { blob, filename }
+}
 
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-
+export async function apiDownload(path, fallbackFilename = 'download', query = {}) {
+  const { blob, filename } = await apiFetchDownload(path, fallbackFilename, query)
+  saveBlobAsDownload(blob, filename)
   return filename
 }
 

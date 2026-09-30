@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTranslation } from 'react-i18next'
 
@@ -45,58 +45,31 @@ import {
 
 } from 'lucide-react'
 
-import { canAccessView, filterAccessibleNavItems } from '../../utils/permissions'
+import { canSeeNavItem } from '../../utils/permissions'
 
+const WORK_ROLES = ['admin', 'staff', 'cashier']
 
-
-const primaryNavigationItems = [
-
-  { id: 'dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-
-  { id: 'users', labelKey: 'nav.users', icon: Users, adminOnly: true },
-
-  { id: 'security_alerts', labelKey: 'nav.securityAlerts', icon: ShieldAlert, adminOnly: true },
-
-  { id: 'order', labelKey: 'nav.order', icon: ShoppingCart },
-
-  { id: 'table', labelKey: 'nav.table', icon: Coffee },
-
-  { id: 'reservations', labelKey: 'nav.reservations', icon: CalendarClock },
-
-  { id: 'payment', labelKey: 'nav.payment', icon: CreditCard },
-
-  { id: 'sales_history', labelKey: 'nav.salesHistory', icon: History },
-
-  { id: 'inventory', labelKey: 'nav.inventoryStock', icon: Layers },
-
-]
-
-
-
-const menuNavigationItem = {
-
-  id: 'menu',
-
-  labelKey: 'nav.menuManagement',
-
-  icon: UtensilsCrossed,
-
-}
-
-
-
-const reportsNavigationItem = {
-  id: 'reports_analysis',
-  labelKey: 'nav.reports',
-  icon: FileBarChart,
-}
-
-const othersSubItems = [
-
-  { id: 'settings', labelKey: 'nav.settings', icon: Settings },
-
-  { id: 'backup_recovery', labelKey: 'nav.backupRecovery', icon: HardDrive },
-
+const sidebarNavigation = [
+  { id: 'dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: WORK_ROLES },
+  { id: 'order', labelKey: 'nav.order', icon: ShoppingCart, roles: WORK_ROLES },
+  { id: 'table', labelKey: 'nav.table', icon: Coffee, roles: WORK_ROLES },
+  { id: 'payment', labelKey: 'nav.payment', icon: CreditCard, roles: WORK_ROLES },
+  { id: 'reservations', labelKey: 'nav.reservations', icon: CalendarClock, roles: WORK_ROLES },
+  { id: 'sales_history', labelKey: 'nav.salesHistory', icon: History, roles: WORK_ROLES },
+  { id: 'inventory', labelKey: 'nav.inventoryStock', icon: Layers, roles: WORK_ROLES },
+  { id: 'menu', labelKey: 'nav.menuManagement', icon: UtensilsCrossed, roles: WORK_ROLES },
+  { id: 'reports_analysis', labelKey: 'nav.reports', icon: FileBarChart, roles: WORK_ROLES },
+  { id: 'users', labelKey: 'nav.users', icon: Users, roles: ['admin'], adminOnly: true },
+  {
+    id: 'more',
+    labelKey: 'nav.others',
+    icon: FolderOpen,
+    children: [
+      { id: 'settings', labelKey: 'nav.settings', icon: Settings, roles: WORK_ROLES },
+      { id: 'security_alerts', labelKey: 'nav.securityAlerts', icon: ShieldAlert, roles: ['admin'], adminOnly: true },
+      { id: 'backup_recovery', labelKey: 'nav.backupRecovery', icon: HardDrive, roles: WORK_ROLES },
+    ],
+  },
 ]
 
 
@@ -125,13 +98,13 @@ function SidebarNavButton({ item, isActive, onNavigate, compact = false }) {
 
       aria-current={isActive ? 'page' : undefined}
 
-      className={`group interactive-nav flex min-h-10 w-full cursor-pointer select-none items-center rounded-xl text-sm ${
+      className={`group interactive-nav flex min-h-9 w-full cursor-pointer select-none items-center rounded-xl text-sm ${
 
         compact
 
-          ? 'gap-2 py-2 pl-3 pr-2 lg:gap-3 lg:pl-4'
+          ? 'gap-2 py-1 pl-3 pr-2 lg:gap-3 lg:pl-4'
 
-          : 'justify-center gap-0 px-2 py-2 sm:justify-center lg:justify-start lg:gap-3 lg:px-3'
+          : 'justify-center gap-0 px-2 py-1 sm:justify-center lg:justify-start lg:gap-3 lg:px-3'
 
       } ${isActive ? 'nav-item-active' : 'nav-item-inactive'}`}
 
@@ -201,7 +174,7 @@ function NavFolder({
 
             aria-expanded={expanded}
 
-            className={`interactive-nav flex min-h-10 w-full cursor-pointer select-none items-center gap-3 rounded-xl px-3 py-2 text-sm ${
+            className={`interactive-nav flex min-h-9 w-full cursor-pointer select-none items-center gap-3 rounded-xl px-3 py-1.5 text-sm ${
 
               isChildActive ? 'nav-item-active font-medium' : 'nav-item-inactive'
 
@@ -225,7 +198,10 @@ function NavFolder({
 
           </button>
 
-          <div className={`grid transition-[grid-template-rows] duration-300 ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+          <div
+            className={`grid transition-[grid-template-rows] duration-300 ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+            inert={expanded ? undefined : true}
+          >
 
             <div className="overflow-hidden">
 
@@ -295,19 +271,42 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
   const [othersExpanded, setOthersExpanded] = useState(false)
 
-  const visiblePrimaryItems = useMemo(
-    () => filterAccessibleNavItems(primaryNavigationItems, user),
+  const visibleNav = useMemo(
+    () =>
+      sidebarNavigation.flatMap((item) => {
+        if (item.children) {
+          const children = item.children.filter((child) => canSeeNavItem(user, child))
+          return children.length ? [{ ...item, children }] : []
+        }
+        return canSeeNavItem(user, item) ? [item] : []
+      }),
     [user],
   )
 
-  const canAccessMenu = canAccessView(user, 'menu')
-  const canAccessReports = canAccessView(user, 'reports_analysis')
-  const visibleOthersItems = useMemo(
-    () => filterAccessibleNavItems(othersSubItems, user),
-    [user],
-  )
+  const othersChildren = visibleNav.find((item) => item.children)?.children ?? []
+  const isOthersChildActive = othersChildren.some((item) => item.id === activePage)
+  const navRef = useRef(null)
+  const [showNavFade, setShowNavFade] = useState(false)
 
-  const isOthersChildActive = visibleOthersItems.some((item) => item.id === activePage)
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav) return undefined
+
+    const updateFade = () => {
+      const overflows = nav.scrollHeight > nav.clientHeight + 1
+      const atBottom = nav.scrollTop + nav.clientHeight >= nav.scrollHeight - 2
+      setShowNavFade(overflows && !atBottom)
+    }
+
+    updateFade()
+    const observer = new ResizeObserver(updateFade)
+    observer.observe(nav)
+    nav.addEventListener('scroll', updateFade, { passive: true })
+    return () => {
+      observer.disconnect()
+      nav.removeEventListener('scroll', updateFade)
+    }
+  }, [visibleNav, othersExpanded])
 
   // Reveal the group that owns the current page whenever navigation changes.
   const [syncedPage, setSyncedPage] = useState(null)
@@ -333,7 +332,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
     <aside
 
-      className={`fixed inset-y-0 left-0 z-50 flex h-screen w-[min(18rem,88vw)] flex-col border-r border-cocoa-100 bg-white/90 p-3 backdrop-blur-md transition-transform duration-300 ease-out dark:border-border dark:bg-card/90 sm:relative sm:z-auto sm:w-[4.5rem] sm:translate-x-0 sm:p-2 lg:w-60 lg:p-4 ${
+      className={`fixed inset-y-0 left-0 z-50 flex h-screen min-h-0 w-[min(18rem,88vw)] flex-col overflow-hidden border-r border-cocoa-100 bg-white/90 p-2 backdrop-blur-md transition-transform duration-300 ease-out dark:border-border dark:bg-card/90 sm:relative sm:z-auto sm:w-[4.5rem] sm:translate-x-0 sm:p-1.5 lg:w-60 lg:p-3 ${
 
         mobileOpen ? 'translate-x-0' : '-translate-x-full sm:translate-x-0'
 
@@ -341,7 +340,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
     >
 
-      <div className="relative mb-2 flex w-full flex-col items-center justify-center gap-2 px-2 py-4">
+      <div className="relative mb-1 flex w-full shrink-0 flex-col items-center justify-center gap-1 px-1 py-1.5">
 
         <BrandLogo
 
@@ -349,13 +348,13 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
           src={STORE.sidebarLogoUrl}
 
-          className="h-auto w-[136px] max-w-[92%] object-contain sm:w-[85%] sm:max-w-full lg:w-[140px] lg:max-w-[148px]"
+          className="h-auto w-[88px] max-w-[78%] object-contain sm:w-10 sm:max-w-full lg:w-[100px] lg:max-w-[112px]"
 
           title={STORE.officialName}
 
         />
 
-        <p className="text-center text-[1.15rem] font-medium leading-snug text-foreground sm:hidden lg:block">
+        <p className="text-center text-sm font-medium leading-tight text-foreground sm:hidden lg:block">
 
           Mlu Kitchen & Cafe
 
@@ -383,79 +382,43 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
 
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden pb-2">
+      <div className="relative min-h-0 flex-1">
+      <nav ref={navRef} className="no-scrollbar h-full space-y-0.5 overflow-y-auto overflow-x-hidden">
 
-        {visiblePrimaryItems.map((item) => (
-
-          <SidebarNavButton
-
-            key={item.id}
-
-            item={item}
-
-            isActive={activePage === item.id}
-
-            onNavigate={handleNavigate}
-
-          />
-
-        ))}
-
-
-
-        {canAccessMenu && (
-
-          <SidebarNavButton
-
-            item={menuNavigationItem}
-
-            isActive={activePage === menuNavigationItem.id}
-
-            onNavigate={handleNavigate}
-
-          />
-
-        )}
-
-
-
-        {canAccessReports && (
-          <SidebarNavButton
-            item={reportsNavigationItem}
-            isActive={activePage === reportsNavigationItem.id}
-            onNavigate={handleNavigate}
-          />
-        )}
-
-
-
-        {visibleOthersItems.length > 0 && (
-
-          <NavFolder
-
-            labelKey="nav.others"
-
-            folderIcon={FolderOpen}
-
-            activePage={activePage}
-
-            onNavigate={handleNavigate}
-
-            items={visibleOthersItems}
-
-            expanded={othersExpanded}
-
-            onToggleExpanded={() => setOthersExpanded((prev) => !prev)}
-
-          />
-
+        {visibleNav.map((item) =>
+          item.children ? (
+            <NavFolder
+              key={item.id}
+              labelKey={item.labelKey}
+              folderIcon={item.icon}
+              activePage={activePage}
+              onNavigate={handleNavigate}
+              items={item.children}
+              expanded={othersExpanded}
+              onToggleExpanded={() => setOthersExpanded((prev) => !prev)}
+            />
+          ) : (
+            <SidebarNavButton
+              key={item.id}
+              item={item}
+              isActive={activePage === item.id}
+              onNavigate={handleNavigate}
+            />
+          ),
         )}
 
       </nav>
+      {showNavFade ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent dark:from-[#1a1815]"
+        />
+      ) : null}
+      </div>
 
 
 
-      <div className="mt-2 border-t border-border pt-3 lg:mt-3 lg:pt-4">
+      <div className="mt-1 shrink-0 border-t border-border pt-2">
 
         <button
 
@@ -469,7 +432,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
 
           }}
 
-          className="interactive-nav flex min-h-10 w-full cursor-pointer select-none items-center justify-center gap-0 rounded-xl px-2 py-2 text-sm font-medium text-red-500 transition hover:bg-red-50 lg:justify-start lg:gap-3 lg:px-3 dark:hover:bg-red-950/30"
+          className="interactive-nav flex min-h-9 w-full cursor-pointer select-none items-center justify-center gap-0 rounded-xl px-2 py-1.5 text-sm font-medium text-red-500 transition hover:bg-red-50 lg:justify-start lg:gap-3 lg:px-3 dark:hover:bg-red-950/30"
 
         >
 

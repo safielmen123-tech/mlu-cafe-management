@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Coffee, Snowflake, X } from 'lucide-react'
-import { useModalKeyboard } from '../../hooks/useModalKeyboard'
+import { Coffee, Snowflake } from 'lucide-react'
+import Modal from '../common/Modal'
 import {
   availableServings,
   defaultServing,
@@ -19,14 +19,7 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
   const [sugarLevel, setSugarLevel] = useState(DEFAULT_SUGAR_LEVEL)
   const [teaFlavor, setTeaFlavor] = useState('')
   const [notes, setNotes] = useState('')
-  const isOpen = Boolean(item)
   const showTeaFlavor = needsTeaFlavor(item)
-
-  const panelRef = useModalKeyboard({
-    isOpen,
-    onEscape: onClose,
-    primaryActionMode: 'auto',
-  })
 
   useEffect(() => {
     if (!item) return
@@ -55,121 +48,92 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 overscroll-contain">
-      <button
-        type="button"
-        aria-label={t('a11y.closeSugarLevelOptions')}
-        className="modal-backdrop"
-        onClick={onClose}
-      />
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sugar-level-title"
-        className="modal-panel relative z-10 max-w-md"
-      >
-        <form id="sugar-level-form" onSubmit={handleSubmit}>
-          <div className="modal-panel-body p-6 pb-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-[#10b981]">
-                  <Coffee className="h-5 w-5" aria-hidden />
-                </div>
-                <div className="min-w-0">
-                  <h3 id="sugar-level-title" className="text-heading text-lg font-semibold">
-                    {t('order.sugar.title')}
-                  </h3>
-                  <p className="text-heading mt-1 truncate text-sm font-medium">
-                    {translateMenuName(item.name, i18n.language, t)}
-                  </p>
-                  <p className="text-muted mt-1 text-xs">{t('order.sugar.description')}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-zinc-800"
-                aria-label={t('a11y.closeSugarOptions')}
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {servings.length > 0 ? (
-              <div className="mt-5">
-                <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">
-                  {t('order.serving.title')}
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {servings.map((option) => {
-                    const selected = serving === option.id
-                    const Icon = option.id === 'iced' ? Snowflake : Coffee
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => setServing(option.id)}
-                        className={
-                          selected
-                            ? 'min-h-12 rounded-xl bg-[#10b981] px-3 py-2 text-left text-sm font-semibold text-white shadow-sm'
-                            : 'min-h-12 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:border-emerald-400 hover:bg-emerald-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30'
-                        }
-                        aria-pressed={selected}
-                      >
-                        <span className="flex items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-1.5">
-                            <Icon className="h-4 w-4" aria-hidden />
-                            {t(`order.serving.${option.id}`)}
-                          </span>
-                          <span className="tabular-nums">${option.price.toFixed(2)}</span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {showTeaFlavor ? (
-              <div className="mt-5">
-                <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">
-                  {t('order.flavor.title')}
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {TEA_SELECTION_FLAVORS.map((option) => {
-                    const selected = teaFlavor === option.id
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => setTeaFlavor(option.id)}
-                        className={
-                          selected
-                            ? 'min-h-11 rounded-xl bg-[#10b981] px-2 py-2 text-center text-sm font-semibold text-white shadow-sm'
-                            : 'min-h-11 rounded-xl border border-slate-200 bg-white px-2 py-2 text-center text-sm font-medium text-slate-700 transition hover:border-emerald-400 hover:bg-emerald-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30'
-                        }
-                        aria-pressed={selected}
-                      >
-                        {t(`order.teaFlavors.${option.id}`)}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="mt-5 grid grid-cols-3 gap-2">
-              {SUGAR_LEVELS.map((option) => {
-                const selected = sugarLevel === option.value
-                const label =
-                  option.value === '120%' ? t('order.sugar.extraSweet') : option.label
+    <Modal
+      titleId="sugar-level-title"
+      closeLabel={t('a11y.closeSugarOptions')}
+      onClose={onClose}
+      maxWidth="max-w-md"
+      header={(
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-[#10b981]">
+            <Coffee className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <h3 id="sugar-level-title" className="text-heading text-lg font-semibold">
+              {t('order.sugar.title')}
+            </h3>
+            <p className="text-heading mt-1 truncate text-sm font-medium">
+              {translateMenuName(item.name, i18n.language, t)}
+            </p>
+            <p className="text-muted mt-1 text-xs">{t('order.sugar.description')}</p>
+          </div>
+        </div>
+      )}
+      footer={(
+        <>
+          <button type="button" onClick={onClose} className="btn-secondary flex-1 text-sm">
+            {t('common.cancel')}
+          </button>
+          <button
+            type="submit"
+            form="sugar-level-form"
+            disabled={!canSubmit}
+            className="btn-primary flex-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t('order.sugar.addToOrder')} · ${selectedPrice.toFixed(2)}
+          </button>
+        </>
+      )}
+    >
+      <form id="sugar-level-form" onSubmit={handleSubmit}>
+        {servings.length > 0 ? (
+          <div>
+            <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">
+              {t('order.serving.title')}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {servings.map((option) => {
+                const selected = serving === option.id
+                const Icon = option.id === 'iced' ? Snowflake : Coffee
                 return (
                   <button
-                    key={option.value}
+                    key={option.id}
                     type="button"
-                    onClick={() => setSugarLevel(option.value)}
+                    onClick={() => setServing(option.id)}
+                    className={
+                      selected
+                        ? 'min-h-12 rounded-xl bg-[#10b981] px-3 py-2 text-left text-sm font-semibold text-white shadow-sm'
+                        : 'min-h-12 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:border-emerald-400 hover:bg-emerald-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30'
+                    }
+                    aria-pressed={selected}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Icon className="h-4 w-4" aria-hidden />
+                        {t(`order.serving.${option.id}`)}
+                      </span>
+                      <span className="tabular-nums">${option.price.toFixed(2)}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {showTeaFlavor ? (
+          <div className="mt-5">
+            <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">
+              {t('order.flavor.title')}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {TEA_SELECTION_FLAVORS.map((option) => {
+                const selected = teaFlavor === option.id
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setTeaFlavor(option.id)}
                     className={
                       selected
                         ? 'min-h-11 rounded-xl bg-[#10b981] px-2 py-2 text-center text-sm font-semibold text-white shadow-sm'
@@ -177,44 +141,53 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
                     }
                     aria-pressed={selected}
                   >
-                    {label}
+                    {t(`order.teaFlavors.${option.id}`)}
                   </button>
                 )
               })}
             </div>
-
-            <label htmlFor="drink-item-notes" className="mt-5 block">
-              <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                {t('order.sugar.itemNotes')}{' '}
-                <span className="font-normal text-slate-400">{t('common.optional')}</span>
-              </span>
-              <textarea
-                id="drink-item-notes"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                rows={2}
-                maxLength={160}
-                placeholder={t('order.sugar.notesPlaceholder')}
-                className="input-field min-h-[4.5rem] resize-none rounded-xl"
-              />
-            </label>
           </div>
+        ) : null}
 
-          <div className="modal-panel-footer flex gap-3 px-6 pb-6">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1 text-sm">
-              {t('common.cancel')}
-            </button>
-            <button
-              type="submit"
-              form="sugar-level-form"
-              disabled={!canSubmit}
-              className="btn-primary flex-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t('order.sugar.addToOrder')} · ${selectedPrice.toFixed(2)}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          {SUGAR_LEVELS.map((option) => {
+            const selected = sugarLevel === option.value
+            const label =
+              option.value === '120%' ? t('order.sugar.extraSweet') : option.label
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setSugarLevel(option.value)}
+                className={
+                  selected
+                    ? 'min-h-11 rounded-xl bg-[#10b981] px-2 py-2 text-center text-sm font-semibold text-white shadow-sm'
+                    : 'min-h-11 rounded-xl border border-slate-200 bg-white px-2 py-2 text-center text-sm font-medium text-slate-700 transition hover:border-emerald-400 hover:bg-emerald-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30'
+                }
+                aria-pressed={selected}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+
+        <label htmlFor="drink-item-notes" className="mt-5 block">
+          <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+            {t('order.sugar.itemNotes')}{' '}
+            <span className="font-normal text-slate-400">{t('common.optional')}</span>
+          </span>
+          <textarea
+            id="drink-item-notes"
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            rows={2}
+            maxLength={160}
+            placeholder={t('order.sugar.notesPlaceholder')}
+            className="input-field min-h-[4.5rem] resize-none rounded-xl"
+          />
+        </label>
+      </form>
+    </Modal>
   )
 }

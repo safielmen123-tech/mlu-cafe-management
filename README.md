@@ -256,6 +256,10 @@ equivalent, and ship them somewhere durable in production.
 the app. Enabling it without one lets any client spoof `X-Forwarded-For` and walk straight
 past the login rate limiter.
 
+## Known limitations
+
+Completed receipts are not reversed. There is no refund flow yet, so a paid order does not put stock back. Stock counts can also drift from what is actually on the shelf. Use **Adjust stock** on the Stock page (Admin only, a reason is required) to set the exact count. **Add stock** only adds a received quantity.
+
 ## Menu item photos
 
 Photos live in `frontend/public/menu-images/` and are served at `/menu-images/<filename>`.

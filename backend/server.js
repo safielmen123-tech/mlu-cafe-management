@@ -37,6 +37,8 @@ const {
 } = require('./src/middleware/auth');
 const multer = require('multer');
 const { exportBusinessDataBuffer } = require('./src/utils/backupExport');
+const { createSalesPdf } = require('./src/utils/salesPdf');
+const { createReportExport } = require('./src/utils/reportExport');
 const { createDatabaseDump, restoreDatabaseFromSql } = require('./src/utils/backupSql');
 const { parseBackupPeriod, buildBackupFilename } = require('./src/utils/backupPeriod');
 const { buildActiveAlerts } = require('./src/utils/alertEngine');
@@ -49,10 +51,15 @@ const {
     serializeMenuItem,
 } = require('./src/utils/menuItemsSchema');
 const { buildSalesReport } = require('./src/utils/reports');
+const { ensureInventorySchema } = require('./src/utils/inventorySchema');
+const { createInventoryItem, editInventoryItem } = require('./src/utils/inventoryItems');
+const { ensureStockSchema } = require('./src/utils/stockSchema');
 const {
-    ensureInventorySchema,
-    resolveStockStatus,
-} = require('./src/utils/inventorySchema');
+    reconcileOrderStock,
+    addReceivedStock,
+    adjustStockToCount,
+    withTransaction,
+} = require('./src/utils/stockLedger');
 const { ensureOrdersSchema } = require('./src/utils/ordersSchema');
 const {
     ensureExpensesSchema,
@@ -682,6 +689,25 @@ app.get('/api/orders/active', requirePosFloorAccess, async (req, res) => {
     }
 });
 
+app.get('/api/orders/stock-levels', requireOrderWriteAccess, async (_req, res) => {
+    try {
+        const [rows] = await db.execute(
+            `SELECT l.menu_item_id, i.item_name, i.stock_quantity
+             FROM menu_item_stock_links l
+             JOIN inventory i ON i.id = l.inventory_id
+             WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''`,
+        );
+        res.status(200).json(rows.map((row) => ({
+            menu_item_id: row.menu_item_id,
+            item_name: row.item_name,
+            stock_quantity: Number(row.stock_quantity),
+        })));
+    } catch (error) {
+        logOrderError('DATABASE ERROR IN GET /api/orders/stock-levels', error);
+        res.status(500).json({ message: 'Failed to load stock levels' });
+    }
+});
+
 // 2. DISPATCH/MERGE ORDER ITEMS INTO TARGET TICKETS
 app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     const { target_id, items, table_id } = req.body ?? {};
@@ -705,15 +731,21 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     }
 
     try {
-        let orderId = await findPendingOrderId(db, target);
-
-        if (!orderId) {
-            orderId = await createPendingOrder(db, target, table_id);
-        }
-
-        for (const item of items) {
-            await insertOrderItem(db, orderId, item);
-        }
+        const orderId = await withTransaction(db, async (conn) => {
+            let id = await findPendingOrderId(conn, target);
+            if (!id) {
+                id = await createPendingOrder(conn, target, table_id);
+            }
+            for (const item of items) {
+                await insertOrderItem(conn, id, item);
+            }
+            const [lines] = await conn.execute(
+                'SELECT menu_item_id, quantity FROM order_items WHERE order_id = ?',
+                [id],
+            );
+            await reconcileOrderStock(conn, id, lines, req.user?.id ?? null);
+            return id;
+        });
 
         res.status(201).json({
             message: "Order stored securely in database!",
@@ -728,7 +760,7 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
             description: `Placed/merged ${items.length} item(s) for ${target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`}`,
         });
     } catch (error) {
-        if (error.status === 400 || error.status === 403) {
+        if (error.status === 400 || error.status === 403 || error.status === 404) {
             return res.status(error.status).json({ message: error.message });
         }
         logOrderError('DATABASE ERROR IN POST /api/orders', error, {
@@ -772,62 +804,75 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
 
     try {
         const { sql, params } = pendingOrderWhereClause(target);
-        const orderId = await findPendingOrderId(db, target);
+        const outcome = await withTransaction(db, async (conn) => {
+            const orderId = await findPendingOrderId(conn, target);
+            const resolvedTableId =
+                target.sourceType === 'Take Out' ? null : await resolveTableForeignKey(conn, table_id ?? target.tableId);
 
-        const resolvedTableId =
-            target.sourceType === 'Take Out' ? null : await resolveTableForeignKey(db, table_id ?? target.tableId);
+            if (!orderId) {
+                const error = new Error('Checkout requires saved order lines');
+                error.status = 400;
+                throw error;
+            }
 
-        if (!orderId) {
-            return res.status(400).json({ message: 'Checkout requires saved order lines' });
-        }
+            const [lines] = await conn.execute(
+                'SELECT menu_item_id, quantity, price FROM order_items WHERE order_id = ?',
+                [orderId],
+            );
+            if (!lines.length) {
+                const error = new Error('Checkout requires saved order lines');
+                error.status = 400;
+                throw error;
+            }
 
-        const [billSumRows] = await db.execute(
-            'SELECT COUNT(*) AS line_count, COALESCE(SUM(quantity * price), 0) AS computed FROM order_items WHERE order_id = ?',
-            [orderId],
-        );
-        const lineCount = Number(billSumRows[0]?.line_count) || 0;
-        if (lineCount === 0) {
-            return res.status(400).json({ message: 'Checkout requires saved order lines' });
-        }
+            const computed = lines.reduce(
+                (sum, line) => sum + Number(line.quantity) * Number(line.price),
+                0,
+            );
+            const finalTotal = Math.round(computed * 100) / 100;
+            await reconcileOrderStock(conn, orderId, lines, req.user?.id ?? null);
 
-        const finalSubtotal = Math.round((Number(billSumRows[0]?.computed) || 0) * 100) / 100;
-        const finalTotal = finalSubtotal;
-        const taxNum = 0;
+            const [result] = await conn.execute(
+                `UPDATE orders
+                 SET invoice_id = ?, payment_method = ?, payment_type = ?, subtotal = ?, tax = ?, total = ?,
+                     total_amount = ?, table_id = ?, status = 'Completed', updated_at = NOW()
+                 WHERE id = ? AND ${sql}`,
+                [
+                    invoice_id || null,
+                    method,
+                    method,
+                    finalTotal,
+                    0,
+                    finalTotal,
+                    finalTotal,
+                    resolvedTableId,
+                    orderId,
+                    ...params,
+                ],
+            );
 
-        const checkoutQuery = `
-            UPDATE orders
-            SET invoice_id = ?, payment_method = ?, payment_type = ?, subtotal = ?, tax = ?, total = ?,
-                total_amount = ?, table_id = ?, status = 'Completed', updated_at = NOW()
-            WHERE id = ? AND ${sql}
-        `;
+            if (result.affectedRows === 0) {
+                const error = new Error('No active ticket session found for this target.');
+                error.status = 404;
+                throw error;
+            }
 
-        const [result] = await db.execute(checkoutQuery, [
-            invoice_id || null,
-            method,
-            method,
-            finalSubtotal,
-            taxNum,
-            finalTotal,
-            finalTotal,
-            resolvedTableId,
-            orderId,
-            ...params,
-        ]);
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'No active ticket session found for this target.' });
-        }
+            return { orderId, finalTotal };
+        });
 
         await auditFromRequest(db, req, {
             action: 'payment_process',
             module: 'Payment',
             description: `Payment received via ${method} for ${
                 target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`
-            } / Invoice ${invoice_id || orderId} ($${finalTotal.toFixed(2)})`,
+            } / Invoice ${invoice_id || outcome.orderId} ($${outcome.finalTotal.toFixed(2)})`,
         });
 
         res.status(200).json({ message: 'Transaction completed and locked successfully.', invoice_id });
     } catch (error) {
+        if (error.status === 400 || error.status === 404) {
+            return res.status(error.status).json({ message: error.message });
+        }
         logOrderError('DATABASE ERROR IN POST /api/orders/checkout', error, {
             target_id,
             normalized_target: target.key,
@@ -901,21 +946,23 @@ app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
     }
 
     try {
-        let orderId = await findPendingOrderId(db, target);
-
-        if (!orderId) {
-            orderId = await createPendingOrder(db, target, table_id);
-        }
-
-        await db.execute('DELETE FROM order_items WHERE order_id = ?', [orderId]);
-
-        for (const item of items) {
-            await insertOrderItem(db, orderId, item);
-        }
+        const orderId = await withTransaction(db, async (conn) => {
+            let id = await findPendingOrderId(conn, target);
+            if (!id) {
+                if (items.length === 0) return null;
+                id = await createPendingOrder(conn, target, table_id);
+            }
+            await reconcileOrderStock(conn, id, items, req.user?.id ?? null);
+            await conn.execute('DELETE FROM order_items WHERE order_id = ?', [id]);
+            for (const item of items) {
+                await insertOrderItem(conn, id, item);
+            }
+            return id;
+        });
 
         res.status(200).json({ message: "Bill items updated.", orderId });
     } catch (error) {
-        if (error.status === 400 || error.status === 403) {
+        if (error.status === 400 || error.status === 403 || error.status === 404) {
             return res.status(error.status).json({ message: error.message });
         }
         logOrderError('DATABASE ERROR IN PUT /api/orders/items', error, {
@@ -1090,7 +1137,28 @@ app.patch('/api/notifications/:id/read', async (req, res) => {
 app.get('/api/inventory', requirePermission('inventory_stock'), async (req, res) => {
     try {
         const [items] = await db.execute('SELECT * FROM inventory ORDER BY section, category, item_name');
-        res.status(200).json(items);
+        const [links] = await db.execute(
+            `SELECT l.id, l.inventory_id, l.menu_item_id, l.quantity_per_unit, m.name AS menu_name
+             FROM menu_item_stock_links l
+             JOIN menu_items m ON m.id = l.menu_item_id
+             WHERE l.variant = '' AND l.option_key = '' AND l.option_value = ''
+             ORDER BY m.name`,
+        );
+        const linksByItem = new Map();
+        for (const link of links) {
+            const list = linksByItem.get(link.inventory_id) || [];
+            list.push({
+                id: link.id,
+                menu_item_id: link.menu_item_id,
+                menu_name: link.menu_name,
+                quantity_per_unit: Number(link.quantity_per_unit),
+            });
+            linksByItem.set(link.inventory_id, list);
+        }
+        res.status(200).json(items.map((item) => ({
+            ...item,
+            menu_links: linksByItem.get(item.id) || [],
+        })));
     } catch (error) {
         console.error('❌ INVENTORY FETCH ERROR:', error.message);
         res.status(500).json({ message: 'Failed to load inventory logs' });
@@ -1099,101 +1167,174 @@ app.get('/api/inventory', requirePermission('inventory_stock'), async (req, res)
 
 app.put('/api/inventory/:id/stock', requirePermission('inventory_stock'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
-    const { stock_quantity, unit_cost } = req.body ?? {};
-    const qty = Number(stock_quantity);
+    const quantity = Number(req.body?.quantity_received);
 
     if (!Number.isInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ message: 'Invalid inventory item id' });
     }
 
-    if (!Number.isFinite(qty) || qty < 0) {
-        return res.status(400).json({ message: 'Please provide a valid stock quantity' });
-    }
-
     try {
-        await ensureInventorySchema(db);
-        const [rows] = await db.execute(
-            'SELECT low_threshold, critical_threshold, unit_cost FROM inventory WHERE id = ? LIMIT 1',
-            [itemId],
-        );
-        if (!rows.length) {
-            return res.status(404).json({ message: 'Inventory item not found' });
-        }
-
-        const row = rows[0];
-        const lowThreshold = Number(row.low_threshold ?? 0);
-        const criticalThreshold =
-            row.critical_threshold != null ? Number(row.critical_threshold) : null;
-        const stockStatus = resolveStockStatus(qty, lowThreshold, criticalThreshold);
-        const nextUnitCost =
-            unit_cost !== undefined && unit_cost !== null && unit_cost !== ''
-                ? Number(unit_cost)
-                : Number(row.unit_cost ?? 0);
-
-        const query =
-            'UPDATE inventory SET stock_quantity = ?, stock_status = ?, unit_cost = ? WHERE id = ?';
-        await db.execute(query, [qty, stockStatus, Number.isFinite(nextUnitCost) ? nextUnitCost : 0, itemId]);
-        res.status(200).json({ message: 'Stock level updated successfully!' });
+        const result = await withTransaction(db, (conn) => addReceivedStock(conn, {
+            inventoryId: itemId,
+            quantity,
+            userId: req.user?.id ?? null,
+        }));
+        res.status(200).json({ message: 'Stock added.', ...result });
     } catch (error) {
+        if (error.status === 400 || error.status === 404) {
+            return res.status(error.status).json({ message: error.message });
+        }
         console.error('❌ INVENTORY UPDATE ERROR:', error.message);
         res.status(500).json({ message: 'Failed to alter stock quantities' });
     }
 });
 
-// 3. ADD A NEW TRACKED INVENTORY ITEM
-app.post('/api/inventory', requirePermission('inventory_stock'), async (req, res) => {
-    const body = req.body ?? {};
-    const item_name = body.item_name;
-    const category = body.category;
-    const stock_quantity = Number(body.stock_quantity);
-    const unit =
-        body.unit_label || body.unit || body.unit_singular || '';
-    const unitSingular = body.unit_singular || unit;
-    const section = body.section === 'uncountable' ? 'uncountable' : 'countable';
-    const lowThreshold = Number(body.low_threshold ?? body.low_stock_threshold ?? 5);
-    const criticalThreshold =
-        body.critical_threshold != null && body.critical_threshold !== ''
-            ? Number(body.critical_threshold)
-            : null;
-    const maxStock = Number(body.max_stock ?? Math.max(stock_quantity, lowThreshold * 2, 10));
-
-    if (!item_name || !category || !Number.isFinite(stock_quantity) || stock_quantity < 0 || !unit) {
-        return res.status(400).json({ message: 'Missing required tracking attributes' });
+app.post('/api/inventory/:id/adjust', requireAdmin, async (req, res) => {
+    const itemId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+        return res.status(400).json({ message: 'Invalid inventory item id' });
     }
 
     try {
-        const stockStatus = resolveStockStatus(
-            stock_quantity,
-            Number.isFinite(lowThreshold) ? lowThreshold : 5,
-            Number.isFinite(criticalThreshold) ? criticalThreshold : null,
-        );
-        const query = `
-            INSERT INTO inventory (
-                item_name, category, section, stock_quantity, max_stock,
-                unit_label, unit_singular, low_threshold, critical_threshold, stock_status
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        const [result] = await db.execute(query, [
-            item_name,
-            category,
-            section,
-            stock_quantity,
-            Number.isFinite(maxStock) && maxStock > 0 ? maxStock : Math.max(stock_quantity, 10),
-            unit,
-            unitSingular,
-            Number.isFinite(lowThreshold) ? lowThreshold : 5,
-            Number.isFinite(criticalThreshold) ? criticalThreshold : null,
-            stockStatus,
-        ]);
-
-        res.status(201).json({
-            message: 'New stock line registered successfully!',
-            itemId: result.insertId,
-        });
+        const result = await withTransaction(db, (conn) => adjustStockToCount(conn, {
+            inventoryId: itemId,
+            quantity: req.body?.stock_quantity,
+            reason: req.body?.reason,
+            note: req.body?.note,
+            userId: req.user?.id ?? null,
+        }));
+        res.status(200).json({ message: 'Stock adjusted.', ...result });
     } catch (error) {
-        console.error('❌ INVENTORY CREATION ERROR:', error.message);
-        res.status(500).json({ message: 'Failed to initialize item line' });
+        if (error.status === 400 || error.status === 404) {
+            return res.status(error.status).json({ message: error.message });
+        }
+        console.error('❌ INVENTORY ADJUST ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to adjust stock' });
+    }
+});
+
+app.get('/api/inventory/:id/movements', requirePermission('inventory_stock'), async (req, res) => {
+    const itemId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+        return res.status(400).json({ message: 'Invalid inventory item id' });
+    }
+
+    try {
+        const [rows] = await db.execute(
+            `SELECT m.id, m.created_at, m.change_amount, m.quantity_after, m.reason, m.note,
+                    o.invoice_id, u.display_name
+             FROM stock_movements m
+             LEFT JOIN orders o ON o.id = m.order_id
+             LEFT JOIN users u ON u.id = m.user_id
+             WHERE m.inventory_id = ?
+             ORDER BY m.id DESC
+             LIMIT 30`,
+            [itemId],
+        );
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error('❌ INVENTORY HISTORY ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to load stock history' });
+    }
+});
+
+app.post('/api/inventory/:id/links', requireAdmin, async (req, res) => {
+    const itemId = Number.parseInt(req.params.id, 10);
+    const menuItemId = Number.parseInt(req.body?.menu_item_id, 10);
+    const perUnit = Number(req.body?.quantity_per_unit ?? 1);
+
+    if (!Number.isInteger(itemId) || itemId <= 0 || !Number.isInteger(menuItemId) || menuItemId <= 0) {
+        return res.status(400).json({ message: 'Choose a stock item and a menu item' });
+    }
+    if (!Number.isFinite(perUnit) || perUnit <= 0) {
+        return res.status(400).json({ message: 'Quantity per sale must be greater than zero' });
+    }
+
+    try {
+        const [stock] = await db.execute('SELECT id FROM inventory WHERE id = ? LIMIT 1', [itemId]);
+        const [menu] = await db.execute('SELECT id FROM menu_items WHERE id = ? LIMIT 1', [menuItemId]);
+        if (!stock.length || !menu.length) {
+            return res.status(404).json({ message: 'Stock item or menu item was not found' });
+        }
+        const [result] = await db.execute(
+            `INSERT INTO menu_item_stock_links
+              (menu_item_id, variant, option_key, option_value, inventory_id, quantity_per_unit)
+             VALUES (?, '', '', '', ?, ?)`,
+            [menuItemId, itemId, perUnit],
+        );
+        res.status(201).json({ id: result.insertId });
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ message: 'That menu item is already linked' });
+        }
+        console.error('❌ INVENTORY LINK ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to save the menu link' });
+    }
+});
+
+app.delete('/api/inventory/links/:linkId', requireAdmin, async (req, res) => {
+    const linkId = Number.parseInt(req.params.linkId, 10);
+    if (!Number.isInteger(linkId) || linkId <= 0) {
+        return res.status(400).json({ message: 'Invalid link id' });
+    }
+
+    try {
+        const [result] = await db.execute('DELETE FROM menu_item_stock_links WHERE id = ?', [linkId]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Link not found' });
+        }
+        res.status(200).json({ message: 'Link removed' });
+    } catch (error) {
+        console.error('❌ INVENTORY UNLINK ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to remove the menu link' });
+    }
+});
+
+function sendInventoryError(res, error, fallback) {
+    if (error.status) {
+        return res.status(error.status).json({
+            message: error.message,
+            code: error.code || null,
+            item: error.item || null,
+            suggestions: error.suggestions || null,
+        });
+    }
+    console.error(`❌ ${fallback}:`, error.message);
+    return res.status(500).json({ message: fallback });
+}
+
+app.post('/api/inventory', requireAdmin, async (req, res) => {
+    try {
+        const item = await createInventoryItem(db, req.body ?? {}, req.user?.id ?? null);
+        await auditFromRequest(db, req, {
+            action: 'inventory_item_created',
+            module: 'Inventory',
+            description: `Added stock item ${item.item_name}`,
+        });
+        res.status(201).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to add the stock item');
+    }
+});
+
+app.put('/api/inventory/:id', requireAdmin, async (req, res) => {
+    const itemId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+        return res.status(400).json({ message: 'Invalid inventory item id' });
+    }
+
+    try {
+        const item = await editInventoryItem(db, itemId, req.body ?? {}, {
+            confirmUnitChange: req.body?.confirm_unit_change === true,
+        });
+        await auditFromRequest(db, req, {
+            action: 'inventory_item_updated',
+            module: 'Inventory',
+            description: `Updated stock item ${item.item_name}`,
+        });
+        res.status(200).json({ item });
+    } catch (error) {
+        sendInventoryError(res, error, 'Failed to update the stock item');
     }
 });
 
@@ -1235,6 +1376,25 @@ app.get('/api/system/backup/excel', sensitiveOperationLimiter, requirePermission
             return res.status(400).json({ message: error.message });
         }
         handleBackupError(res, error, 'Failed to export business data to Excel');
+    }
+});
+
+app.get('/api/system/backup/sales-pdf', sensitiveOperationLimiter, requirePermission('backup_recovery'), async (req, res) => {
+    try {
+        const { buffer, filename, periodLabel } = await createSalesPdf(db, req.query, req.user);
+        await auditFromRequest(db, req, {
+            action: 'export_sales_pdf',
+            module: 'Backup',
+            description: `Sales PDF for ${periodLabel}`,
+        });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(buffer);
+    } catch (error) {
+        if (error?.status === 400 || error?.message?.includes('Invalid month or year')) {
+            return res.status(400).json({ message: error.message });
+        }
+        handleBackupError(res, error, 'Failed to export sales PDF');
     }
 });
 
@@ -1396,6 +1556,30 @@ app.get('/api/reports', requireReportsAccess, async (req, res) => {
     } catch (error) {
         console.error('❌ REPORTS ERROR:', error.message)
         res.status(500).json({ message: 'Failed to load sales report', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) })
+    }
+})
+
+app.get('/api/reports/export/:kind', sensitiveOperationLimiter, requireReportsAccess, async (req, res) => {
+    const kind = req.params.kind === 'excel' ? 'xlsx' : req.params.kind
+    if (kind !== 'pdf' && kind !== 'xlsx') {
+        return res.status(400).json({ message: 'Invalid export type.' })
+    }
+    try {
+        const exported = await createReportExport(db, req.query, req.user, kind)
+        await auditFromRequest(db, req, {
+            action: kind === 'pdf' ? 'export_report_pdf' : 'export_report_excel',
+            module: 'Reports',
+            description: `Report ${exported.periodLabel}; sections: ${exported.sections.join(', ')}`,
+        })
+        res.setHeader('Content-Type', exported.contentType)
+        res.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`)
+        res.send(exported.buffer)
+    } catch (error) {
+        if (error?.status === 400) {
+            return res.status(400).json({ message: error.message })
+        }
+        const errorId = logError(error, { route: `${req.method} ${req.originalUrl}` })
+        res.status(500).json({ message: 'Failed to export the report', errorId })
     }
 })
 
@@ -1593,6 +1777,7 @@ app.listen(PORT, async () => {
         await db.execute('SELECT 1');
         console.log(`   Database connection: OK (${resolveDbHost(env.db.host)}:${env.db.database})`);
         await ensureInventorySchema(db);
+        await ensureStockSchema(db);
         const restoredSaleDates = await ensureOrdersSchema(db);
         await ensureOrderItemsSchema(db);
         await ensureMenuItemsSchema(db);
