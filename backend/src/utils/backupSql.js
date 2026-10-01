@@ -1,143 +1,140 @@
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 const mysql = require('mysql2')
 const {
   resolveCliTool,
   buildMysqlArgs,
-  runCliProcess,
+  runCliToFile,
+  runCliFromFile,
   getDatabaseName,
 } = require('./mysqlCli')
-const {
-  buildBackupFilename,
-  buildMetadataComments,
-  parseBackupMetadata,
-} = require('./backupPeriod')
+const { beginMaintenance, endMaintenance } = require('./maintenance')
 
-const REFERENCE_TABLES = ['menu_items', 'users', 'inventory', 'tables']
-const TRANSACTIONAL_TABLES = ['orders', 'order_items', 'reservations']
+const DUMP_MARKER = 'Mlu Kitchen & Cafe Siem Reap System Database Backup'
+const MAX_SQL_BYTES = 100 * 1024 * 1024
+const REQUIRED_TABLES = ['orders', 'inventory', 'menu_item_stock_links', 'stock_movements']
+const INSERT_BATCH = 200
 
-async function getTableColumns(db, tableName) {
-  const [rows] = await db.execute(`SHOW COLUMNS FROM \`${tableName}\``)
-  return rows.map((row) => row.Field)
+function backupDirectory() {
+  // Prefer BACKUP_DIR. Else LARAGON_ROOT/backup (default C:\laragon\backup on Windows Laragon).
+  const configured = String(process.env.BACKUP_DIR || '').trim()
+  const root = String(process.env.LARAGON_ROOT || 'C:\\laragon').trim() || 'C:\\laragon'
+  const directory = configured || path.join(root, 'backup')
+  fs.mkdirSync(directory, { recursive: true })
+  return directory
 }
 
-function serializeCellValue(value) {
-  if (value instanceof Date) {
-    return mysql.escape(value.toISOString().slice(0, 19).replace('T', ' '))
-  }
-  if (Buffer.isBuffer(value)) {
-    return `X'${value.toString('hex')}'`
-  }
-  if (typeof value === 'object' && value !== null) {
-    return mysql.escape(JSON.stringify(value))
-  }
-  return mysql.escape(value)
+function stamp(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}`
 }
 
-function buildReplaceStatements(tableName, rows, columns) {
-  if (!rows.length) return `-- No rows for \`${tableName}\`\n`
-
-  const columnList = columns.map((column) => `\`${column}\``).join(', ')
-  return rows.map((row) => {
-    const values = columns.map((column) => serializeCellValue(row[column])).join(', ')
-    return `REPLACE INTO \`${tableName}\` (${columnList}) VALUES (${values});`
-  }).join('\n')
+function uniqueSqlName(directory, prefix, date = new Date()) {
+  const base = `${prefix}_${stamp(date)}`
+  let filename = `${base}.sql`
+  if (!fs.existsSync(path.join(directory, filename))) return filename
+  const pad = (value) => String(value).padStart(2, '0')
+  filename = `${base}${pad(date.getSeconds())}.sql`
+  return filename
 }
 
-async function fetchTableRows(db, tableName, whereClause = '', params = []) {
-  const sql = `SELECT * FROM \`${tableName}\`${whereClause ? ` WHERE ${whereClause}` : ''}`
-  const [rows] = await db.execute(sql, params)
-  return rows
-}
-
-async function buildPeriodDeleteStatements(db, period) {
-  const [orderRows] = await db.execute(
-    `SELECT id FROM orders WHERE updated_at >= ? AND updated_at < ?`,
-    [period.startDate, period.endDate],
-  )
-  const orderIds = orderRows.map((row) => row.id)
-
-  const lines = [
-    '-- Remove existing records for this period before re-importing',
-    `DELETE oi FROM order_items oi`,
-    `INNER JOIN orders o ON o.id = oi.order_id`,
-    `WHERE o.updated_at >= '${period.startDate}' AND o.updated_at < '${period.endDate}';`,
-    `DELETE FROM orders WHERE updated_at >= '${period.startDate}' AND updated_at < '${period.endDate}';`,
-  ]
-
-  if (orderIds.length) {
-    lines.push(`-- Targeted cleanup for ${orderIds.length} order(s) in ${period.label}`)
-  }
-
-  return `${lines.join('\n')}\n`
-}
-
-async function createPeriodDatabaseDump(db, period) {
-  const sections = [
-    ...buildMetadataComments(period),
-    `SET FOREIGN_KEY_CHECKS=0;`,
-    `SET NAMES utf8mb4;`,
-    `SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";`,
+function headerLines() {
+  return [
+    `-- ${DUMP_MARKER}`,
+    `-- Generated: ${new Date().toISOString()}`,
+    '-- Backup-Scope: all',
+    '-- Backup-Period: All Time',
+    'SET FOREIGN_KEY_CHECKS=0;',
+    'SET NAMES utf8mb4;',
+    'SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";',
     '',
-    await buildPeriodDeleteStatements(db, period),
-  ]
-
-  for (const tableName of REFERENCE_TABLES) {
-    const columns = await getTableColumns(db, tableName)
-    const rows = await fetchTableRows(db, tableName)
-    sections.push(`-- Reference table: ${tableName}`)
-    sections.push(buildReplaceStatements(tableName, rows, columns))
-    sections.push('')
-  }
-
-  const orderColumns = await getTableColumns(db, 'orders')
-  const orders = await fetchTableRows(
-    db,
-    'orders',
-    'updated_at >= ? AND updated_at < ?',
-    [period.startDate, period.endDate],
-  )
-  sections.push(`-- Transactional table: orders (${period.label})`)
-  sections.push(buildReplaceStatements('orders', orders, orderColumns))
-  sections.push('')
-
-  const orderItems = await fetchTableRows(
-    db,
-    'order_items',
-    `order_id IN (SELECT id FROM orders WHERE updated_at >= ? AND updated_at < ?)`,
-    [period.startDate, period.endDate],
-  )
-  const orderItemColumns = await getTableColumns(db, 'order_items')
-  sections.push(`-- Transactional table: order_items (${period.label})`)
-  sections.push(buildReplaceStatements('order_items', orderItems, orderItemColumns))
-  sections.push('')
-
-  try {
-    const reservationColumns = await getTableColumns(db, 'reservations')
-    const reservations = await fetchTableRows(
-      db,
-      'reservations',
-      'reservation_date >= ? AND reservation_date < ?',
-      [period.startDate, period.endDate],
-    )
-    sections.push(`-- Transactional table: reservations (${period.label})`)
-    sections.push(buildReplaceStatements('reservations', reservations, reservationColumns))
-    sections.push('')
-  } catch (error) {
-    if (error.code !== 'ER_NO_SUCH_TABLE') throw error
-  }
-
-  sections.push('SET FOREIGN_KEY_CHECKS=1;')
-
-  const buffer = Buffer.from(sections.join('\n'), 'utf8')
-  return {
-    buffer,
-    filename: buildBackupFilename('mlu-kitchen-cafe-database', 'sql', period),
-  }
+  ].join('\n')
 }
 
-async function createFullDatabaseDump(period) {
-  const mysqldumpPath = resolveCliTool('mysqldump')
-  const database = getDatabaseName()
+function clientSafeDetail(error) {
+  const raw = String(error?.message || '')
+  const line = raw.split(/\r?\n/).find((part) => {
+    const text = part.trim()
+    if (!text) return false
+    if (/password/i.test(text)) return false
+    if (/[A-Za-z]:\\/.test(text)) return false
+    if (/\/(laragon|Users|tmp|temp)\b/i.test(text)) return false
+    return true
+  })
+  return String(line || 'the database tool reported an error').replace(/\s+/g, ' ').trim().slice(0, 180)
+}
 
+function publicError(status, message) {
+  const error = new Error(message)
+  error.status = status
+  error.publicMessage = message
+  return error
+}
+
+function writeChunk(stream, text) {
+  return new Promise((resolve, reject) => {
+    stream.write(text, (error) => (error ? reject(error) : resolve()))
+  })
+}
+
+async function writeNodeDump(db, filePath) {
+  const output = fs.createWriteStream(filePath)
+  await writeChunk(output, `${headerLines()}\n`)
+  const [tables] = await db.query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")
+  for (const tableRow of tables) {
+    const tableName = Object.values(tableRow)[0]
+    const [[created]] = await db.query(`SHOW CREATE TABLE \`${tableName}\``)
+    await writeChunk(output, `DROP TABLE IF EXISTS \`${tableName}\`;\n${created['Create Table']};\n\n`)
+    const [columns] = await db.query(`SHOW COLUMNS FROM \`${tableName}\``)
+    const fields = columns.map((column) => column.Field)
+    const columnList = fields.map((field) => `\`${field}\``).join(', ')
+    let lastId = 0
+    const hasId = fields.includes('id')
+    let offset = 0
+    for (;;) {
+      const sql = hasId
+        ? `SELECT * FROM \`${tableName}\` WHERE id > ? ORDER BY id LIMIT ${INSERT_BATCH}`
+        : `SELECT * FROM \`${tableName}\` LIMIT ${INSERT_BATCH} OFFSET ${offset}`
+      const params = hasId ? [lastId] : []
+      const [rows] = await db.query(sql, params)
+      if (!rows.length) break
+      const values = rows.map((row) => `(${fields.map((field) => mysql.escape(row[field])).join(', ')})`).join(',\n')
+      await writeChunk(output, `INSERT INTO \`${tableName}\` (${columnList}) VALUES\n${values};\n`)
+      if (hasId) lastId = rows[rows.length - 1].id
+      else offset += rows.length
+      if (rows.length < INSERT_BATCH) break
+    }
+    await writeChunk(output, '\n')
+  }
+
+  const [routines] = await db.query(
+    `SELECT ROUTINE_NAME, ROUTINE_TYPE FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE()`,
+  )
+  for (const routine of routines) {
+    const type = String(routine.ROUTINE_TYPE || '').toUpperCase() === 'FUNCTION' ? 'FUNCTION' : 'PROCEDURE'
+    const [[created]] = await db.query(`SHOW CREATE ${type} \`${routine.ROUTINE_NAME}\``)
+    const body = created[`Create ${type.charAt(0)}${type.slice(1).toLowerCase()}`] || created['Create Procedure'] || created['Create Function']
+    if (body) {
+      await writeChunk(output, `DROP ${type} IF EXISTS \`${routine.ROUTINE_NAME}\`;\nDELIMITER $$\n${body} $$\nDELIMITER ;\n\n`)
+    }
+  }
+
+  const [triggers] = await db.query('SHOW TRIGGERS')
+  for (const trigger of triggers) {
+    const [[created]] = await db.query(`SHOW CREATE TRIGGER \`${trigger.Trigger}\``)
+    if (created['SQL Original Statement']) {
+      await writeChunk(output, `DROP TRIGGER IF EXISTS \`${trigger.Trigger}\`;\n${created['SQL Original Statement']};\n\n`)
+    }
+  }
+
+  await writeChunk(output, 'SET FOREIGN_KEY_CHECKS=1;\n')
+  await new Promise((resolve, reject) => output.end((error) => (error ? reject(error) : resolve())))
+}
+
+async function writeFullDump(db, filePath) {
+  await fs.promises.writeFile(filePath, headerLines(), 'utf8')
+  const mysqldump = resolveCliTool('mysqldump')
   const args = [
     ...buildMysqlArgs(),
     '--single-transaction',
@@ -145,129 +142,169 @@ async function createFullDatabaseDump(period) {
     '--triggers',
     '--add-drop-table',
     '--default-character-set=utf8mb4',
-    database,
+    getDatabaseName(),
   ]
-
-  const { stdout } = await runCliProcess(mysqldumpPath, args)
-  const header = [
-    ...buildMetadataComments(period),
-    `-- Database: ${database}`,
-    'SET FOREIGN_KEY_CHECKS=0;',
-    'SET NAMES utf8mb4;',
-    'SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";',
-    '',
-  ].join('\n')
-
-  const footer = '\nSET FOREIGN_KEY_CHECKS=1;\n'
-  const dumpBuffer = Buffer.concat([
-    Buffer.from(header, 'utf8'),
-    stdout,
-    Buffer.from(footer, 'utf8'),
-  ])
-
-  return {
-    buffer: dumpBuffer,
-    filename: buildBackupFilename('mlu-kitchen-cafe-database', 'sql', period),
-  }
-}
-
-async function createDatabaseDump(db, period) {
-  if (period.scope === 'month') {
-    return createPeriodDatabaseDump(db, period)
-  }
-  return createFullDatabaseDump(period)
-}
-
-function validateSqlContent(sqlContent) {
-  const trimmed = String(sqlContent || '').trim()
-
-  if (!trimmed) {
-    throw new Error('The uploaded SQL file is empty')
-  }
-
-  if (trimmed.length > 100 * 1024 * 1024) {
-    throw new Error('The uploaded SQL file exceeds the 100 MB limit')
-  }
-
-  const looksLikeSql = /(?:CREATE|INSERT|REPLACE|DROP|ALTER|SET|DELETE|USE)\s+/i.test(trimmed)
-  if (!looksLikeSql) {
-    throw new Error('The uploaded file does not appear to be a valid SQL dump')
-  }
-
-  return trimmed
-}
-
-function ensureDropTableBeforeCreate(sqlContent) {
-  return sqlContent.replace(/(^|\n)(CREATE TABLE(?: IF NOT EXISTS)?\s+(`[^`]+`|\w+))/gi, (match, prefix, createStatement, tableRef, offset, fullText) => {
-    const tableName = tableRef.replace(/`/g, '')
-    const lookback = fullText.slice(Math.max(0, offset - 300), offset)
-    const dropPattern = new RegExp(`DROP TABLE IF EXISTS\\s+\`?${tableName}\`?`, 'i')
-
-    if (dropPattern.test(lookback)) {
-      return match
+  try {
+    await runCliToFile(mysqldump, args, filePath)
+  } catch (error) {
+    await fs.promises.rm(filePath, { force: true })
+    if (error.code === 'ENOENT') {
+      await writeNodeDump(db, filePath)
+      return { engine: 'node' }
     }
+    throw error
+  }
+  await fs.promises.appendFile(filePath, '\nSET FOREIGN_KEY_CHECKS=1;\n', 'utf8')
+  return { engine: 'mysqldump' }
+}
 
-    return `${prefix}DROP TABLE IF EXISTS \`${tableName}\`;\n${createStatement}`
+async function createDownloadDump(db) {
+  const filename = uniqueSqlName(os.tmpdir(), 'Mlu_Backup')
+  const filePath = path.join(os.tmpdir(), filename)
+  const result = await writeFullDump(db, filePath)
+  return { filePath, filename, engine: result.engine }
+}
+
+async function createSafetyBackup(db) {
+  const directory = backupDirectory()
+  const filename = uniqueSqlName(directory, 'Mlu_Safety')
+  const filePath = path.join(directory, filename)
+  await writeFullDump(db, filePath)
+  return { filename }
+}
+
+function pipeDownload(res, filePath, filename, contentType) {
+  res.setHeader('Content-Type', contentType)
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  const stream = fs.createReadStream(filePath)
+  const cleanup = () => {
+    fs.promises.unlink(filePath).catch(() => {})
+  }
+  stream.on('error', () => {
+    cleanup()
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Failed to send the file' })
+    } else {
+      res.destroy()
+    }
   })
+  stream.on('close', cleanup)
+  stream.pipe(res)
 }
 
-function convertInsertToReplace(sqlContent) {
-  return sqlContent.replace(/\bINSERT INTO\b/gi, 'REPLACE INTO')
-}
-
-function preprocessSqlForRestore(sqlContent) {
-  const sanitizedSql = validateSqlContent(sqlContent)
-  const metadata = parseBackupMetadata(sanitizedSql)
-
-  let processedSql = sanitizedSql
-
-  if (metadata.scope === 'all') {
-    processedSql = ensureDropTableBeforeCreate(processedSql)
+async function validateSqlFile(filePath) {
+  const stat = await fs.promises.stat(filePath)
+  if (!stat.isFile() || stat.size === 0) {
+    throw publicError(400, 'The uploaded SQL file is empty')
+  }
+  if (stat.size > MAX_SQL_BYTES) {
+    throw publicError(400, 'The uploaded SQL file exceeds the 100 MB limit')
   }
 
-  processedSql = convertInsertToReplace(processedSql)
+  const found = new Set()
+  let marker = false
+  let checkedHeader = false
+  await new Promise((resolve, reject) => {
+    const stream = fs.createReadStream(filePath, { encoding: 'utf8' })
+    let pending = ''
+    stream.on('data', (chunk) => {
+      const text = pending + chunk
+      pending = text.slice(-80)
+      if (!checkedHeader) {
+        checkedHeader = true
+        marker = text.slice(0, 4096).includes(DUMP_MARKER)
+      }
+      for (const table of REQUIRED_TABLES) {
+        if (text.includes(`\`${table}\``) || text.includes(` ${table} `)) found.add(table)
+      }
+    })
+    stream.on('error', reject)
+    stream.on('end', resolve)
+  })
 
-  const preamble = [
-    'SET FOREIGN_KEY_CHECKS=0;',
-    'SET NAMES utf8mb4;',
-    'SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";',
-    '',
-  ].join('\n')
-
-  const postamble = '\nSET FOREIGN_KEY_CHECKS=1;\n'
-  const restoreScript = `${preamble}${processedSql}${postamble}`
-
-  return {
-    sql: restoreScript,
-    metadata,
+  if (!marker) {
+    throw publicError(400, 'This file is not a backup from Mlu Kitchen & Cafe. Restore only a full backup downloaded from Data Management.')
+  }
+  const missing = REQUIRED_TABLES.filter((table) => !found.has(table))
+  if (missing.length) {
+    throw publicError(400, 'This backup is missing stock tables from this system. Restore only a full backup downloaded from Data Management.')
   }
 }
 
-async function restoreDatabaseFromSql(sqlContent) {
+async function countTables(database) {
   const mysqlPath = resolveCliTool('mysql')
-  const database = getDatabaseName()
-  const { sql, metadata } = preprocessSqlForRestore(sqlContent)
+  const { stdout } = await new Promise((resolve, reject) => {
+    const { spawn } = require('child_process')
+    const child = spawn(mysqlPath, [
+      ...buildMysqlArgs(),
+      '-N',
+      '-e',
+      `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${database.replace(/'/g, '')}'`,
+    ], { windowsHide: true })
+    const out = []
+    const err = []
+    child.stdout.on('data', (chunk) => out.push(chunk))
+    child.stderr.on('data', (chunk) => err.push(chunk))
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0) reject(new Error(Buffer.concat(err).toString('utf8')))
+      else resolve({ stdout: Buffer.concat(out).toString('utf8') })
+    })
+  })
+  const count = Number.parseInt(String(stdout).trim(), 10)
+  return Number.isInteger(count) ? count : 0
+}
 
-  const args = [...buildMysqlArgs(), database]
-  await runCliProcess(mysqlPath, args, sql)
+async function restoreDatabaseFromFile(db, filePath, options = {}) {
+  await validateSqlFile(filePath)
+  const database = options.database || getDatabaseName()
+  const live = database === getDatabaseName() && options.database == null
+  let safety = null
 
-  const scopeMessage = metadata.scope === 'month'
-    ? `Records for ${metadata.label} were safely overwritten without duplicates.`
-    : 'Database restored successfully from SQL backup.'
+  if (live) {
+    try {
+      safety = await createSafetyBackup(db)
+    } catch (error) {
+      throw publicError(500, `Restore was cancelled because the safety backup could not be created. No data was changed. ${clientSafeDetail(error)}`)
+    }
+    beginMaintenance()
+  }
 
-  return {
-    message: scopeMessage,
-    database,
-    period: metadata.label,
-    scope: metadata.scope,
+  try {
+    const mysqlPath = resolveCliTool('mysql')
+    await runCliFromFile(mysqlPath, [...buildMysqlArgs(), database], filePath)
+    if (live && typeof options.afterRestore === 'function') {
+      await options.afterRestore()
+    }
+    const tables = await countTables(database)
+    return {
+      message: `Database restored. ${tables} tables restored.`,
+      tables,
+      safetyBackup: safety?.filename || null,
+      safetyLocation: safety ? 'server backup folder' : null,
+    }
+  } catch (error) {
+    if (error.publicMessage) throw error
+    const recovery = safety
+      ? ` Import the safety backup ${safety.filename} from the server backup folder to put the data back.`
+      : ''
+    throw publicError(
+      500,
+      `Restore did not finish (${clientSafeDetail(error)}). The database may be partly changed.${recovery}`,
+    )
+  } finally {
+    if (live) endMaintenance()
   }
 }
 
 module.exports = {
-  createDatabaseDump,
-  restoreDatabaseFromSql,
-  validateSqlContent,
-  preprocessSqlForRestore,
-  REFERENCE_TABLES,
-  TRANSACTIONAL_TABLES,
+  DUMP_MARKER,
+  MAX_SQL_BYTES,
+  createDownloadDump,
+  createSafetyBackup,
+  pipeDownload,
+  validateSqlFile,
+  restoreDatabaseFromFile,
+  writeFullDump,
+  backupDirectory,
 }

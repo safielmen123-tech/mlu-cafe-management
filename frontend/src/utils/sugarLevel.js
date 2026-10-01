@@ -1,3 +1,5 @@
+import { parseOptionalPrice } from './drinkOptions'
+
 export const SUGAR_LEVELS = [
   { value: '0%', label: '0%' },
   { value: '25%', label: '25%' },
@@ -27,40 +29,43 @@ const NON_DRINK_CATEGORIES = new Set([
   'beers',
 ])
 
-const DRINK_CATEGORIES = new Set([
-  'coffee',
-  'cold drinks',
-  'cold drink',
-  'tea',
-  'matcha',
-  'hot drinks',
-  'hot drink',
-  'drinks',
-  'drink',
-  'smoothie',
-  'smoothies',
-  'juice',
-  'juices',
-  'iced drinks',
-  'milk tea',
-  'boba',
-  'shake',
-  'shakes',
-])
-
-const DRINK_CATEGORY_PATTERN =
-  /\b(coffee|latte|tea|matcha|drink|smoothie|juice|mocha|americano|espresso|cappuccino|frappe|shake)\b/i
-
-export function needsSugarLevel(item) {
+/**
+ * Sugar % for iced / cold drinks, shakes, mixed drinks, and iced tea.
+ * Coffee uses sugar packets — no sugar level prompt.
+ * Hot tea (honey/lemon/selection) skips sugar; iced tea asks for it.
+ */
+export function needsSugarLevel(item, serving = null) {
   const category = String(item?.category || '').trim().toLowerCase()
-  if (!category) return false
+  const name = String(item?.name || '').trim().toLowerCase()
+  if (!category && !name) return false
   if (NON_DRINK_CATEGORIES.has(category)) return false
   if (category.includes('cocktail')) return false
-  if (category === 'cold drinks') {
-    return /^fresh\b/i.test(String(item?.name || ''))
+
+  // Coffee: sugar bags on the side — never ask for a level.
+  if (category === 'coffee') return false
+
+  if (/\b(shake|smoothie|frappe)\b/i.test(name) || /\b(shake|shakes|smoothie|smoothies)\b/i.test(category)) {
+    return true
   }
-  if (DRINK_CATEGORIES.has(category)) return true
-  return DRINK_CATEGORY_PATTERN.test(category)
+  if (/\bmixed\b/i.test(name) && /\b(drink|juice)\b/i.test(name)) return true
+  if (category === 'iced drinks') return true
+
+  if (category === 'cold drinks' || category === 'cold drink') {
+    if (/water|tonic|ginger\s*ale/i.test(name)) return false
+    return true
+  }
+
+  if (category === 'tea') {
+    const hot = parseOptionalPrice(item?.hot_price)
+    const iced = parseOptionalPrice(item?.iced_price)
+    // Iced-only tea (milk teas / syrup) — always ask sugar.
+    if (iced != null && hot == null) return true
+    // Dual hot/iced tea — sugar only when iced is chosen.
+    if (serving === 'iced' && iced != null) return true
+    return false
+  }
+
+  return false
 }
 
 export function formatSugarNote(sugarLevel, extraNotes = '') {
@@ -73,8 +78,8 @@ export function formatDrinkNotes({ serving, sugarLevel, extraNotes = '', teaFlav
   else if (serving === 'hot') parts.push('Hot')
   const flavor = String(teaFlavor || '').trim()
   if (flavor) parts.push(flavor)
-  const level = String(sugarLevel || DEFAULT_SUGAR_LEVEL).trim() || DEFAULT_SUGAR_LEVEL
-  parts.push(`Sugar: ${level}`)
+  const level = sugarLevel == null ? '' : String(sugarLevel).trim()
+  if (level) parts.push(`Sugar: ${level}`)
   const extra = String(extraNotes || '').trim()
   if (extra) parts.push(extra)
   return parts.join(' · ')

@@ -1,223 +1,223 @@
-const XLSX = require('xlsx')
-const { appendWhere, buildOrderPeriodClause } = require('./backupPeriod')
+const ExcelJS = require('exceljs')
+const { buildOrderPeriodClause } = require('./backupPeriod')
 
+const PAGE = 500
+const COMPLETED = `UPPER(status) IN ('COMPLETED', 'PAID')`
 const orderPeriod = buildOrderPeriodClause('updated_at')
+const expensePeriod = buildOrderPeriodClause('expense_date')
+const movementPeriod = buildOrderPeriodClause('created_at')
 
-function buildExportSheets(period) {
-  const ordersFilter = orderPeriod(period)
-  const paymentsFilter = appendWhere("status = 'Completed'", orderPeriod(period))
-  const salesFilter = appendWhere("o.status = 'Completed'", orderPeriod(period))
-  const orderItemsFilter = period.scope === 'month'
-    ? {
-        clause: `o.updated_at >= ? AND o.updated_at < ?`,
-        params: [period.startDate, period.endDate],
-      }
-    : { clause: '', params: [] }
+function asNumber(value) {
+  if (value == null || value === '') return null
+  const amount = Number(value)
+  return Number.isFinite(amount) ? amount : null
+}
 
-  return [
-    {
-      name: 'Orders',
-      query: `
+function periodClause(builder, period, alias = '') {
+  const filter = builder(period)
+  if (!filter.clause) return { clause: '', params: [] }
+  const clause = alias
+    ? filter.clause.replace(/\b(updated_at|expense_date|created_at)\b/g, `${alias}.$1`)
+    : filter.clause
+  return { clause: ` AND ${clause}`, params: filter.params }
+}
+
+async function writePagedSheet(workbook, { name, columns, query, params }) {
+  const sheet = workbook.addWorksheet(name)
+  sheet.columns = columns
+  let lastId = 0
+  for (;;) {
+    const [rows] = await query(lastId)
+    if (!rows.length) break
+    for (const row of rows) {
+      sheet.addRow(row).commit()
+    }
+    lastId = rows[rows.length - 1].id
+    if (rows.length < PAGE) break
+  }
+  sheet.commit()
+  return params
+}
+
+async function writeSalesSheet(workbook, db, period) {
+  const filter = periodClause(orderPeriod, period)
+  await writePagedSheet(workbook, {
+    name: 'Sales',
+    columns: [
+      { header: 'Order ID', key: 'id', width: 12 },
+      { header: 'Invoice', key: 'invoice', width: 16 },
+      { header: 'Source', key: 'source', width: 16 },
+      { header: 'Payment', key: 'payment', width: 14 },
+      { header: 'Subtotal', key: 'subtotal', width: 12, style: { numFmt: '#,##0.00' } },
+      { header: 'Tax', key: 'tax', width: 12, style: { numFmt: '#,##0.00' } },
+      { header: 'Total', key: 'total', width: 14, style: { numFmt: '#,##0.00' } },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'Sold at', key: 'soldAt', width: 22 },
+    ],
+    query: async (lastId) => {
+      const [rows] = await db.execute(
+        `
         SELECT
           id,
-          invoice_id,
-          target_id,
-          table_id,
-          source_type,
-          status,
-          bill_requested,
+          invoice_id AS invoice,
+          CASE
+            WHEN source_type = 'Take Out' OR target_id IS NULL THEN 'Take Out'
+            ELSE COALESCE(source_type, 'Dine In')
+          END AS source,
+          COALESCE(NULLIF(payment_method, ''), NULLIF(payment_type, ''), 'Cash') AS payment,
           subtotal,
           tax,
-          total,
-          total_amount,
-          payment_method,
-          payment_type,
-          created_at,
-          updated_at
-        FROM orders
-        ${ordersFilter.clause ? `WHERE ${ordersFilter.clause}` : ''}
-        ORDER BY created_at DESC
-      `,
-      params: ordersFilter.params,
-    },
-    {
-      name: 'Payments',
-      query: `
-        SELECT
-          id AS order_id,
-          invoice_id,
-          payment_method,
-          payment_type,
-          subtotal,
-          tax,
-          total,
-          total_amount,
+          COALESCE(total, total_amount, 0) AS total,
           status,
-          source_type,
-          target_id,
-          created_at,
-          updated_at
+          updated_at AS soldAt
         FROM orders
-        ${paymentsFilter.clause ? `WHERE ${paymentsFilter.clause}` : ''}
-        ORDER BY updated_at DESC
-      `,
-      params: paymentsFilter.params,
-    },
-    {
-      name: 'Sales History',
-      query: `
-        SELECT
-          o.id AS order_id,
-          o.invoice_id,
-          o.target_id,
-          o.source_type,
-          o.payment_method,
-          o.payment_type,
-          o.subtotal,
-          o.tax,
-          o.total,
-          o.status,
-          DATE_FORMAT(o.updated_at, '%Y-%m-%d') AS sale_date,
-          DATE_FORMAT(o.updated_at, '%H:%i:%s') AS sale_time,
-          GROUP_CONCAT(CONCAT(oi.quantity, 'x ', m.name) ORDER BY m.name SEPARATOR ', ') AS items_summary
-        FROM orders o
-        LEFT JOIN order_items oi ON oi.order_id = o.id
-        LEFT JOIN menu_items m ON m.id = oi.menu_item_id
-        ${salesFilter.clause ? `WHERE ${salesFilter.clause}` : ''}
-        GROUP BY o.id
-        ORDER BY o.updated_at DESC
-      `,
-      params: salesFilter.params,
-    },
-    {
-      name: 'Order Items',
-      query: `
-        SELECT
-          oi.id,
-          oi.order_id,
-          o.invoice_id,
-          m.name AS menu_item,
-          m.category,
-          oi.notes,
-          oi.quantity,
-          oi.price,
-          oi.subtotal,
-          o.status AS order_status,
-          o.updated_at AS order_updated_at
-        FROM order_items oi
-        JOIN menu_items m ON m.id = oi.menu_item_id
-        JOIN orders o ON o.id = oi.order_id
-        ${orderItemsFilter.clause ? `WHERE ${orderItemsFilter.clause}` : ''}
-        ORDER BY o.updated_at DESC, oi.id ASC
-      `,
-      params: orderItemsFilter.params,
-    },
-    {
-      name: 'Menu Items',
-      query: `
-        SELECT id, name, category, price, hot_price, iced_price, is_available
-        FROM menu_items
-        ORDER BY category, name
-      `,
-      params: [],
-    },
-    {
-      name: 'User Accounts',
-      query: `
-        SELECT
-          id,
-          display_name,
-          username,
-          role,
-          permissions
-        FROM users
-        ORDER BY display_name ASC
-      `,
-      params: [],
-    },
-    {
-      name: 'Inventory',
-      query: 'SELECT * FROM inventory ORDER BY section, category, item_name',
-      params: [],
-    },
-    {
-      name: 'Tables',
-      query: `
-        SELECT id, table_name, status
-        FROM tables
+        WHERE ${COMPLETED}${filter.clause} AND id > ?
         ORDER BY id
-      `,
-      params: [],
+        LIMIT ${PAGE}
+        `,
+        [...filter.params, lastId],
+      )
+      return [rows.map((row) => ({
+        ...row,
+        subtotal: asNumber(row.subtotal),
+        tax: asNumber(row.tax),
+        total: asNumber(row.total),
+      }))]
     },
-    {
-      name: 'Reservations',
-      query: `
+  })
+}
+
+async function writeExpensesSheet(workbook, db, period) {
+  const filter = periodClause(expensePeriod, period)
+  await writePagedSheet(workbook, {
+    name: 'Expenses',
+    columns: [
+      { header: 'ID', key: 'id', width: 10 },
+      { header: 'Category', key: 'category', width: 18 },
+      { header: 'Description', key: 'description', width: 36 },
+      { header: 'Amount', key: 'amount', width: 12, style: { numFmt: '#,##0.00' } },
+      { header: 'Expense date', key: 'expenseDate', width: 16 },
+      { header: 'Recorded by', key: 'recordedBy', width: 18 },
+    ],
+    query: async (lastId) => {
+      const [rows] = await db.execute(
+        `
+        SELECT id, category, description, amount, expense_date AS expenseDate, created_by_name AS recordedBy
+        FROM expenses
+        WHERE id > ?${filter.clause}
+        ORDER BY id
+        LIMIT ${PAGE}
+        `,
+        [lastId, ...filter.params],
+      )
+      return [rows.map((row) => ({ ...row, amount: asNumber(row.amount) }))]
+    },
+  })
+}
+
+async function writeStockSheet(workbook, db) {
+  await writePagedSheet(workbook, {
+    name: 'Stock',
+    columns: [
+      { header: 'ID', key: 'id', width: 10 },
+      { header: 'Item', key: 'item', width: 36 },
+      { header: 'Category', key: 'category', width: 16 },
+      { header: 'Section', key: 'section', width: 14 },
+      { header: 'On hand', key: 'onHand', width: 12, style: { numFmt: '#,##0.000' } },
+      { header: 'Max', key: 'maxStock', width: 12, style: { numFmt: '#,##0.000' } },
+      { header: 'Unit', key: 'unit', width: 12 },
+      { header: 'Low', key: 'low', width: 12, style: { numFmt: '#,##0.000' } },
+      { header: 'Very low', key: 'critical', width: 12, style: { numFmt: '#,##0.000' } },
+      { header: 'Status', key: 'status', width: 16 },
+    ],
+    query: async (lastId) => {
+      const [rows] = await db.execute(
+        `
         SELECT
-          r.id,
-          r.customer_name,
-          r.phone,
-          r.reservation_date,
-          r.time_slot,
-          r.duration_minutes,
-          r.table_id,
-          t.table_name,
-          r.guest_count,
-          r.status,
-          r.notes,
-          r.created_at,
-          r.updated_at
-        FROM reservations r
-        LEFT JOIN tables t ON t.id = r.table_id
-        ORDER BY r.reservation_date DESC, r.time_slot ASC
-      `,
-      params: [],
+          id, item_name AS item, category, section,
+          stock_quantity AS onHand, max_stock AS maxStock, unit_label AS unit,
+          low_threshold AS low, critical_threshold AS critical, stock_status AS status
+        FROM inventory
+        WHERE id > ?
+        ORDER BY id
+        LIMIT ${PAGE}
+        `,
+        [lastId],
+      )
+      return [rows.map((row) => ({
+        ...row,
+        onHand: asNumber(row.onHand),
+        maxStock: asNumber(row.maxStock),
+        low: asNumber(row.low),
+        critical: asNumber(row.critical),
+      }))]
     },
-  ]
+  })
 }
 
-function serializeRow(row) {
-  const serialized = {}
-  for (const [key, value] of Object.entries(row)) {
-    if (value instanceof Date) {
-      serialized[key] = value.toISOString()
-    } else if (typeof value === 'object' && value !== null) {
-      serialized[key] = JSON.stringify(value)
-    } else {
-      serialized[key] = value
-    }
+async function writeMovementsSheet(workbook, db, period) {
+  const filter = periodClause(movementPeriod, period, 'm')
+  try {
+    await writePagedSheet(workbook, {
+      name: 'Stock Movements',
+      columns: [
+        { header: 'ID', key: 'id', width: 10 },
+        { header: 'Item', key: 'item', width: 36 },
+        { header: 'Change', key: 'changeAmount', width: 12, style: { numFmt: '#,##0.000' } },
+        { header: 'Quantity after', key: 'quantityAfter', width: 16, style: { numFmt: '#,##0.000' } },
+        { header: 'Reason', key: 'reason', width: 14 },
+        { header: 'Order ID', key: 'orderId', width: 12 },
+        { header: 'Note', key: 'note', width: 28 },
+        { header: 'Created at', key: 'createdAt', width: 22 },
+      ],
+      query: async (lastId) => {
+        const [rows] = await db.execute(
+          `
+          SELECT
+            m.id,
+            i.item_name AS item,
+            m.change_amount AS changeAmount,
+            m.quantity_after AS quantityAfter,
+            m.reason,
+            m.order_id AS orderId,
+            m.note,
+            m.created_at AS createdAt
+          FROM stock_movements m
+          LEFT JOIN inventory i ON i.id = m.inventory_id
+          WHERE m.id > ?${filter.clause}
+          ORDER BY m.id
+          LIMIT ${PAGE}
+          `,
+          [lastId, ...filter.params],
+        )
+        return [rows.map((row) => ({
+          ...row,
+          changeAmount: asNumber(row.changeAmount),
+          quantityAfter: asNumber(row.quantityAfter),
+        }))]
+      },
+    })
+  } catch (error) {
+    if (error.code !== 'ER_NO_SUCH_TABLE') throw error
+    const sheet = workbook.addWorksheet('Stock Movements')
+    sheet.columns = [{ header: 'Note', key: 'note', width: 40 }]
+    sheet.addRow({ note: 'Stock movement history is not available' }).commit()
+    sheet.commit()
   }
-  return serialized
 }
 
-async function buildBusinessDataWorkbook(db, period) {
-  const workbook = XLSX.utils.book_new()
-  const sheets = buildExportSheets(period)
-
-  for (const sheet of sheets) {
-    try {
-      const [rows] = await db.execute(sheet.query, sheet.params)
-      const serializedRows = rows.map(serializeRow)
-      const worksheet = XLSX.utils.json_to_sheet(serializedRows.length ? serializedRows : [{ note: 'No records found' }])
-      XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name)
-    } catch (error) {
-      if (error.code === 'ER_NO_SUCH_TABLE') {
-        const worksheet = XLSX.utils.json_to_sheet([{ note: 'No records found' }])
-        XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name)
-        continue
-      }
-      throw error
-    }
-  }
-
-  return workbook
-}
-
-async function exportBusinessDataBuffer(db, period) {
-  const workbook = await buildBusinessDataWorkbook(db, period)
-  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+async function exportBusinessDataFile(db, period, filePath) {
+  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+    filename: filePath,
+    useStyles: true,
+  })
+  await writeSalesSheet(workbook, db, period)
+  await writeExpensesSheet(workbook, db, period)
+  await writeStockSheet(workbook, db)
+  await writeMovementsSheet(workbook, db, period)
+  await workbook.commit()
 }
 
 module.exports = {
-  buildExportSheets,
-  exportBusinessDataBuffer,
+  exportBusinessDataFile,
 }

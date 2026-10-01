@@ -2,6 +2,9 @@ const { assertRequiredEnv, env } = require('./src/config/env');
 const { STORE } = require('./src/config/store');
 assertRequiredEnv();
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const db = require('./db'); // Import our database connection pool
@@ -19,15 +22,21 @@ const {
     ensureOrderItemsSchema,
     formatOrderLineName,
 } = require('./src/utils/orderTargets');
-const { normalizeAllowedRole, passwordPolicyError } = require('./src/utils/accountPolicy');
+const { normalizeAllowedRole, passwordPolicyError, assignableRoleError } = require('./src/utils/accountPolicy');
 const { generateTemporaryPassword, hashPassword } = require('./src/utils/userAccounts');
 const {
     ensureSessionSecuritySchema,
     invalidateUserTokens,
     startRevokedTokenCleanup,
     signSessionToken,
+    SESSION_DAYS,
 } = require('./src/utils/sessionSecurity');
-const { normalizePermissions, isAdminRole, VALID_PERMISSIONS } = require('./src/constants/permissions');
+const {
+    normalizePermissions,
+    assertPermissionsForSave,
+    isAdminRole,
+    VALID_PERMISSIONS,
+} = require('./src/constants/permissions');
 const {
     authenticateToken,
     rejectUntilPasswordChanged,
@@ -36,10 +45,13 @@ const {
     requireAnyPermission,
 } = require('./src/middleware/auth');
 const multer = require('multer');
-const { exportBusinessDataBuffer } = require('./src/utils/backupExport');
+const { exportBusinessDataFile } = require('./src/utils/backupExport');
 const { createSalesPdf } = require('./src/utils/salesPdf');
 const { createReportExport } = require('./src/utils/reportExport');
-const { createDatabaseDump, restoreDatabaseFromSql } = require('./src/utils/backupSql');
+const { createDownloadDump, pipeDownload, restoreDatabaseFromFile } = require('./src/utils/backupSql');
+const { ensureApplicationSchema } = require('./src/utils/ensureAppSchema');
+const { applyStocktake, stocktakeNote, buildStocktakeWorkbook } = require('./src/utils/stocktake');
+const { isUnderMaintenance, maintenanceMessage } = require('./src/utils/maintenance');
 const { parseBackupPeriod, buildBackupFilename } = require('./src/utils/backupPeriod');
 const { buildActiveAlerts } = require('./src/utils/alertEngine');
 const {
@@ -99,11 +111,7 @@ const {
 const { processReservationReminders, startReservationReminderJob } = require('./src/utils/reservationReminders');
 const { sendReservationConfirmationLetter } = require('./src/utils/reservationLetter');
 const { getLiveConditions } = require('./src/utils/liveConditions');
-const {
-    ensureAppSettingsSchema,
-    getSessionHours,
-    setSessionHours,
-} = require('./src/utils/appSettings');
+const { createUserSession } = require('./src/utils/userSessions');
 const {
     ensureLoginSecuritySchema,
     createMysqlSecurityStore,
@@ -112,6 +120,7 @@ const {
     startLoginSecurityCleanup,
 } = require('./src/utils/loginSecurity');
 const { createSecurityAlertsRouter } = require('./src/routes/securityAlerts');
+const { createSecuritySessionsRouter } = require('./src/routes/securitySessions');
 
 const app = express();
 
@@ -160,7 +169,7 @@ app.use(cors({
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Id'],
-    exposedHeaders: ['Retry-After'],
+    exposedHeaders: ['Retry-After', 'X-Renewed-Token'],
     maxAge: 600,
 }));
 
@@ -190,6 +199,7 @@ app.use('/api/security-alerts', createSecurityAlertsRouter({
     store: loginSecurityStore,
     requireAdmin,
 }));
+app.use('/api/security', createSecuritySessionsRouter());
 
 // ==========================================
 // 🛡️ FEATURE-LEVEL AUTHORIZATION GUARDS
@@ -201,12 +211,12 @@ app.use('/api/security-alerts', createSecurityAlertsRouter({
 // ==========================================
 const requirePosFloorAccess = requireAnyPermission('order', 'payment', 'table');
 const requireOrderWriteAccess = requireAnyPermission('order', 'payment');
-const requireSalesHistoryAccess = requireAnyPermission(
-    'dashboard', 'sales_history', 'reports', 'reports_analysis', 'payment', 'order',
-);
-const requireExpenseAccess = requireAnyPermission('reports', 'reports_analysis');
-const requireExpenseSummaryAccess = requireAnyPermission('dashboard', 'reports', 'reports_analysis');
+const requireSalesHistoryAccess = requirePermission('sales_history');
+const requireExpenseAccess = requirePermission('reports');
+const requireExpenseSummaryAccess = requirePermission('reports');
 const requireDashboardAccess = requirePermission('dashboard');
+const requireStockAccess = requirePermission('inventory_stock');
+const requireBackupDownloadAccess = requirePermission('backup_recovery');
 
 // ==========================================
 // 👥 EMPLOYEES & USER MANAGEMENT API ROUTES
@@ -214,9 +224,20 @@ const requireDashboardAccess = requirePermission('dashboard');
 
 function serializePermissionsForRole(role, permissions) {
     if (isAdminRole(role)) {
-        return JSON.stringify(VALID_PERMISSIONS);
+        return { ok: true, list: [...VALID_PERMISSIONS], json: JSON.stringify(VALID_PERMISSIONS) };
     }
-    return JSON.stringify(normalizePermissions(permissions));
+    return assertPermissionsForSave(permissions);
+}
+
+async function countActiveAdmins(executor = db) {
+    const [rows] = await executor.execute(
+        `SELECT COUNT(*) AS admin_count FROM users WHERE LOWER(role) = 'admin' AND is_active = 1`,
+    );
+    return Number(rows[0]?.admin_count || 0);
+}
+
+function permissionListLabel(list) {
+    return list.length ? list.join(', ') : 'none';
 }
 
 // 1. FETCH ALL USER PROFILES WITH SYSTEM PERMISSIONS
@@ -234,7 +255,7 @@ app.get('/api/users', requireAdmin, async (req, res) => {
             display_name: u.display_name,
             username: u.username,
             role: u.role,
-            permissions: normalizePermissions(u.permissions),
+            permissions: isAdminRole(u.role) ? [...VALID_PERMISSIONS] : normalizePermissions(u.permissions),
         }));
 
         res.status(200).json(users);
@@ -259,8 +280,17 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     }
 
     const allowedRole = normalizeAllowedRole(role || 'Staff');
-    if (!allowedRole) {
-        return res.status(400).json({ message: 'Role must be Admin or Staff.' });
+    if (!allowedRole || allowedRole === 'Admin') {
+        return res.status(400).json({ message: assignableRoleError(role || 'Admin') || 'Role must be Cashier or Staff.' });
+    }
+    const assignError = assignableRoleError(role);
+    if (assignError) {
+        return res.status(400).json({ message: assignError });
+    }
+
+    const savedPermissions = serializePermissionsForRole(allowedRole, permissions);
+    if (!savedPermissions.ok) {
+        return res.status(400).json({ message: savedPermissions.message });
     }
 
     try {
@@ -271,14 +301,19 @@ app.post('/api/users', requireAdmin, async (req, res) => {
         }
 
         const passwordHash = await hashPassword(trimmedPassword);
-        const permissionsString = serializePermissionsForRole(allowedRole, permissions);
 
-        await db.execute(
+        const [created] = await db.execute(
             'INSERT INTO users (display_name, username, password_hash, role, permissions) VALUES (?, ?, ?, ?, ?)',
-            [display_name, normalizedUsername, passwordHash, allowedRole, permissionsString]
+            [display_name, normalizedUsername, passwordHash, allowedRole, savedPermissions.json]
         );
 
-        res.status(201).json({ message: "New user profile established securely!" });
+        await auditFromRequest(db, req, {
+            action: 'user_create',
+            module: 'Users',
+            description: `Created user ${normalizedUsername} (${display_name}). Role: ${allowedRole}. Permissions: ${permissionListLabel(savedPermissions.list)}.`,
+        });
+
+        res.status(201).json({ message: "New user profile established securely!", id: created.insertId });
     } catch (error) {
         console.error("❌ CREATE USER ERROR:", error.message);
         res.status(500).json({ message: "Failed to build secure user account" });
@@ -288,7 +323,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 // 3. UPDATE USER ROLE & PERMISSION GATES IN REAL TIME
 app.put('/api/users/:id', requireAdmin, async (req, res) => {
     const userId = Number.parseInt(req.params.id, 10);
-    const { display_name, role, permissions, password } = req.body ?? {};
+    const { display_name, role, permissions, password, is_active: isActiveRaw } = req.body ?? {};
 
     if (!Number.isInteger(userId) || userId <= 0) {
         return res.status(400).json({ message: 'Invalid user id' });
@@ -300,19 +335,76 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
     const allowedRole = normalizeAllowedRole(role);
     if (!allowedRole) {
-        return res.status(400).json({ message: 'Role must be Admin or Staff.' });
+        return res.status(400).json({ message: 'Role must be Cashier or Staff.' });
     }
 
     try {
         const [existingRows] = await db.execute(
-            'SELECT id FROM users WHERE id = ? LIMIT 1',
+            `SELECT id, display_name, username, role, permissions, is_active
+             FROM users WHERE id = ? LIMIT 1`,
             [userId],
         );
         if (!existingRows.length) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const normalizedPermissions = serializePermissionsForRole(allowedRole, permissions);
+        const existing = existingRows[0];
+        const previousRole = existing.role;
+        const previousPermissions = isAdminRole(previousRole)
+            ? [...VALID_PERMISSIONS]
+            : normalizePermissions(existing.permissions);
+        const previousActive = existing.is_active == null ? true : Number(existing.is_active) === 1;
+        const previousNormalized = normalizeAllowedRole(previousRole);
+
+        if (!isAdminRole(previousRole)) {
+            const assignError = assignableRoleError(role);
+            if (assignError) {
+                return res.status(400).json({ message: assignError });
+            }
+        }
+
+        // Existing Admin keeps Admin forever through this API (no demote / no role swap).
+        if (isAdminRole(previousRole) && allowedRole !== 'Admin') {
+            return res.status(400).json({ message: 'The Admin role cannot be changed.' });
+        }
+
+        // Nobody can be promoted to Admin (exactly one Admin account).
+        if (allowedRole === 'Admin' && previousNormalized !== 'Admin') {
+            return res.status(400).json({
+                message: 'Cannot promote a user to Admin. This system has exactly one Admin account.',
+            });
+        }
+
+        if (Number(req.user?.id) === userId && allowedRole !== previousNormalized) {
+            return res.status(400).json({ message: 'You cannot change your own role.' });
+        }
+
+        const demotingLastAdmin =
+            isAdminRole(previousRole)
+            && !isAdminRole(allowedRole)
+            && (await countActiveAdmins()) <= 1;
+        if (demotingLastAdmin) {
+            return res.status(400).json({ message: 'Cannot demote the last administrator account.' });
+        }
+
+        let nextActive = previousActive;
+        if (isActiveRaw !== undefined) {
+            nextActive = !(isActiveRaw === false || isActiveRaw === 0 || isActiveRaw === '0');
+            if (
+                isAdminRole(previousRole)
+                && previousActive
+                && !nextActive
+                && (await countActiveAdmins()) <= 1
+            ) {
+                return res.status(400).json({ message: 'Cannot disable the last administrator account.' });
+            }
+        }
+
+        const savedPermissions = serializePermissionsForRole(allowedRole, permissions);
+        if (!savedPermissions.ok) {
+            return res.status(400).json({ message: savedPermissions.message });
+        }
+
         const nextPassword = password != null ? String(password) : '';
 
         if (nextPassword) {
@@ -325,33 +417,71 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
             await invalidateUserTokens(db, userId);
             await db.execute(
                 `UPDATE users
-                 SET display_name = ?, role = ?, permissions = ?, password_hash = ?, must_change_password = 0
+                 SET display_name = ?, role = ?, permissions = ?, is_active = ?,
+                     password_hash = ?, must_change_password = 0
                  WHERE id = ?`,
-                [display_name, allowedRole, normalizedPermissions, passwordHash, userId],
+                [display_name, allowedRole, savedPermissions.json, nextActive ? 1 : 0, passwordHash, userId],
             );
         } else {
             await db.execute(
                 `UPDATE users
-                 SET display_name = ?, role = ?, permissions = ?
+                 SET display_name = ?, role = ?, permissions = ?, is_active = ?
                  WHERE id = ?`,
-                [display_name, allowedRole, normalizedPermissions, userId],
+                [display_name, allowedRole, savedPermissions.json, nextActive ? 1 : 0, userId],
             );
         }
 
         const [updatedRows] = await db.execute(
-            'SELECT id, display_name, username, role, permissions, must_change_password FROM users WHERE id = ? LIMIT 1',
+            'SELECT id, display_name, username, role, permissions, must_change_password, is_active FROM users WHERE id = ? LIMIT 1',
             [userId],
         );
 
-        const updated = updatedRows[0]
+        const updated = updatedRows[0];
         const updatedUser = {
             id: updated.id,
             display_name: updated.display_name,
             username: updated.username,
             role: updated.role,
-            permissions: normalizePermissions(updated.permissions),
+            permissions: isAdminRole(updated.role)
+                ? [...VALID_PERMISSIONS]
+                : normalizePermissions(updated.permissions),
             must_change_password: Number(updated.must_change_password) === 1,
+            is_active: updated.is_active == null ? true : Number(updated.is_active) === 1,
         };
+
+        if (normalizeAllowedRole(previousRole) !== allowedRole) {
+            await auditFromRequest(db, req, {
+                action: 'user_role_change',
+                module: 'Users',
+                description: `Changed role for ${existing.username} from ${previousRole} to ${allowedRole}.`,
+            });
+        }
+
+        const prevPermKey = previousPermissions.slice().sort().join(',');
+        const nextPermKey = savedPermissions.list.slice().sort().join(',');
+        if (prevPermKey !== nextPermKey) {
+            await auditFromRequest(db, req, {
+                action: 'user_permissions_change',
+                module: 'Users',
+                description: `Changed permissions for ${existing.username}. Old: ${permissionListLabel(previousPermissions)}. New: ${permissionListLabel(savedPermissions.list)}.`,
+            });
+        }
+
+        if (previousActive !== nextActive) {
+            await auditFromRequest(db, req, {
+                action: nextActive ? 'user_enabled' : 'user_disabled',
+                module: 'Users',
+                description: `${nextActive ? 'Enabled' : 'Disabled'} user ${existing.username}.`,
+            });
+        }
+
+        if (nextPassword) {
+            await auditFromRequest(db, req, {
+                action: 'password_reset',
+                module: 'Users',
+                description: `Password reset by ${req.user?.username || 'admin'} for target ${existing.username} (id ${existing.id}).`,
+            });
+        }
 
         const response = {
             message: 'User permissions updated successfully',
@@ -359,7 +489,9 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         };
 
         if (nextPassword && req.user?.id === userId) {
-            response.token = signSessionToken(updatedUser);
+            const issued = await signSessionToken(db, updatedUser);
+            await createUserSession(db, { jti: issued.jti, userId, req });
+            response.token = issued.token;
         }
 
         res.status(200).json(response);
@@ -396,7 +528,7 @@ app.post('/api/users/:id/reset-password', createPasswordResetLimiter(), requireA
         await auditFromRequest(db, req, {
             action: 'password_reset',
             module: 'Users',
-            description: `Administrator reset the password for ${account.username}. They must change it at next login.`,
+            description: `Administrator ${req.user?.username || 'admin'} reset the password for ${account.username} (id ${account.id}). They must change it at next login.`,
         });
 
         const response = {
@@ -410,17 +542,23 @@ app.post('/api/users/:id/reset-password', createPasswordResetLimiter(), requireA
         };
 
         if (req.user?.id === userId) {
-            response.token = signSessionToken({
+            const issued = await signSessionToken(db, {
                 ...account,
-                permissions: normalizePermissions(account.permissions),
+                permissions: isAdminRole(account.role)
+                    ? [...VALID_PERMISSIONS]
+                    : normalizePermissions(account.permissions),
                 must_change_password: true,
             });
+            await createUserSession(db, { jti: issued.jti, userId, req });
+            response.token = issued.token;
             response.user = {
                 id: account.id,
                 display_name: account.display_name,
                 username: account.username,
                 role: account.role,
-                permissions: normalizePermissions(account.permissions),
+                permissions: isAdminRole(account.role)
+                    ? [...VALID_PERMISSIONS]
+                    : normalizePermissions(account.permissions),
                 must_change_password: true,
             };
         }
@@ -453,13 +591,8 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
         }
 
         const target = existingRows[0];
-        if (isAdminRole(target.role)) {
-            const [adminCountRows] = await db.execute(
-                `SELECT COUNT(*) AS admin_count FROM users WHERE LOWER(role) = 'admin'`,
-            );
-            if (Number(adminCountRows[0]?.admin_count || 0) <= 1) {
-                return res.status(400).json({ message: 'Cannot delete the last administrator account.' });
-            }
+        if (isAdminRole(target.role) && (await countActiveAdmins()) <= 1) {
+            return res.status(400).json({ message: 'Cannot delete the last administrator account.' });
         }
 
         try {
@@ -577,6 +710,15 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
     const normalizedImageUrl = normalizeMenuImageUrl(image_url);
 
     try {
+        const [existingRows] = await db.execute(
+            'SELECT name, price, hot_price, iced_price FROM menu_items WHERE id = ? LIMIT 1',
+            [itemId],
+        );
+        if (!existingRows.length) {
+            return res.status(404).json({ message: 'Item not found' });
+        }
+        const previous = existingRows[0];
+
         const query =
             'UPDATE menu_items SET name = ?, category = ?, price = ?, hot_price = ?, iced_price = ?, image_url = ? WHERE id = ?';
         const [result] = await db.execute(query, [
@@ -593,10 +735,21 @@ app.put('/api/menu/:id', requirePermission('menu'), async (req, res) => {
             return res.status(404).json({ message: 'Item not found' });
         }
 
+        const oldPrice = Number(previous.price);
+        const newPrice = Number(prices.price);
+        const priceChanged = oldPrice !== newPrice
+            || Number(previous.hot_price) !== Number(prices.hot_price)
+            || Number(previous.iced_price) !== Number(prices.iced_price);
+
         await auditFromRequest(db, req, {
-            action: 'menu_update',
+            action: priceChanged ? 'menu_price_update' : 'menu_update',
             module: 'Menu Management',
-            description: `Updated menu item #${itemId} "${name}" (price $${prices.price.toFixed(2)})`,
+            description: priceChanged
+                ? `Updated menu item #${itemId} "${name}". Price $${oldPrice.toFixed(2)} → $${newPrice.toFixed(2)}` +
+                  (Number(previous.hot_price) !== Number(prices.hot_price) || Number(previous.iced_price) !== Number(prices.iced_price)
+                    ? `; hot $${Number(previous.hot_price).toFixed(2)} → $${Number(prices.hot_price).toFixed(2)}; iced $${Number(previous.iced_price).toFixed(2)} → $${Number(prices.iced_price).toFixed(2)}`
+                    : '')
+                : `Updated menu item #${itemId} "${name}" (price $${newPrice.toFixed(2)})`,
         });
 
         res.status(200).json({ message: 'Item updated successfully!' });
@@ -710,6 +863,7 @@ app.get('/api/orders/stock-levels', requireOrderWriteAccess, async (_req, res) =
 
 // 2. DISPATCH/MERGE ORDER ITEMS INTO TARGET TICKETS
 app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
+    if (rejectIfMaintenance(res)) return;
     const { target_id, items, table_id } = req.body ?? {};
 
     if (!target_id || !Array.isArray(items) || !items.length) {
@@ -776,10 +930,23 @@ app.post('/api/orders', requireOrderWriteAccess, async (req, res) => {
     }
 });
 
+const ALLOWED_PAYMENT_METHODS = new Set(['Cash', 'Bank Scan']);
+
+async function allocateNextInvoiceId(conn) {
+    const [rows] = await conn.execute(
+        `SELECT MAX(CAST(SUBSTRING(invoice_id, 5) AS UNSIGNED)) AS max_n
+         FROM orders
+         WHERE invoice_id REGEXP '^INV-[0-9]+$'`,
+    );
+    const maxN = Number(rows[0]?.max_n);
+    const next = Number.isFinite(maxN) && maxN > 0 ? maxN + 1 : 1001;
+    return `INV-${next}`;
+}
+
 // 3. PROCESS PAYMENT / FINAL TRANSACTION CHECKOUT
 app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) => {
+    if (rejectIfMaintenance(res)) return;
     const {
-        invoice_id,
         target_id,
         payment_method,
         table_id,
@@ -792,6 +959,9 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
     const method = typeof payment_method === 'string' ? payment_method.trim() : '';
     if (!method) {
         return res.status(400).json({ message: 'Missing payment_method for checkout' });
+    }
+    if (!ALLOWED_PAYMENT_METHODS.has(method)) {
+        return res.status(400).json({ message: 'Invalid payment_method. Use Cash or Bank Scan.' });
     }
 
     let target;
@@ -832,13 +1002,15 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             const finalTotal = Math.round(computed * 100) / 100;
             await reconcileOrderStock(conn, orderId, lines, req.user?.id ?? null);
 
+            const invoiceId = await allocateNextInvoiceId(conn);
+
             const [result] = await conn.execute(
                 `UPDATE orders
                  SET invoice_id = ?, payment_method = ?, payment_type = ?, subtotal = ?, tax = ?, total = ?,
                      total_amount = ?, table_id = ?, status = 'Completed', updated_at = NOW()
                  WHERE id = ? AND ${sql}`,
                 [
-                    invoice_id || null,
+                    invoiceId,
                     method,
                     method,
                     finalTotal,
@@ -857,7 +1029,7 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
                 throw error;
             }
 
-            return { orderId, finalTotal };
+            return { orderId, finalTotal, invoiceId };
         });
 
         await auditFromRequest(db, req, {
@@ -865,10 +1037,13 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
             module: 'Payment',
             description: `Payment received via ${method} for ${
                 target.key === 'takeout' ? 'Take Out' : `Table ${target.key}`
-            } / Invoice ${invoice_id || outcome.orderId} ($${outcome.finalTotal.toFixed(2)})`,
+            } / Invoice ${outcome.invoiceId} ($${outcome.finalTotal.toFixed(2)})`,
         });
 
-        res.status(200).json({ message: 'Transaction completed and locked successfully.', invoice_id });
+        res.status(200).json({
+            message: 'Transaction completed and locked successfully.',
+            invoice_id: outcome.invoiceId,
+        });
     } catch (error) {
         if (error.status === 400 || error.status === 404) {
             return res.status(error.status).json({ message: error.message });
@@ -876,7 +1051,6 @@ app.post('/api/orders/checkout', requirePermission('payment'), async (req, res) 
         logOrderError('DATABASE ERROR IN POST /api/orders/checkout', error, {
             target_id,
             normalized_target: target.key,
-            invoice_id,
         });
         res.status(500).json({ message: 'Error committing accounting metrics', errorId: logError(error, { route: `${req.method} ${req.originalUrl}` }) });
     }
@@ -922,6 +1096,7 @@ app.post('/api/orders/bill-requested', requirePosFloorAccess, async (req, res) =
 
 // 5. SYNC UPDATED BILL LINE ITEMS BEFORE CHECKOUT
 app.put('/api/orders/items', requireOrderWriteAccess, async (req, res) => {
+    if (rejectIfMaintenance(res)) return;
     const { target_id, items, table_id } = req.body ?? {};
 
     if (!target_id || !Array.isArray(items)) {
@@ -994,7 +1169,7 @@ app.get('/api/orders/history', requireSalesHistoryAccess, async (req, res) => {
         }
     } else {
         const parsedDays = Number.parseInt(req.query.days, 10);
-        const allowedDayRanges = [30, 60, 90, 120, 180, 365, 730];
+        const allowedDayRanges = [30, 31, 60, 90, 120, 180, 365, 730];
         const days = allowedDayRanges.includes(parsedDays) ? parsedDays : 730;
         dateFilterParams = [days];
     }
@@ -1179,6 +1354,11 @@ app.put('/api/inventory/:id/stock', requirePermission('inventory_stock'), async 
             quantity,
             userId: req.user?.id ?? null,
         }));
+        await auditFromRequest(db, req, {
+            action: 'stock_add',
+            module: 'Inventory',
+            description: `Added ${quantity} to inventory #${itemId}. Quantity ${Number(result.quantity) - Number(result.change)} → ${result.quantity}.`,
+        });
         res.status(200).json({ message: 'Stock added.', ...result });
     } catch (error) {
         if (error.status === 400 || error.status === 404) {
@@ -1189,7 +1369,64 @@ app.put('/api/inventory/:id/stock', requirePermission('inventory_stock'), async 
     }
 });
 
-app.post('/api/inventory/:id/adjust', requireAdmin, async (req, res) => {
+app.post('/api/inventory/stocktake', requireStockAccess, async (req, res) => {
+    const note = stocktakeNote();
+    try {
+        const result = await withTransaction(db, (conn) => applyStocktake(conn, {
+            rows: Array.isArray(req.body?.rows) ? req.body.rows : [],
+            userId: req.user?.id ?? null,
+            confirmLarge: req.body?.confirmLarge === true,
+            note,
+        }));
+        await auditFromRequest(db, req, {
+            action: 'stocktake',
+            module: 'Inventory',
+            description: `${note}: ${result.changed.length} rows changed, ${result.blank} left blank`,
+        });
+        res.status(200).json(result);
+    } catch (error) {
+        if (error.status === 400 || error.status === 409) {
+            return res.status(error.status).json({
+                message: error.message,
+                code: error.code || null,
+                rows: error.rows || null,
+            });
+        }
+        console.error('❌ STOCKTAKE ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to apply the stocktake' });
+    }
+});
+
+app.post('/api/inventory/stocktake/excel', requireStockAccess, async (req, res) => {
+    const note = String(req.body?.note || '');
+    const changed = Array.isArray(req.body?.changed) ? req.body.changed : [];
+    if (!/^Opening stocktake \d{4}-\d{2}-\d{2}$/.test(note)) {
+        return res.status(400).json({ message: 'This stocktake export is not from an applied count' });
+    }
+    try {
+        for (const row of changed) {
+            if (Number(row.difference) === 0) continue;
+            const [found] = await db.execute(
+                `SELECT id FROM stock_movements
+                 WHERE inventory_id = ? AND note = ? AND reason = 'adjustment' AND quantity_after = ?
+                 ORDER BY id DESC LIMIT 1`,
+                [row.id, note, row.after],
+            );
+            if (!found.length) {
+                return res.status(400).json({ message: 'This stocktake export does not match the saved counts' });
+            }
+        }
+        const { buffer, filename } = await buildStocktakeWorkbook(changed, note);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(buffer);
+    } catch (error) {
+        console.error('❌ STOCKTAKE EXPORT ERROR:', error.message);
+        res.status(500).json({ message: 'Failed to download the stocktake' });
+    }
+});
+
+app.post('/api/inventory/:id/adjust', requirePermission('inventory_stock'), async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ message: 'Invalid inventory item id' });
@@ -1203,6 +1440,11 @@ app.post('/api/inventory/:id/adjust', requireAdmin, async (req, res) => {
             note: req.body?.note,
             userId: req.user?.id ?? null,
         }));
+        await auditFromRequest(db, req, {
+            action: 'stock_adjust',
+            module: 'Inventory',
+            description: `Adjusted inventory #${itemId}: ${Number(result.quantity) - Number(result.change)} → ${result.quantity} (change ${result.change}; reason: ${String(req.body?.reason || '').trim() || 'n/a'}; note: ${String(req.body?.note || '').trim() || 'n/a'})`,
+        });
         res.status(200).json({ message: 'Stock adjusted.', ...result });
     } catch (error) {
         if (error.status === 400 || error.status === 404) {
@@ -1238,7 +1480,7 @@ app.get('/api/inventory/:id/movements', requirePermission('inventory_stock'), as
     }
 });
 
-app.post('/api/inventory/:id/links', requireAdmin, async (req, res) => {
+app.post('/api/inventory/:id/links', requireStockAccess, async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
     const menuItemId = Number.parseInt(req.body?.menu_item_id, 10);
     const perUnit = Number(req.body?.quantity_per_unit ?? 1);
@@ -1262,6 +1504,11 @@ app.post('/api/inventory/:id/links', requireAdmin, async (req, res) => {
              VALUES (?, '', '', '', ?, ?)`,
             [menuItemId, itemId, perUnit],
         );
+        await auditFromRequest(db, req, {
+            action: 'stock_link_create',
+            module: 'Inventory',
+            description: `Linked menu item #${menuItemId} to inventory #${itemId} at ${perUnit} per sale (link #${result.insertId}).`,
+        });
         res.status(201).json({ id: result.insertId });
     } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
@@ -1272,17 +1519,30 @@ app.post('/api/inventory/:id/links', requireAdmin, async (req, res) => {
     }
 });
 
-app.delete('/api/inventory/links/:linkId', requireAdmin, async (req, res) => {
+app.delete('/api/inventory/links/:linkId', requireStockAccess, async (req, res) => {
     const linkId = Number.parseInt(req.params.linkId, 10);
     if (!Number.isInteger(linkId) || linkId <= 0) {
         return res.status(400).json({ message: 'Invalid link id' });
     }
 
     try {
+        const [existing] = await db.execute(
+            `SELECT id, menu_item_id, inventory_id, quantity_per_unit
+             FROM menu_item_stock_links WHERE id = ? LIMIT 1`,
+            [linkId],
+        );
         const [result] = await db.execute('DELETE FROM menu_item_stock_links WHERE id = ?', [linkId]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Link not found' });
         }
+        const link = existing[0];
+        await auditFromRequest(db, req, {
+            action: 'stock_link_delete',
+            module: 'Inventory',
+            description: link
+                ? `Removed link #${linkId} (menu #${link.menu_item_id} → inventory #${link.inventory_id}, qty ${link.quantity_per_unit}).`
+                : `Removed link #${linkId}.`,
+        });
         res.status(200).json({ message: 'Link removed' });
     } catch (error) {
         console.error('❌ INVENTORY UNLINK ERROR:', error.message);
@@ -1303,13 +1563,13 @@ function sendInventoryError(res, error, fallback) {
     return res.status(500).json({ message: fallback });
 }
 
-app.post('/api/inventory', requireAdmin, async (req, res) => {
+app.post('/api/inventory', requireStockAccess, async (req, res) => {
     try {
         const item = await createInventoryItem(db, req.body ?? {}, req.user?.id ?? null);
         await auditFromRequest(db, req, {
             action: 'inventory_item_created',
             module: 'Inventory',
-            description: `Added stock item ${item.item_name}`,
+            description: `Added stock item "${item.item_name}" (#${item.id}) with quantity ${item.stock_quantity ?? 0}, max ${item.max_stock ?? 'n/a'}.`,
         });
         res.status(201).json({ item });
     } catch (error) {
@@ -1317,20 +1577,43 @@ app.post('/api/inventory', requireAdmin, async (req, res) => {
     }
 });
 
-app.put('/api/inventory/:id', requireAdmin, async (req, res) => {
+app.put('/api/inventory/:id', requireStockAccess, async (req, res) => {
     const itemId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ message: 'Invalid inventory item id' });
     }
 
     try {
+        const [beforeRows] = await db.execute(
+            'SELECT item_name, max_stock, low_threshold, critical_threshold, stock_quantity FROM inventory WHERE id = ? LIMIT 1',
+            [itemId],
+        );
+        const before = beforeRows[0] || null;
         const item = await editInventoryItem(db, itemId, req.body ?? {}, {
             confirmUnitChange: req.body?.confirm_unit_change === true,
         });
+        const oldMax = before ? Number(before.max_stock) : null;
+        const newMax = Number(item.max_stock);
+        const maxChanged = before && oldMax !== newMax;
+        const renamed = before && String(before.item_name) !== String(item.item_name);
+        const thresholdChanged = before && (
+            Number(before.low_threshold) !== Number(item.low_threshold)
+            || Number(before.critical_threshold) !== Number(item.critical_threshold)
+        );
+        let description = `Updated stock item ${item.item_name}`;
+        if (renamed) {
+            description = `Renamed stock item "${before.item_name}" → "${item.item_name}"`;
+        }
+        if (maxChanged) {
+            description += `${renamed ? ';' : ':'} max ${oldMax} → ${newMax}`;
+        }
+        if (thresholdChanged) {
+            description += `; low ${before.low_threshold} → ${item.low_threshold}; very-low ${before.critical_threshold ?? 'none'} → ${item.critical_threshold ?? 'none'}`;
+        }
         await auditFromRequest(db, req, {
             action: 'inventory_item_updated',
             module: 'Inventory',
-            description: `Updated stock item ${item.item_name}`,
+            description,
         });
         res.status(200).json({ item });
     } catch (error) {
@@ -1343,8 +1626,11 @@ app.put('/api/inventory/:id', requireAdmin, async (req, res) => {
 // ==========================================
 
 const sqlUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 20 * 1024 * 1024 },
+    storage: multer.diskStorage({
+        destination: os.tmpdir(),
+        filename: (_req, _file, cb) => cb(null, `mlu-restore-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sql`),
+    }),
+    limits: { fileSize: 100 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (!file.originalname.toLowerCase().endsWith('.sql')) {
             cb(new Error('Only .sql backup files are allowed'));
@@ -1355,23 +1641,45 @@ const sqlUpload = multer({
 });
 
 function handleBackupError(res, error, fallbackMessage) {
-    const errorId = logError(error, { route: 'system/backup' });
-    res.status(500).json({
-        message: fallbackMessage,
-        errorId,
+    logError(error, { route: 'system/backup' });
+    const status = error.status || 500;
+    res.status(status).json({
+        message: error.publicMessage || fallbackMessage,
     });
 }
 
-app.get('/api/system/backup/excel', sensitiveOperationLimiter, requirePermission('backup_recovery'), async (req, res) => {
+function rejectIfMaintenance(res) {
+    if (!isUnderMaintenance()) return false;
+    res.status(503).json({ message: maintenanceMessage() });
+    return true;
+}
+
+app.get('/api/system/backup/excel', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
+    const filePath = path.join(os.tmpdir(), `mlu-excel-${Date.now()}.xlsx`);
+    let periodLabel = 'All Time';
     try {
         const period = parseBackupPeriod(req.query);
-        const buffer = await exportBusinessDataBuffer(db, period);
+        periodLabel = period.label;
         const filename = buildBackupFilename('mlu-kitchen-cafe-business-data', 'xlsx', period);
-
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.send(buffer);
+        await exportBusinessDataFile(db, period, filePath);
+        await auditFromRequest(db, req, {
+            action: 'export_business_excel',
+            module: 'Backup',
+            description: `Excel export period=${periodLabel} result=ok`,
+        });
+        pipeDownload(
+            res,
+            filePath,
+            filename,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
     } catch (error) {
+        fs.promises.unlink(filePath).catch(() => {});
+        await auditFromRequest(db, req, {
+            action: 'export_business_excel',
+            module: 'Backup',
+            description: `Excel export period=${periodLabel} result=failed`,
+        });
         if (error?.message?.includes('Invalid month or year')) {
             return res.status(400).json({ message: error.message });
         }
@@ -1379,18 +1687,25 @@ app.get('/api/system/backup/excel', sensitiveOperationLimiter, requirePermission
     }
 });
 
-app.get('/api/system/backup/sales-pdf', sensitiveOperationLimiter, requirePermission('backup_recovery'), async (req, res) => {
+app.get('/api/system/backup/sales-pdf', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
+    let periodLabel = 'All Time';
     try {
-        const { buffer, filename, periodLabel } = await createSalesPdf(db, req.query, req.user);
+        const { buffer, filename, periodLabel: label } = await createSalesPdf(db, req.query, req.user);
+        periodLabel = label;
         await auditFromRequest(db, req, {
             action: 'export_sales_pdf',
             module: 'Backup',
-            description: `Sales PDF for ${periodLabel}`,
+            description: `Sales PDF period=${periodLabel} result=ok`,
         });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(buffer);
     } catch (error) {
+        await auditFromRequest(db, req, {
+            action: 'export_sales_pdf',
+            module: 'Backup',
+            description: `Sales PDF period=${periodLabel} result=failed`,
+        });
         if (error?.status === 400 || error?.message?.includes('Invalid month or year')) {
             return res.status(400).json({ message: error.message });
         }
@@ -1398,18 +1713,21 @@ app.get('/api/system/backup/sales-pdf', sensitiveOperationLimiter, requirePermis
     }
 });
 
-app.get('/api/system/backup/sql', sensitiveOperationLimiter, requireAdmin, async (req, res) => {
+app.get('/api/system/backup/sql', sensitiveOperationLimiter, requireBackupDownloadAccess, async (req, res) => {
     try {
-        const period = parseBackupPeriod(req.query);
-        const { buffer, filename } = await createDatabaseDump(db, period);
-
-        res.setHeader('Content-Type', 'application/sql; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.send(buffer);
+        const { filePath, filename } = await createDownloadDump(db);
+        await auditFromRequest(db, req, {
+            action: 'export_sql_backup',
+            module: 'Backup',
+            description: `SQL backup period=All Time result=ok file=${filename}`,
+        });
+        pipeDownload(res, filePath, filename, 'application/sql; charset=utf-8');
     } catch (error) {
-        if (error?.message?.includes('Invalid month or year')) {
-            return res.status(400).json({ message: error.message });
-        }
+        await auditFromRequest(db, req, {
+            action: 'export_sql_backup',
+            module: 'Backup',
+            description: 'SQL backup period=All Time result=failed',
+        });
         handleBackupError(res, error, 'Failed to create SQL database backup');
     }
 });
@@ -1417,19 +1735,41 @@ app.get('/api/system/backup/sql', sensitiveOperationLimiter, requireAdmin, async
 app.post('/api/system/backup/restore', sensitiveOperationLimiter, requireAdmin, (req, res) => {
     sqlUpload.single('sqlFile')(req, res, async (uploadError) => {
         if (uploadError) {
-            return res.status(400).json({ message: uploadError.message });
+            const tooLarge = uploadError.code === 'LIMIT_FILE_SIZE';
+            return res.status(400).json({
+                message: tooLarge
+                    ? 'The uploaded SQL file exceeds the 100 MB limit'
+                    : 'Only a .sql backup from this system can be restored',
+            });
         }
 
         if (!req.file) {
             return res.status(400).json({ message: 'Please upload a .sql backup file' });
         }
 
+        const uploadedPath = req.file.path;
         try {
-            const sqlContent = req.file.buffer.toString('utf8');
-            const result = await restoreDatabaseFromSql(sqlContent);
+            if (!String(req.file.originalname || '').toLowerCase().endsWith('.sql')) {
+                return res.status(400).json({ message: 'Only a .sql backup from this system can be restored' });
+            }
+            const result = await restoreDatabaseFromFile(db, uploadedPath, {
+                afterRestore: () => ensureApplicationSchema(db),
+            });
+            await auditFromRequest(db, req, {
+                action: 'restore_sql_backup',
+                module: 'Backup',
+                description: `SQL restore result=ok tables=${result.tables} safety=${result.safetyBackup || 'none'}`,
+            });
             res.status(200).json(result);
         } catch (error) {
+            await auditFromRequest(db, req, {
+                action: 'restore_sql_backup',
+                module: 'Backup',
+                description: 'SQL restore result=failed',
+            });
             handleBackupError(res, error, 'Failed to restore database from SQL backup');
+        } finally {
+            fs.promises.unlink(uploadedPath).catch(() => {});
         }
     });
 });
@@ -1492,11 +1832,19 @@ app.post('/api/expenses', requireExpenseAccess, async (req, res) => {
 
 app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
     try {
+        const expenseId = Number.parseInt(req.params.id, 10);
+        const [rows] = await db.execute(
+            'SELECT id, category, description, amount, expense_date FROM expenses WHERE id = ? LIMIT 1',
+            [expenseId],
+        );
+        const previous = rows[0] || null;
         await deleteExpense(db, req.params.id);
         await auditFromRequest(db, req, {
             action: 'expense_delete',
             module: 'Expenses',
-            description: `Deleted expense #${req.params.id}`,
+            description: previous
+                ? `Deleted expense #${previous.id}: $${Number(previous.amount).toFixed(2)} (${previous.category}${previous.description ? `; ${previous.description}` : ''}) dated ${previous.expense_date}.`
+                : `Deleted expense #${req.params.id}`,
         });
         res.status(200).json({ message: 'Expense deleted' });
     } catch (error) {
@@ -1514,7 +1862,7 @@ app.delete('/api/expenses/:id', requireExpenseAccess, async (req, res) => {
 // ==========================================
 
 const requireReservationsAccess = requireAnyPermission('reservations', 'table')
-const requireReportsAccess = requireAnyPermission('reports', 'reports_analysis', 'sales_history')
+const requireReportsAccess = requirePermission('reports')
 
 app.get('/api/tables', requireReservationsAccess, async (_req, res) => {
     try {
@@ -1702,40 +2050,12 @@ app.delete('/api/reservations/:id', requireReservationsAccess, async (req, res) 
 })
 
 // ==========================================
-// ⚙️ APP SETTINGS
-// ==========================================
-app.get('/api/settings', async (req, res) => {
-    try {
-        const sessionHours = await getSessionHours(db);
-        res.status(200).json({ sessionHours });
-    } catch (error) {
-        logError(error, { route: 'GET /api/settings' });
-        res.status(500).json({ message: 'Failed to load settings' });
-    }
-});
-
-app.put('/api/settings/session-hours', requireAdmin, async (req, res) => {
-    try {
-        const sessionHours = await setSessionHours(db, req.body?.hours);
-        await auditFromRequest(db, req, {
-            action: 'settings_update',
-            module: 'Settings',
-            description: `Session length set to ${sessionHours} hours`,
-        });
-        res.status(200).json({ sessionHours });
-    } catch (error) {
-        logError(error, { route: 'PUT /api/settings/session-hours' });
-        res.status(500).json({ message: 'Failed to update session hours' });
-    }
-});
-
-// ==========================================
 // 🔐 AUDIT LOGS (ADMIN)
 // ==========================================
 app.get('/api/audit-logs', requireAdmin, async (req, res) => {
     try {
-        const logs = await listAuditLogs(db, { limit: req.query.limit });
-        res.status(200).json(logs);
+        const payload = await listAuditLogs(db, req.query);
+        res.status(200).json(payload);
     } catch (error) {
         console.error('❌ AUDIT LOGS FETCH ERROR:', error.message);
         res.status(500).json({ message: 'Failed to load audit logs' });
@@ -1771,29 +2091,17 @@ process.on('uncaughtException', (error) => {
 app.listen(PORT, async () => {
     console.log(`🚀 ${STORE.officialName} Backend running smoothly on port ${PORT}`);
     console.log(`   CORS allowed origins: ${env.security.allowedOrigins.join(', ')}`);
-    console.log(`   Security: helmet on, rate limiting on, JWT expiry 2h`);
+    console.log('   Security: helmet on, rate limiting on, sliding JWT sessions');
 
     try {
         await db.execute('SELECT 1');
         console.log(`   Database connection: OK (${resolveDbHost(env.db.host)}:${env.db.database})`);
-        await ensureInventorySchema(db);
-        await ensureStockSchema(db);
-        const restoredSaleDates = await ensureOrdersSchema(db);
-        await ensureOrderItemsSchema(db);
-        await ensureMenuItemsSchema(db);
-        await ensureExpensesSchema(db);
-        await ensureAuditSchema(db);
-        await ensureUsersEmailColumn(db);
-        await ensureAdminNotificationsSchema(db);
-        await ensureReservationsSchema(db);
-        await ensureAppSettingsSchema(db);
-        await ensureLoginSecuritySchema(db);
-        await ensureSessionSecuritySchema(db);
+        const restoredSaleDates = await ensureApplicationSchema(db);
         startReservationReminderJob(db);
         startLoginSecurityCleanup(db);
         startRevokedTokenCleanup(db);
         console.log('   Login security schema: OK');
-        console.log('   Session tokens expire after 2 hours');
+        console.log(`   Session lifetime: ${SESSION_DAYS} days (sliding renewal after 24h of token age)`);
         console.log('   Inventory schema: OK');
         if (restoredSaleDates > 0) {
             console.log(`   Orders sale dates restored: ${restoredSaleDates} (updated_at <- created_at)`);

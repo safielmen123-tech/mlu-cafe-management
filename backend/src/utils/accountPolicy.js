@@ -1,9 +1,33 @@
-const ALLOWED_ROLES = ['Admin', 'Staff']
+const ALLOWED_ROLES = ['Admin', 'Cashier', 'Staff']
+/** Roles that may be assigned when creating or editing users through the API/UI. */
+const ASSIGNABLE_ROLES = ['Cashier', 'Staff']
 
 function normalizeAllowedRole(role) {
   const value = String(role || '').trim().toLowerCase()
   if (value === 'admin') return 'Admin'
+  if (value === 'cashier' || value === 'supervisor') return 'Cashier'
   if (value === 'staff') return 'Staff'
+  return null
+}
+
+function isAssignableRole(role) {
+  const normalized = normalizeAllowedRole(role)
+  return Boolean(normalized && ASSIGNABLE_ROLES.includes(normalized))
+}
+
+/** Rejects Admin, Supervisor (as create target), and unknown roles for create / promote. */
+function assignableRoleError(role) {
+  const raw = String(role || '').trim().toLowerCase()
+  if (raw === 'supervisor') {
+    return 'Role must be Cashier or Staff.'
+  }
+  const normalized = normalizeAllowedRole(role)
+  if (!normalized) {
+    return 'Role must be Cashier or Staff.'
+  }
+  if (normalized === 'Admin') {
+    return 'This system has exactly one Admin account. New users must be Cashier or Staff.'
+  }
   return null
 }
 
@@ -18,6 +42,9 @@ function passwordPolicyError(password) {
 
 module.exports = {
   ALLOWED_ROLES,
+  ASSIGNABLE_ROLES,
   normalizeAllowedRole,
+  isAssignableRole,
+  assignableRoleError,
   passwordPolicyError,
 }

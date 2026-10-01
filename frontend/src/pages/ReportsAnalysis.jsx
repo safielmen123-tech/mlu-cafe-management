@@ -11,22 +11,12 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import Modal from '../components/common/Modal'
+import FinanceBarChart from '../components/charts/FinanceBarChart'
 import ExpenseTracker from '../components/finance/ExpenseTracker'
 import { SalesFilterBar } from '../components/ui/SalesFilterBar'
 import { usePOS } from '../context/POSContext'
 import { useNotifications } from '../context/NotificationContext'
-import { useTheme } from '../context/ThemeContext'
 import { apiFetch, apiFetchDownload, saveBlobAsDownload } from '../services/apiClient'
 import {
   DEFAULT_HISTORY_DAYS,
@@ -283,26 +273,9 @@ function expenseCategoryLabel(category, t) {
   return key ? t(`expenses.categories.${key}`) : category
 }
 
-function ProfitTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null
-  const title = payload[0]?.payload?.fullLabel || label
-
-  return (
-    <div className="surface-card rounded-xl border px-3 py-2 text-sm shadow-lg">
-      <p className="text-muted text-xs">{title}</p>
-      {payload.map((entry) => (
-        <p key={entry.dataKey} className="mt-0.5 font-semibold tabular-nums" style={{ color: entry.color }}>
-          {entry.name}: ${Number(entry.value || 0).toFixed(2)}
-        </p>
-      ))}
-    </div>
-  )
-}
-
 export default function ReportsAnalysis() {
   const { t } = useTranslation()
   const { salesHistory, loadSalesHistory } = usePOS()
-  const { isDark } = useTheme()
   const [selectedMonth, setSelectedMonth] = useState('all')
   const [expenses, setExpenses] = useState([])
   const [expenseError, setExpenseError] = useState('')
@@ -377,18 +350,8 @@ export default function ReportsAnalysis() {
           month: formatMonthLabel(selectedMonth, t),
         })
 
-  const axisColor = isDark ? '#c2cbc5' : '#57534e'
-  const gridColor = isDark ? '#323b36' : '#d5efd5'
-  const incomeColor = isDark ? '#34d399' : '#059669'
-  const expenseColor = isDark ? '#f59e0b' : '#c2410c'
-  const profitColor = isDark ? '#60a5fa' : '#2563eb'
-  const hasChartValues = chartData.some(
-    (point) => point.revenue > 0 || point.expenses > 0,
-  )
-
   const incomeLabel = t('reports.income')
-  const expensesLabel = t('reports.expenses')
-  const profitLabel = t('reports.profit')
+  const spendingLabel = t('reports.spending')
 
   const statCards = [
     {
@@ -398,7 +361,7 @@ export default function ReportsAnalysis() {
       accent: 'bg-forest-500',
     },
     {
-      label: expensesLabel,
+      label: t('reports.expenses'),
       value: `$${profit.expenses.toFixed(2)}`,
       icon: TrendingDown,
       accent: 'bg-amber-700',
@@ -474,31 +437,14 @@ export default function ReportsAnalysis() {
           </div>
         </div>
         <div className="h-80 p-4">
-          {!hasChartValues ? (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-muted text-sm">{t('reports.noChartData')}</p>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: axisColor, fontSize: 11 }}
-                  interval={0}
-                  angle={selectedMonth === 'all' ? -40 : 0}
-                  textAnchor={selectedMonth === 'all' ? 'end' : 'middle'}
-                  height={selectedMonth === 'all' ? 64 : 32}
-                />
-                <YAxis tick={{ fill: axisColor, fontSize: 12 }} />
-                <Tooltip content={<ProfitTooltip />} />
-                <Legend />
-                <Bar dataKey="revenue" name={incomeLabel} fill={incomeColor} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" name={expensesLabel} fill={expenseColor} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="profit" name={profitLabel} fill={profitColor} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+          <FinanceBarChart
+            data={chartData}
+            mode="income-spending"
+            tickMode={selectedMonth === 'all' ? 'monthly' : 'daily'}
+            incomeLabel={incomeLabel}
+            spendingLabel={spendingLabel}
+            emptyLabel={t('reports.noSalesYet')}
+          />
         </div>
       </div>
 

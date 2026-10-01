@@ -24,7 +24,7 @@ const {
 const { writeAuditLog } = require('../utils/auditLog')
 const { logError, logSecurity } = require('../utils/logger')
 const { sendSecurityAlertEmail } = require('../utils/mailer')
-const { hashPassword, updateUserPasswordHash } = require('../utils/userAccounts')
+const { hashPassword } = require('../utils/userAccounts')
 const { passwordPolicyError } = require('../utils/accountPolicy')
 const {
   ensureSessionSecuritySchema,
@@ -32,6 +32,10 @@ const {
   revokePresentedToken,
   invalidateUserTokens,
 } = require('../utils/sessionSecurity')
+const {
+  createUserSession,
+  sessionMetaFromRequest,
+} = require('../utils/userSessions')
 
 const publicAuthRouter = express.Router()
 const privateAuthRouter = express.Router()
@@ -55,6 +59,12 @@ function rejectPublicSignup(req, res) {
   return res.status(403).json({
     message: 'Public registration is disabled. Ask an administrator to create your account in User Management.',
   })
+}
+
+function formatDeviceAudit(meta) {
+  const device = meta?.deviceLabel || 'Unknown device'
+  const ip = meta?.ip || 'unknown IP'
+  return `device ${device}, IP ${ip}`
 }
 
 async function handleLogin(req, res) {
@@ -98,7 +108,8 @@ async function handleLogin(req, res) {
 
     const userPermissions = normalizePermissions(user.permissions)
     assertJwtSecret(JWT_SECRET)
-    const token = signSessionToken(user)
+    const { token, jti } = await signSessionToken(db, user)
+    const sessionMeta = await createUserSession(db, { jti, userId: user.id, req })
 
     await writeAuditLog(db, {
       userId: user.id,
@@ -106,7 +117,7 @@ async function handleLogin(req, res) {
       username: user.username,
       action: 'login',
       module: 'Auth',
-      description: `User ${user.username} signed in`,
+      description: `User ${user.username} signed in (${formatDeviceAudit(sessionMeta)})`,
     })
 
     logSecurity('login_success', { ip: req.ip, username: user.username, userId: user.id })
@@ -149,10 +160,14 @@ async function handleForgotPassword(req, res) {
 }
 
 async function handleChangePassword(req, res) {
+  const currentPassword = String(req.body?.currentPassword ?? '')
   const password = String(req.body?.password ?? '')
   const confirmPassword = String(req.body?.confirmPassword ?? '')
   const policyError = passwordPolicyError(password)
 
+  if (!currentPassword) {
+    return res.status(400).json({ message: 'Current password is required.' })
+  }
   if (policyError) {
     return res.status(400).json({ message: policyError })
   }
@@ -160,41 +175,103 @@ async function handleChangePassword(req, res) {
     return res.status(400).json({ message: 'Passwords do not match.' })
   }
 
+  let connection
   try {
-    const passwordHash = await hashPassword(password)
-    await updateUserPasswordHash(db, req.user.id, passwordHash)
-    await db.execute('UPDATE users SET must_change_password = 0 WHERE id = ?', [req.user.id])
-    await invalidateUserTokens(db, req.user.id)
+    connection = await db.getConnection()
+    await connection.beginTransaction()
 
-    const token = signSessionToken(req.user)
+    const [rows] = await connection.execute(
+      `SELECT id, display_name, username, role, permissions, password_hash
+       FROM users WHERE id = ? LIMIT 1 FOR UPDATE`,
+      [req.user.id],
+    )
+    if (!rows.length) {
+      await connection.rollback()
+      return res.status(404).json({ message: 'User not found.' })
+    }
+
+    const row = rows[0]
+    const storedHash = resolveStoredPasswordHash(row)
+    const currentMatches = storedHash
+      ? await verifyPassword(currentPassword, storedHash)
+      : false
+    // Duplicate click after a successful change: old "current" no longer matches,
+    // but the new password is already stored — treat as success.
+    const newAlreadyStored = storedHash
+      ? await verifyPassword(password, storedHash)
+      : false
+
+    if (!currentMatches && !newAlreadyStored) {
+      await connection.rollback()
+      return res.status(400).json({ message: 'Current password is incorrect.' })
+    }
+
+    if (currentMatches && currentPassword === password) {
+      await connection.rollback()
+      return res.status(400).json({
+        message: 'Choose a new password that is different from your current password.',
+      })
+    }
+
+    if (currentMatches) {
+      const passwordHash = await hashPassword(password)
+      await connection.execute(
+        'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
+        [passwordHash, row.id],
+      )
+    } else {
+      // Idempotent path: password already updated; still clear the force-change flag.
+      await connection.execute(
+        'UPDATE users SET must_change_password = 0 WHERE id = ?',
+        [row.id],
+      )
+    }
+
+    await connection.commit()
+
+    await invalidateUserTokens(db, row.id, row.id)
+    const sessionUser = {
+      id: row.id,
+      display_name: row.display_name,
+      username: row.username,
+      role: row.role,
+      permissions: normalizePermissions(row.permissions),
+    }
+    const { token, jti } = await signSessionToken(db, sessionUser)
+    await createUserSession(db, { jti, userId: row.id, req })
 
     await writeAuditLog(db, {
-      userId: req.user.id,
-      userRole: req.user.role,
-      username: req.user.username,
+      userId: row.id,
+      userRole: row.role,
+      username: row.username,
       action: 'password_changed',
       module: 'Auth',
-      description: `User ${req.user.username} changed their password`,
+      description: `User ${row.username} changed their password`,
     })
 
     return res.status(200).json({
       message: 'Password updated',
       token,
       user: {
-        id: req.user.id,
-        display_name: req.user.display_name,
-        username: req.user.username,
-        role: req.user.role,
-        permissions: req.user.permissions,
+        ...sessionUser,
         must_change_password: false,
       },
     })
   } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback()
+      } catch {
+        /* ignore rollback errors */
+      }
+    }
     logError(error, { route: 'POST /api/auth/change-password' })
     if (isDatabaseConnectionError(error)) {
       return res.status(503).json({ message: getDatabaseErrorMessage(error) })
     }
     return res.status(500).json({ message: 'Something went wrong' })
+  } finally {
+    if (connection) connection.release()
   }
 }
 
@@ -212,8 +289,9 @@ privateAuthRouter.get('/me', authenticateToken, async (req, res) => {
 privateAuthRouter.post('/change-password', createPasswordResetLimiter(), authenticateToken, handleChangePassword)
 
 privateAuthRouter.post('/logout', authenticateToken, async (req, res) => {
+  const meta = sessionMetaFromRequest(req)
   try {
-    await revokePresentedToken(db, req.tokenClaims, req.user?.id)
+    await revokePresentedToken(db, req.tokenClaims, req.user?.id, req.user?.id)
   } catch (error) {
     logError(error, { route: 'POST /api/auth/logout' })
   }
@@ -224,7 +302,7 @@ privateAuthRouter.post('/logout', authenticateToken, async (req, res) => {
     username: req.user?.username || req.user?.id,
     action: 'logout',
     module: 'Auth',
-    description: `User ${req.user?.username || req.user?.id} signed out`,
+    description: `User ${req.user?.username || req.user?.id} signed out (${formatDeviceAudit(meta)})`,
   })
   res.status(200).json({ message: 'Logged out' })
 })

@@ -13,7 +13,10 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { useAuth } from '../context/AuthContext'
-import { apiDownload, apiUpload } from '../services/apiClient'
+import { useNotifications } from '../context/NotificationContext'
+import Modal from '../components/common/Modal'
+import { apiFetchDownload, apiUpload, saveBlobAsDownload } from '../services/apiClient'
+import { userHasPermission } from '../utils/permissions'
 
 import { formatMonthYear } from '../utils/dateTimeFormat'
 
@@ -95,9 +98,43 @@ function PeriodSelector({ value, onChange, id, options }) {
   )
 }
 
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const EXCEL_TYPE = {
+  description: 'Excel',
+  accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+}
+const PDF_TYPE = { description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }
+const SQL_TYPE = { description: 'SQL', accept: { 'application/sql': ['.sql'] } }
+
+async function saveWithPicker(blob, filename, type) {
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [type],
+      })
+      const writable = await handle.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      return filename
+    } catch (error) {
+      if (error?.name === 'AbortError') return null
+    }
+  }
+  saveBlobAsDownload(blob, filename)
+  return filename
+}
+
 export default function BackupRecovery() {
   const { t } = useTranslation()
-  const { isAdmin } = useAuth()
+  const { isAdmin, user, logout } = useAuth()
+  const canDownloadBackup = isAdmin || userHasPermission(user, 'backup_recovery')
+  const { pushBanner } = useNotifications()
   const fileInputRef = useRef(null)
   const periodOptions = useMemo(
     () => buildPeriodOptions(t, t('dates.allTime')),
@@ -111,8 +148,11 @@ export default function BackupRecovery() {
   const [sqlLoading, setSqlLoading] = useState(false)
   const [restoreLoading, setRestoreLoading] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
+  const [restoreOpen, setRestoreOpen] = useState(false)
+  const [restorePhrase, setRestorePhrase] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const busy = excelLoading || pdfLoading || sqlLoading || restoreLoading
 
   const selectedPeriodLabel =
     periodOptions.find((option) => option.value === selectedPeriod)?.label || t('dates.allTime')
@@ -124,51 +164,57 @@ export default function BackupRecovery() {
     setErrorMessage('')
   }
 
-  const handleExcelExport = async () => {
+  const notify = (title, tone, message) => {
+    pushBanner({ title, message, tone, durationMs: tone === 'error' ? 8000 : 5000 })
+  }
+
+  const downloadExport = async (path, fallback, query, type, setLoading, successKey, failedKey) => {
     clearMessages()
-    setExcelLoading(true)
+    setLoading(true)
     try {
-      const query = buildPeriodQuery(selectedPeriod)
-      const filename = await apiDownload(
-        '/system/backup/excel',
-        'mlu-kitchen-cafe-business-data.xlsx',
-        query,
-      )
-      setStatusMessage(t('backup.exportSuccess', { filename }))
+      const { blob, filename } = await apiFetchDownload(path, fallback, query)
+      const saved = await saveWithPicker(blob, filename, type)
+      if (!saved) return
+      setStatusMessage(t(successKey, { filename: saved }))
+      notify(t(successKey, { filename: saved }), 'success')
     } catch (error) {
-      setErrorMessage(error.message || t('backup.exportFailed'))
+      const message = error.message || t(failedKey)
+      setErrorMessage(message)
+      notify(message, 'error')
     } finally {
-      setExcelLoading(false)
+      setLoading(false)
     }
   }
 
-  const handlePdfExport = async () => {
-    clearMessages()
-    setPdfLoading(true)
-    try {
-      const query = buildPeriodQuery(pdfPeriod)
-      const filename = await apiDownload('/system/backup/sales-pdf', 'Mlu_Sales.pdf', query)
-      setStatusMessage(t('backup.exportPdfSuccess', { filename }))
-    } catch (error) {
-      setErrorMessage(error.message || t('backup.exportPdfFailed'))
-    } finally {
-      setPdfLoading(false)
-    }
-  }
+  const handleExcelExport = () => downloadExport(
+    '/system/backup/excel',
+    'mlu-kitchen-cafe-business-data.xlsx',
+    buildPeriodQuery(selectedPeriod),
+    EXCEL_TYPE,
+    setExcelLoading,
+    'backup.exportSuccess',
+    'backup.exportFailed',
+  )
 
-  const handleSqlBackup = async () => {
-    clearMessages()
-    setSqlLoading(true)
-    try {
-      const query = buildPeriodQuery(selectedPeriod)
-      const filename = await apiDownload('/system/backup/sql', 'mlu-kitchen-cafe-database.sql', query)
-      setStatusMessage(t('backup.sqlSuccess', { filename }))
-    } catch (error) {
-      setErrorMessage(error.message || t('backup.sqlFailed'))
-    } finally {
-      setSqlLoading(false)
-    }
-  }
+  const handlePdfExport = () => downloadExport(
+    '/system/backup/sales-pdf',
+    'Mlu_Sales.pdf',
+    buildPeriodQuery(pdfPeriod),
+    PDF_TYPE,
+    setPdfLoading,
+    'backup.exportPdfSuccess',
+    'backup.exportPdfFailed',
+  )
+
+  const handleSqlBackup = () => downloadExport(
+    '/system/backup/sql',
+    'Mlu_Backup.sql',
+    {},
+    SQL_TYPE,
+    setSqlLoading,
+    'backup.sqlSuccess',
+    'backup.sqlFailed',
+  )
 
   const handleFileSelect = (event) => {
     clearMessages()
@@ -176,26 +222,37 @@ export default function BackupRecovery() {
     setSelectedFile(file)
   }
 
-  const handleRestore = async () => {
+  const openRestore = () => {
     if (!selectedFile) {
-      setErrorMessage(t('backup.chooseFileFirst'))
+      const message = t('backup.chooseFileFirst')
+      setErrorMessage(message)
+      notify(message, 'error')
       return
     }
+    setRestorePhrase('')
+    setRestoreOpen(true)
+  }
 
-    const confirmed = window.confirm(t('backup.restoreConfirm'))
-    if (!confirmed) return
-
+  const handleRestore = async () => {
+    if (!selectedFile || restorePhrase !== t('backup.restorePhrase') || restoreLoading) return
     clearMessages()
     setRestoreLoading(true)
     try {
       const result = await apiUpload('/system/backup/restore', 'sqlFile', selectedFile)
-      setStatusMessage(result.message || t('backup.restoreSuccess'))
+      const message = t('backup.restoreSuccessDetail', {
+        count: result.tables ?? 0,
+        file: result.safetyBackup || t('backup.restoreSuccess'),
+      })
+      setStatusMessage(message)
+      notify(message, 'success')
+      setRestoreOpen(false)
       setSelectedFile(null)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      window.setTimeout(() => logout(), 2500)
     } catch (error) {
-      setErrorMessage(error.message || t('backup.restoreFailed'))
+      const message = error.message || t('backup.restoreFailed')
+      setErrorMessage(message)
+      notify(message, 'error')
     } finally {
       setRestoreLoading(false)
     }
@@ -225,6 +282,7 @@ export default function BackupRecovery() {
           title={t('backup.exportExcelTitle')}
           badge={t('backup.excelBadge')}
         >
+          {canDownloadBackup ? (
           <div className="space-y-4">
             <PeriodSelector
               id="excel-period"
@@ -235,8 +293,8 @@ export default function BackupRecovery() {
             <button
               type="button"
               onClick={handleExcelExport}
-              disabled={excelLoading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={busy}
+              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {excelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               {excelLoading
@@ -244,6 +302,9 @@ export default function BackupRecovery() {
                 : t('backup.downloadExcel', { period: selectedPeriodLabel })}
             </button>
           </div>
+          ) : (
+            <p className="text-muted text-sm">{t('backup.downloadPermissionRequired')}</p>
+          )}
         </OptionCard>
 
         <OptionCard
@@ -251,6 +312,7 @@ export default function BackupRecovery() {
           title={t('backup.exportPdfTitle')}
           badge={t('backup.pdfBadge')}
         >
+          {canDownloadBackup ? (
           <div className="space-y-4">
             <p className="text-muted text-sm">{t('backup.exportPdfHint')}</p>
             <PeriodSelector
@@ -262,8 +324,8 @@ export default function BackupRecovery() {
             <button
               type="button"
               onClick={handlePdfExport}
-              disabled={pdfLoading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={busy}
+              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               {pdfLoading
@@ -271,35 +333,31 @@ export default function BackupRecovery() {
                 : t('backup.downloadPdf', { period: pdfPeriodLabel })}
             </button>
           </div>
+          ) : (
+            <p className="text-muted text-sm">{t('backup.downloadPermissionRequired')}</p>
+          )}
         </OptionCard>
 
         <OptionCard
           icon={Database}
           title={t('backup.sqlTitle')}
-          badge={isAdmin ? t('backup.admin') : t('backup.adminOnly')}
+          badge={canDownloadBackup ? t('backup.admin') : t('backup.adminOnly')}
         >
-          {isAdmin ? (
+          {canDownloadBackup ? (
             <div className="space-y-4">
-              <PeriodSelector
-                id="sql-period"
-                value={selectedPeriod}
-                onChange={setSelectedPeriod}
-                options={periodOptions}
-              />
+              <p className="text-muted text-sm">{t('backup.sqlDescription')}</p>
               <button
                 type="button"
                 onClick={handleSqlBackup}
-                disabled={sqlLoading}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={busy}
+                className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-forest-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-forest-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {sqlLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <HardDrive className="h-4 w-4" />}
-                {sqlLoading
-                  ? t('backup.creatingBackup')
-                  : t('backup.downloadSql', { period: selectedPeriodLabel })}
+                {sqlLoading ? t('backup.creatingBackup') : t('backup.downloadSql')}
               </button>
             </div>
           ) : (
-            <p className="text-muted text-sm">{t('backup.sqlAdminRequired')}</p>
+            <p className="text-muted text-sm">{t('backup.downloadPermissionRequired')}</p>
           )}
         </OptionCard>
       </div>
@@ -322,9 +380,9 @@ export default function BackupRecovery() {
               />
               <button
                 type="button"
-                onClick={handleRestore}
-                disabled={restoreLoading || !selectedFile}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={openRestore}
+                disabled={busy || !selectedFile}
+                className="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {restoreLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -336,7 +394,10 @@ export default function BackupRecovery() {
             </div>
             {selectedFile ? (
               <p className="text-muted text-sm">
-                {t('backup.selectedFile', { filename: selectedFile.name })}
+                {t('backup.selectedFile', {
+                  filename: selectedFile.name,
+                  size: formatFileSize(selectedFile.size),
+                })}
               </p>
             ) : null}
           </div>
@@ -344,6 +405,61 @@ export default function BackupRecovery() {
           <p className="text-muted text-sm">{t('backup.restoreAdminRequired')}</p>
         )}
       </OptionCard>
+
+      {restoreOpen ? (
+        <Modal
+          title={t('backup.restoreTitle')}
+          onClose={() => {
+            if (!restoreLoading) setRestoreOpen(false)
+          }}
+          dismissible={!restoreLoading}
+          closeLabel={t('backup.cancel')}
+          footer={(
+            <>
+              <button
+                type="button"
+                onClick={() => setRestoreOpen(false)}
+                disabled={restoreLoading}
+                className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-semibold text-stone-700 disabled:opacity-60 dark:border-stone-700 dark:text-stone-200"
+              >
+                {t('backup.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleRestore}
+                disabled={restoreLoading || restorePhrase !== t('backup.restorePhrase')}
+                className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {restoreLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
+                {restoreLoading ? t('backup.restoring') : t('backup.restoreNow')}
+              </button>
+            </>
+          )}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-stone-700 dark:text-stone-200">{t('backup.restoreConfirm')}</p>
+            {selectedFile ? (
+              <p className="text-muted text-sm">
+                {t('backup.selectedFile', {
+                  filename: selectedFile.name,
+                  size: formatFileSize(selectedFile.size),
+                })}
+              </p>
+            ) : null}
+            <label className="block text-sm font-medium" htmlFor="restore-phrase">
+              {t('backup.restoreTypeLabel')}
+              <input
+                id="restore-phrase"
+                value={restorePhrase}
+                onChange={(event) => setRestorePhrase(event.target.value)}
+                autoComplete="off"
+                disabled={restoreLoading}
+                className="input-field mt-2 w-full rounded-xl px-3 py-2.5 text-sm"
+              />
+            </label>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   )
 }

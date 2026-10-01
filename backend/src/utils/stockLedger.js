@@ -4,13 +4,12 @@ const { clearAlertsCache } = require('./alertEngine')
 const ADJUST_REASONS = {
   waste: 'waste',
   correction: 'adjustment',
-  other: 'adjustment',
 }
 
 function roundStock(value) {
   const num = Number(value)
   if (!Number.isFinite(num)) return null
-  return Math.round((num + Number.EPSILON) * 1000) / 1000
+  return Math.round((num + Number.EPSILON) * 1e6) / 1e6
 }
 
 function httpError(status, message) {
@@ -152,7 +151,7 @@ async function addReceivedStock(conn, { inventoryId, quantity, userId }) {
 
 async function adjustStockToCount(conn, { inventoryId, quantity, reason, note, userId }) {
   const movementReason = ADJUST_REASONS[reason]
-  if (!movementReason) throw httpError(400, 'Choose a reason: waste, correction, or other')
+  if (!movementReason) throw httpError(400, 'Choose a reason: waste or correction')
   const trimmed = String(note || '').trim()
   if (!trimmed) throw httpError(400, 'A note is required')
   if (trimmed.length > 255) throw httpError(400, 'Note must be 255 characters or less')

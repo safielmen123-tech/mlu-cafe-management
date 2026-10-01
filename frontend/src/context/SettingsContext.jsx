@@ -1,76 +1,105 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { readSession } from '../services/sessionStorage'
 
-const STORAGE_KEY = 'mlu_kitchen_cafe-app-settings'
+const STORAGE_KEY_PREFIX = 'mlu_kitchen_cafe-app-settings'
+const LEGACY_STORAGE_KEY = 'mlu_kitchen_cafe-app-settings'
 
 const DEFAULT_SETTINGS = {
-  isLiquidGlass: false,
   lowStockAlertsEnabled: true,
+  loginAlertsEnabled: true,
 }
 
-function applyLiquidGlassToDocument(enabled) {
-  if (typeof document === 'undefined') return
-  if (enabled) {
-    document.documentElement.setAttribute('data-liquid-glass', 'on')
-  } else {
-    document.documentElement.removeAttribute('data-liquid-glass')
-  }
+function settingsStorageKey(userId) {
+  return userId ? `${STORAGE_KEY_PREFIX}:u${userId}` : LEGACY_STORAGE_KEY
 }
 
-function readStoredSettings() {
-  if (typeof window === 'undefined') return { ...DEFAULT_SETTINGS }
+function parseSettings(raw) {
+  if (!raw) return { ...DEFAULT_SETTINGS }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_SETTINGS }
     const parsed = JSON.parse(raw)
-    // Prefer isLiquidGlass; migrate legacy isDarkCanvas if present
-    const isLiquidGlass = Boolean(
-      parsed.isLiquidGlass ?? parsed.isDarkCanvas,
-    )
     return {
-      isLiquidGlass,
       lowStockAlertsEnabled: parsed.lowStockAlertsEnabled !== false,
+      loginAlertsEnabled: parsed.loginAlertsEnabled !== false,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
 }
 
-function persistSettings(settings) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+function readStoredSettings(userId) {
+  if (typeof window === 'undefined') return { ...DEFAULT_SETTINGS }
+  const keyed = localStorage.getItem(settingsStorageKey(userId))
+  if (keyed) return parseSettings(keyed)
+  if (userId) {
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (legacy) return parseSettings(legacy)
+  }
+  return { ...DEFAULT_SETTINGS }
 }
 
-const initialSettings = readStoredSettings()
-applyLiquidGlassToDocument(initialSettings.isLiquidGlass)
+function persistSettings(userId, settings) {
+  if (typeof window === 'undefined') return
+  const payload = JSON.stringify({
+    lowStockAlertsEnabled: settings.lowStockAlertsEnabled !== false,
+    loginAlertsEnabled: settings.loginAlertsEnabled !== false,
+  })
+  localStorage.setItem(settingsStorageKey(userId), payload)
+  localStorage.setItem(LEGACY_STORAGE_KEY, payload)
+}
+
+function currentUserId() {
+  return readSession()?.user?.id ?? null
+}
+
+const initialSettings = readStoredSettings(currentUserId())
 
 const SettingsContext = createContext(null)
 
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(initialSettings)
+  const [boundUserId, setBoundUserId] = useState(() => currentUserId())
 
-  const { isLiquidGlass, lowStockAlertsEnabled } = settings
+  const { lowStockAlertsEnabled, loginAlertsEnabled } = settings
 
   useEffect(() => {
-    persistSettings(settings)
-    applyLiquidGlassToDocument(settings.isLiquidGlass)
-  }, [settings])
-
-  const setIsLiquidGlass = useCallback((value) => {
-    setSettings((prev) => ({ ...prev, isLiquidGlass: Boolean(value) }))
+    const syncUser = () => {
+      const nextId = currentUserId()
+      setBoundUserId((prev) => {
+        if (prev === nextId) return prev
+        setSettings(readStoredSettings(nextId))
+        return nextId
+      })
+    }
+    window.addEventListener('storage', syncUser)
+    window.addEventListener('mlu:session-changed', syncUser)
+    const interval = window.setInterval(syncUser, 1500)
+    return () => {
+      window.removeEventListener('storage', syncUser)
+      window.removeEventListener('mlu:session-changed', syncUser)
+      window.clearInterval(interval)
+    }
   }, [])
+
+  useEffect(() => {
+    persistSettings(boundUserId, settings)
+  }, [settings, boundUserId])
 
   const setLowStockAlertsEnabled = useCallback((value) => {
     setSettings((prev) => ({ ...prev, lowStockAlertsEnabled: Boolean(value) }))
   }, [])
 
+  const setLoginAlertsEnabled = useCallback((value) => {
+    setSettings((prev) => ({ ...prev, loginAlertsEnabled: Boolean(value) }))
+  }, [])
+
   const value = useMemo(
     () => ({
-      isLiquidGlass,
       lowStockAlertsEnabled,
-      setIsLiquidGlass,
       setLowStockAlertsEnabled,
+      loginAlertsEnabled,
+      setLoginAlertsEnabled,
     }),
-    [isLiquidGlass, lowStockAlertsEnabled, setIsLiquidGlass, setLowStockAlertsEnabled],
+    [lowStockAlertsEnabled, setLowStockAlertsEnabled, loginAlertsEnabled, setLoginAlertsEnabled],
   )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>

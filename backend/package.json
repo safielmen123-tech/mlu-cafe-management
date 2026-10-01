@@ -7,11 +7,12 @@
     "dev": "nodemon server.js",
     "start": "node server.js",
     "seed:admin": "node scripts/seed-admin.js",
+    "admin:reset": "node scripts/admin-reset.js",
     "seed:menu": "node scripts/seed-menu-photos.js",
     "seed:sales": "node src/scripts/seed12MonthsSales.js",
     "seed:desserts": "node src/scripts/setupDessertRecipes.js",
     "seed:expenses": "node src/scripts/seedExpenses.js",
-    "test": "node --test test/loginSecurity.test.js test/stockLedger.test.js test/stockPrecision.test.js test/inventoryItems.test.js"
+    "test": "node --test test/loginSecurity.test.js test/stockLedger.test.js test/stockPrecision.test.js test/inventoryItems.test.js test/stocktake.test.js test/sessionLifetime.test.js test/permissionsPolicy.test.js"
   },
   "keywords": [],
   "author": "",
@@ -29,8 +30,7 @@
     "multer": "^2.4.0",
     "mysql2": "^3.24.4",
     "nodemailer": "^10.0.12",
-    "pdfkit": "^0.20.2",
-    "xlsx": "^0.18.5"
+    "pdfkit": "^0.20.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

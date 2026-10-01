@@ -1,14 +1,6 @@
-const MAX_SESSION_HOURS = 2
-const ALLOWED_SESSION_HOURS = [MAX_SESSION_HOURS]
-const SESSION_HOURS_KEY = 'session_hours'
-const DEFAULT_SESSION_HOURS = MAX_SESSION_HOURS
+const ALLOWED_KEYS = new Set([])
 
 let schemaReadyPromise = null
-
-function normalizeSessionHours(value) {
-  const hours = Number.parseInt(value, 10)
-  return ALLOWED_SESSION_HOURS.includes(hours) ? hours : DEFAULT_SESSION_HOURS
-}
 
 async function ensureAppSettingsSchema(db) {
   if (!schemaReadyPromise) {
@@ -28,41 +20,31 @@ async function ensureAppSettingsSchema(db) {
   return schemaReadyPromise
 }
 
-async function getSessionHours(db) {
+async function readSetting(db, key) {
   await ensureAppSettingsSchema(db)
   const [rows] = await db.execute(
     'SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1',
-    [SESSION_HOURS_KEY],
+    [key],
   )
-  if (!rows.length) return DEFAULT_SESSION_HOURS
-  return normalizeSessionHours(rows[0].setting_value)
+  return rows.length ? rows[0].setting_value : null
 }
 
-async function setSessionHours(db, value) {
-  await ensureAppSettingsSchema(db)
-  const hours = normalizeSessionHours(value)
+async function writeSetting(db, key, value) {
+  if (ALLOWED_KEYS.size > 0 && !ALLOWED_KEYS.has(key)) {
+    throw new Error(`Unknown app setting: ${key}`)
+  }
   await db.execute(
     `
     INSERT INTO app_settings (setting_key, setting_value)
     VALUES (?, ?)
     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
     `,
-    [SESSION_HOURS_KEY, String(hours)],
+    [key, String(value)],
   )
-  return hours
-}
-
-function sessionExpiresIn() {
-  return `${MAX_SESSION_HOURS}h`
 }
 
 module.exports = {
-  MAX_SESSION_HOURS,
-  ALLOWED_SESSION_HOURS,
-  DEFAULT_SESSION_HOURS,
   ensureAppSettingsSchema,
-  getSessionHours,
-  setSessionHours,
-  sessionExpiresIn,
-  normalizeSessionHours,
+  readSetting,
+  writeSetting,
 }

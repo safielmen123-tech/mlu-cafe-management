@@ -5,6 +5,7 @@ import ForcePasswordChange from './pages/ForcePasswordChange'
 import DashboardLayout from './components/common/DashboardLayout'
 import ErrorBoundary from './components/common/ErrorBoundary'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { ConnectionProvider } from './context/ConnectionContext'
 import { POSProvider, usePOS } from './context/POSContext'
 import { AlertsProvider } from './context/AlertsContext'
 import { NotificationProvider } from './context/NotificationContext'
@@ -164,7 +165,9 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppRoutes />
+      <ConnectionProvider>
+        <AppRoutes />
+      </ConnectionProvider>
     </AuthProvider>
   )
 }

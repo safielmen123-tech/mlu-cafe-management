@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Package, PackagePlus, Scale, Search, X } from 'lucide-react'
+import { ClipboardList, Package, PackagePlus, Scale, Search, X } from 'lucide-react'
 import Modal from '../components/common/Modal'
+import StocktakeModal from '../components/inventory/StocktakeModal'
 import StatusBadge from '../components/common/StatusBadge'
 import { useAuth } from '../context/AuthContext'
+import { userHasPermission } from '../utils/permissions'
 import { apiFetch } from '../services/apiClient'
 import { cacheInventoryItems, getInventoryFallback } from '../utils/offlineFallbacks'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
@@ -84,7 +86,7 @@ function StockGauge({ item }) {
   )
 }
 
-function InventoryTable({ items, onRestock, onHistory, onAdjust, onEdit, onLink, isAdmin, isLoading }) {
+function InventoryTable({ items, onRestock, onHistory, onAdjust, onEdit, onLink, canManageItems, canAdjustStock, isLoading }) {
   const { t } = useTranslation()
 
   if (isLoading) {
@@ -163,29 +165,35 @@ function InventoryTable({ items, onRestock, onHistory, onAdjust, onEdit, onLink,
                   >
                     {t('inventory.history')}
                   </button>
-                  {isAdmin ? (
+                  {canAdjustStock || canManageItems ? (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => onEdit(item)}
-                        className="text-xs font-semibold text-forest-700 dark:text-forest-400"
-                      >
-                        {t('inventory.editItem')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onAdjust(item)}
-                        className="text-xs font-semibold text-forest-700 dark:text-forest-400"
-                      >
-                        {t('inventory.adjustStock')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onLink(item)}
-                        className="text-xs font-semibold text-forest-700 dark:text-forest-400"
-                      >
-                        {t('inventory.linkRecipe')}
-                      </button>
+                      {canManageItems ? (
+                        <button
+                          type="button"
+                          onClick={() => onEdit(item)}
+                          className="text-xs font-semibold text-forest-700 dark:text-forest-400"
+                        >
+                          {t('inventory.editItem')}
+                        </button>
+                      ) : null}
+                      {canAdjustStock ? (
+                        <button
+                          type="button"
+                          onClick={() => onAdjust(item)}
+                          className="text-xs font-semibold text-forest-700 dark:text-forest-400"
+                        >
+                          {t('inventory.adjustStock')}
+                        </button>
+                      ) : null}
+                      {canManageItems ? (
+                        <button
+                          type="button"
+                          onClick={() => onLink(item)}
+                          className="text-xs font-semibold text-forest-700 dark:text-forest-400"
+                        >
+                          {t('inventory.linkRecipe')}
+                        </button>
+                      ) : null}
                     </>
                   ) : null}
                   </div>
@@ -274,16 +282,32 @@ function RestockModal({ item, onClose, onSave }) {
             <label htmlFor="quantity-to-add" className="mb-1.5 block text-sm font-medium">
               {t('inventory.receivedQuantity', { units })}
             </label>
-            <input
-              id="quantity-to-add"
-              type="number"
-              min={step}
-              step={step}
-              value={quantityToAdd}
-              onChange={(e) => { setQuantityToAdd(e.target.value); setError('') }}
-              placeholder={item.is_weight ? t('inventory.weightPlaceholder') : t('inventory.countPlaceholder')}
-              className="input-field"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                id="quantity-to-add"
+                type="number"
+                min={step}
+                step={step}
+                value={quantityToAdd}
+                onChange={(e) => { setQuantityToAdd(e.target.value); setError('') }}
+                placeholder={item.is_weight ? t('inventory.weightPlaceholder') : t('inventory.countPlaceholder')}
+                className="input-field min-w-0 flex-1"
+              />
+              {String(item.item_name).trim().toLowerCase() === 'condensed milk' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = Number(quantityToAdd)
+                    const next = (Number.isFinite(current) && current > 0 ? current : 0) + 24
+                    setQuantityToAdd(String(next))
+                    setError('')
+                  }}
+                  className="btn-secondary shrink-0 whitespace-nowrap px-3 py-2.5 text-sm"
+                >
+                  {t('inventory.addOneBoxCans', { cans: 24 })}
+                </button>
+              )}
+            </div>
             <p className="text-muted mt-1.5 text-xs">{t('inventory.addHint')}</p>
           </div>
 
@@ -433,7 +457,6 @@ function AdjustModal({ item, onClose, onSaved }) {
           >
             <option value="waste">{t('inventory.reasonWaste')}</option>
             <option value="correction">{t('inventory.reasonCorrection')}</option>
-            <option value="other">{t('inventory.reasonOther')}</option>
           </select>
         </label>
         <label className="block text-sm font-medium">
@@ -864,7 +887,9 @@ function LinkModal({ item, stockItems, pickedStock, onRequestCreate, onClose, on
 
 export default function InventoryStock() {
   const { t } = useTranslation()
-  const { isAdmin } = useAuth()
+  const { user } = useAuth()
+  const canManageItems = userHasPermission(user, 'inventory_stock')
+  const canAdjustStock = canManageItems
   const [items, setItems] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [usingFallbackInventory, setUsingFallbackInventory] = useState(false)
@@ -875,6 +900,7 @@ export default function InventoryStock() {
   const [linkItem, setLinkItem] = useState(null)
   const [linkPick, setLinkPick] = useState(null)
   const [itemForm, setItemForm] = useState(null)
+  const [stocktakeOpen, setStocktakeOpen] = useState(false)
 
   const fetchInventory = useCallback(async () => {
     try {
@@ -938,10 +964,16 @@ export default function InventoryStock() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="text-heading text-lg leading-normal">{t('nav.inventoryStock')}</h3>
-          {isAdmin ? (
-            <button type="button" onClick={() => setItemForm({ mode: 'create' })} className="btn-primary px-3 py-2 text-xs font-semibold">
-              {t('inventory.addItem')}
-            </button>
+          {canManageItems ? (
+            <>
+              <button type="button" onClick={() => setItemForm({ mode: 'create' })} className="btn-primary px-3 py-2 text-xs font-semibold">
+                {t('inventory.addItem')}
+              </button>
+              <button type="button" onClick={() => setStocktakeOpen(true)} className="btn-secondary px-3 py-2 text-xs font-semibold">
+                <ClipboardList className="mr-1.5 inline h-3.5 w-3.5" />
+                {t('inventory.stocktake')}
+              </button>
+            </>
           ) : null}
         </div>
         <div className="relative max-w-xs flex-1 sm:max-w-sm">
@@ -973,7 +1005,8 @@ export default function InventoryStock() {
           onAdjust={setAdjustItem}
           onEdit={(row) => setItemForm({ mode: 'edit', item: row })}
           onLink={setLinkItem}
-          isAdmin={isAdmin}
+          canManageItems={canManageItems}
+          canAdjustStock={canAdjustStock}
           isLoading={isLoading}
         />
       </section>
@@ -995,11 +1028,19 @@ export default function InventoryStock() {
           onAdjust={setAdjustItem}
           onEdit={(row) => setItemForm({ mode: 'edit', item: row })}
           onLink={setLinkItem}
-          isAdmin={isAdmin}
+          canManageItems={canManageItems}
+          canAdjustStock={canAdjustStock}
           isLoading={isLoading}
         />
       </section>
 
+      {stocktakeOpen && canManageItems ? (
+        <StocktakeModal
+          items={items}
+          onClose={() => setStocktakeOpen(false)}
+          onApplied={fetchInventory}
+        />
+      ) : null}
       {restockItem && (
         <RestockModal
           item={restockItem}

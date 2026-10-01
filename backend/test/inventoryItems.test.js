@@ -55,7 +55,7 @@ test('a new item stores an initial adjustment and a duplicate is refused', async
       [created.id],
     )
     assert.equal(moves.length, 1)
-    assert.equal(String(moves[0].change_amount), '1.500')
+    assert.equal(Number(moves[0].change_amount), 1.5)
     assert.equal(moves[0].reason, 'adjustment')
     assert.equal(moves[0].note, 'Initial count')
 

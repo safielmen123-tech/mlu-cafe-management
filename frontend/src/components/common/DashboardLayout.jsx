@@ -6,13 +6,14 @@ import ThemeToggle from '../ui/ThemeToggle'
 import LanguageToggle from '../ui/LanguageToggle'
 import NotificationBell from './NotificationBell'
 import { useAuth } from '../../context/AuthContext'
-import { useSettings } from '../../context/SettingsContext'
+import { useConnection } from '../../context/ConnectionContext'
 
 const ENGLISH_ROLE_TITLES = new Set([
   'system administrator',
   'administrator',
   'admin',
   'cashier',
+  'supervisor',
   'staff',
 ])
 
@@ -20,7 +21,7 @@ function formatNavRoleLabel(user, t) {
   if (!user?.role) return t('nav.defaultRole')
   const role = String(user.role).trim()
   if (/^admin$/i.test(role)) return t('nav.systemAdministratorRole')
-  if (/^cashier$/i.test(role)) return t('users.roles.cashier')
+  if (/^cashier$/i.test(role) || /^supervisor$/i.test(role)) return t('users.roles.cashier')
   if (/^staff$/i.test(role)) return t('users.roles.staff')
   return role
 }
@@ -37,7 +38,7 @@ function formatHeaderName(user, t) {
 export default function DashboardLayout({ children, activePage, onNavigate }) {
   const { t } = useTranslation()
   const { user } = useAuth()
-  const { isLiquidGlass } = useSettings()
+  const { backendReachable, internetOnline } = useConnection()
   const headerName = formatHeaderName(user, t)
   const navRoleLabel = formatNavRoleLabel(user, t)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -45,11 +46,7 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
 
   return (
-    <div
-      className={`flex h-screen w-full max-w-[100vw] overflow-hidden bg-background text-foreground transition-colors duration-300${
-        isLiquidGlass ? ' liquid-glass' : ''
-      }`}
-    >
+    <div className="liquid-glass flex h-screen w-full max-w-[100vw] overflow-hidden bg-background text-foreground transition-colors duration-300">
       {mobileNavOpen ? (
         <button
           type="button"
@@ -93,6 +90,15 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {!backendReachable ? (
+              <p className="max-w-[14rem] text-right text-[11px] leading-snug text-amber-800 dark:text-amber-200 sm:max-w-[18rem]" role="status">
+                {t('connection.serverDown')}
+              </p>
+            ) : !internetOnline ? (
+              <p className="max-w-[12rem] text-right text-[11px] leading-snug text-muted sm:max-w-[16rem]" role="status">
+                {t('connection.noInternet')}
+              </p>
+            ) : null}
             <NotificationBell onNavigate={onNavigate} />
             <LanguageToggle />
             <ThemeToggle variant="icon" />

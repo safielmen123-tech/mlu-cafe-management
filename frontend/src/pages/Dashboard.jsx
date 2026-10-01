@@ -8,16 +8,11 @@ import {
   Wallet,
 } from 'lucide-react'
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
   Cell,
   Pie,
   PieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,
-  YAxis,
 } from 'recharts'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -25,8 +20,11 @@ import { useSettings } from '../context/SettingsContext'
 import { useAlerts } from '../context/AlertsContext'
 import AlertCenter from '../components/alerts/AlertCenter'
 import LiveConditions from '../components/dashboard/LiveConditions'
+import FinanceBarChart from '../components/charts/FinanceBarChart'
 import MenuItemImage from '../components/menu/MenuItemImage'
 import { apiFetch, getAuthToken } from '../services/apiClient'
+import { readLiveConditions, writeLiveConditions } from '../utils/liveConditionsCache'
+import { userHasPermission } from '../utils/permissions'
 import {
   buildDashboardStats,
   buildPaymentSplitData,
@@ -55,32 +53,6 @@ function useChartTheme() {
       muted: isDark ? '#aeaeb2' : '#86868b',
     }),
     [isDark],
-  )
-}
-
-function ChartTooltip({ active, payload, label, theme, valuePrefix = '$' }) {
-  if (!active || !payload?.length) return null
-
-  return (
-    <div
-      className="rounded-xl border px-3 py-2 shadow-lg"
-      style={{
-        backgroundColor: theme.tooltipBg,
-        borderColor: theme.tooltipBorder,
-        color: theme.tooltipText,
-      }}
-    >
-      <p className="text-xs font-medium" style={{ color: theme.muted }}>
-        {label}
-      </p>
-      <p className="text-sm font-bold">
-        {valuePrefix}
-        {Number(payload[0].value).toLocaleString(undefined, {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}
-      </p>
-    </div>
   )
 }
 
@@ -113,15 +85,17 @@ function paymentMethodLabel(name, t) {
 export default function Dashboard({ onNavigate }) {
   const { t, i18n } = useTranslation()
   const { user, isAdmin } = useAuth()
+  const canSeeReports = isAdmin || userHasPermission(user, 'reports')
   const chartTheme = useChartTheme()
-  const { lowStockAlertsEnabled } = useSettings()
+  const { lowStockAlertsEnabled, loginAlertsEnabled } = useSettings()
   const { alerts, counts, isLoading: alertsLoading, error: alertsError, refresh, markNotificationRead } = useAlerts()
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
-  const [liveConditions, setLiveConditions] = useState(null)
+  const [liveConditions, setLiveConditions] = useState(() => readLiveConditions())
+  const [liveStale, setLiveStale] = useState(false)
   const [todaySpending, setTodaySpending] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
-  const [liveLoading, setLiveLoading] = useState(true)
+  const [liveLoading, setLiveLoading] = useState(() => !readLiveConditions())
 
   useEffect(() => {
     refresh()
@@ -135,34 +109,71 @@ export default function Dashboard({ onNavigate }) {
       return undefined
     }
 
+    let cancelled = false
+    const spendingPromise = canSeeReports
+      ? apiFetch('/expenses/summary', { token })
+          .then((res) => (res.ok ? res.json() : { todaySpending: 0 }))
+          .then((data) => Number(data.todaySpending) || 0)
+          .catch(() => 0)
+      : Promise.resolve(0)
+
     Promise.all([
       apiFetch(API_PATH, { token })
         .then((res) => (res.ok ? res.json() : []))
         .then((data) => (Array.isArray(data) ? data : []))
         .catch(() => []),
-      apiFetch('/expenses/summary', { token })
-        .then((res) => (res.ok ? res.json() : { todaySpending: 0 }))
-        .then((data) => Number(data.todaySpending) || 0)
-        .catch(() => 0),
+      spendingPromise,
       apiFetch('/menu', { token })
         .then((res) => (res.ok ? res.json() : []))
         .then((data) => (Array.isArray(data) ? data : []))
         .catch(() => []),
-      apiFetch('/dashboard/live', { token })
-        .then((res) => (res.ok ? res.json() : null))
-        .catch(() => null),
     ])
-      .then(([orderRows, spending, menuRows, live]) => {
+      .then(([orderRows, spending, menuRows]) => {
+        if (cancelled) return
         setOrders(orderRows)
         setTodaySpending(spending)
         setMenuItems(menuRows)
-        setLiveConditions(live)
       })
       .finally(() => {
-        setIsLoading(false)
-        setLiveLoading(false)
+        if (!cancelled) setIsLoading(false)
       })
-  }, [])
+
+    const fetchLive = ({ showLoading = false } = {}) => {
+      if (showLoading) setLiveLoading(true)
+      return apiFetch('/dashboard/live', { token })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((live) => {
+          if (cancelled) return
+          const weather = live?.weather?.ok ? live.weather : null
+          const exchange = live?.exchange?.ok ? live.exchange : null
+          if (weather || exchange) {
+            const saved = writeLiveConditions({ weather, exchange })
+            setLiveConditions(saved)
+            setLiveStale(false)
+          } else {
+            setLiveStale(Boolean(readLiveConditions()))
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLiveStale(Boolean(readLiveConditions()))
+        })
+        .finally(() => {
+          if (!cancelled) setLiveLoading(false)
+        })
+    }
+
+    // Weather is live (~2 min server cache); exchange is daily — polling keeps weather fresh.
+    fetchLive({ showLoading: !readLiveConditions() })
+    const liveInterval = setInterval(() => {
+      if (!getAuthToken()) return
+      fetchLive()
+    }, 2 * 60 * 1000)
+
+    return () => {
+      cancelled = true
+      clearInterval(liveInterval)
+    }
+  }, [canSeeReports])
 
   const weeklySales = useMemo(() => buildWeeklySalesData(orders), [orders])
   const localizedWeeklySales = useMemo(
@@ -235,7 +246,7 @@ export default function Dashboard({ onNavigate }) {
   const hasReservationAlerts = alerts.some((alert) => alert.category === 'reservation')
   const showAlertCenter =
     lowStockAlertsEnabled ||
-    (isAdmin && (hasSecurityAlerts || hasLoginLockAlerts)) ||
+    (isAdmin && (hasSecurityAlerts || (loginAlertsEnabled && hasLoginLockAlerts))) ||
     hasReservationAlerts
 
   const stats = [
@@ -247,22 +258,26 @@ export default function Dashboard({ onNavigate }) {
       color: 'bg-forest-500',
       light: 'badge-forest',
     },
-    {
-      title: t('dashboard.todaySpending', { defaultValue: "Today's Spending" }),
-      value: `$${dashboardStats.todaySpending.toFixed(2)}`,
-      change: t('dashboard.spendingHint', { defaultValue: 'Logged expenses' }),
-      icon: Wallet,
-      color: 'bg-cocoa-600',
-      light: 'badge-olive',
-    },
-    {
-      title: t('dashboard.netProfit', { defaultValue: 'Net Profit' }),
-      value: `$${dashboardStats.netProfit.toFixed(2)}`,
-      change: t('dashboard.netProfitHint', { defaultValue: 'Income − Spending' }),
-      icon: dashboardStats.netProfit >= 0 ? TrendingUp : TrendingDown,
-      color: dashboardStats.netProfit >= 0 ? 'bg-emerald-600' : 'bg-red-600',
-      light: dashboardStats.netProfit >= 0 ? 'badge-forest' : 'badge-olive',
-    },
+    ...(canSeeReports
+      ? [
+          {
+            title: t('dashboard.todaySpending', { defaultValue: "Today's Spending" }),
+            value: `$${dashboardStats.todaySpending.toFixed(2)}`,
+            change: t('dashboard.spendingHint', { defaultValue: 'Logged expenses' }),
+            icon: Wallet,
+            color: 'bg-cocoa-600',
+            light: 'badge-olive',
+          },
+          {
+            title: t('dashboard.netProfit', { defaultValue: 'Net Profit' }),
+            value: `$${dashboardStats.netProfit.toFixed(2)}`,
+            change: t('dashboard.netProfitHint', { defaultValue: 'Income − Spending' }),
+            icon: dashboardStats.netProfit >= 0 ? TrendingUp : TrendingDown,
+            color: dashboardStats.netProfit >= 0 ? 'bg-emerald-600' : 'bg-red-600',
+            light: dashboardStats.netProfit >= 0 ? 'badge-forest' : 'badge-olive',
+          },
+        ]
+      : []),
     {
       title: t('dashboard.activeCashier', { defaultValue: 'Active Cashier' }),
       value: dashboardStats.cashierName,
@@ -282,6 +297,10 @@ export default function Dashboard({ onNavigate }) {
       <LiveConditions
         weather={liveConditions?.weather}
         exchange={liveConditions?.exchange}
+        weatherSavedAt={liveConditions?.weatherSavedAt}
+        exchangeSavedAt={liveConditions?.exchangeSavedAt}
+        savedAt={liveConditions?.savedAt}
+        isStale={liveStale}
         isLoading={liveLoading}
       />
 
@@ -365,44 +384,13 @@ export default function Dashboard({ onNavigate }) {
                 <p className="text-muted text-sm">{t('dashboard.loadingChart')}</p>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={localizedWeeklySales} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fill: chartTheme.axis, fontSize: 12 }}
-                    axisLine={{ stroke: chartTheme.grid }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: chartTheme.axis, fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(value) => `$${value}`}
-                  />
-                  <Tooltip
-                    cursor={{ fill: chartTheme.primarySoft, opacity: 0.35 }}
-                    content={({ active, payload, label }) => (
-                      <ChartTooltip
-                        active={active}
-                        payload={payload}
-                        label={
-                          payload?.[0]?.payload?.fullLabel
-                            ? `${label} · ${payload[0].payload.fullLabel}`
-                            : label
-                        }
-                        theme={chartTheme}
-                      />
-                    )}
-                  />
-                  <Bar
-                    dataKey="revenue"
-                    radius={[8, 8, 0, 0]}
-                    fill={chartTheme.primary}
-                    maxBarSize={48}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <FinanceBarChart
+                data={localizedWeeklySales}
+                mode="income-only"
+                tickMode="daily"
+                incomeLabel={t('reports.income')}
+                emptyLabel={t('dashboard.noSalesYet')}
+              />
             )}
           </div>
         </div>

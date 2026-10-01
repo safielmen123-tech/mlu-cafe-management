@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CreditCard, Minus, Receipt } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
+import { useConnection } from '../context/ConnectionContext'
 import { useNotifications } from '../context/NotificationContext'
 import { PAYMENT_QUEUE_STATUS } from '../data/tables'
 import { calculateTotals } from '../utils/posHelpers'
@@ -61,6 +62,7 @@ function BillManager({
   onDecrementItem,
   onUpdateItemPrice,
   onPaymentComplete,
+  serverReachable,
 }) {
   const { t, i18n } = useTranslation()
   // Drafts hold only in-progress edits; anything untouched reads straight from the bill.
@@ -177,8 +179,13 @@ function BillManager({
             <p className="mb-3 text-sm font-semibold text-forest-800 dark:text-mint-200">
               {t('payment.processCheckout')}
             </p>
+            {!serverReachable ? (
+              <p className="text-sm text-amber-800 dark:text-amber-200" role="status">
+                {t('connection.paymentPaused')}
+              </p>
+            ) : null}
             <PaymentModule
-              disabled={bill.items.length === 0}
+              disabled={bill.items.length === 0 || !serverReachable}
               onConfirm={(method) => onPaymentComplete(method)}
             />
           </div>
@@ -191,6 +198,7 @@ function BillManager({
 export default function Payment() {
   const { t } = useTranslation()
   const { pushBanner } = useNotifications()
+  const { backendReachable } = useConnection()
   const {
     getActiveBills,
     getBillById,
@@ -232,6 +240,14 @@ export default function Payment() {
     if (!selectedBill) return
     const sourceLabel = selectedBill.name || selectedBill.source || t('payment.orderSource')
     const transaction = await processPayment(selectedBill.id, paymentMethod)
+    if (!transaction) {
+      pushBanner({
+        title: t('connection.serverDown'),
+        message: t('connection.paymentPaused'),
+        tone: 'warning',
+      })
+      return
+    }
     if (transaction) {
       setCompletedReceipt(transaction)
       pushBanner({
@@ -278,6 +294,7 @@ export default function Payment() {
                 updateBillItemPrice(selectedBill.id, itemId, price)
               }
               onPaymentComplete={handlePaymentComplete}
+              serverReachable={backendReachable}
             />
           ) : selectedBill ? (
             <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">

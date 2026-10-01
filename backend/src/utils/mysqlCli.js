@@ -98,6 +98,63 @@ function runCliProcess(executable, args, input = null) {
   })
 }
 
+function runCliToFile(executable, args, filePath) {
+  return new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(filePath, { flags: 'a' })
+    const child = spawn(executable, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+    const stderrChunks = []
+
+    child.stdout.pipe(output)
+    child.stderr.on('data', (chunk) => stderrChunks.push(chunk))
+    child.on('error', (error) => {
+      output.destroy()
+      reject(error)
+    })
+    child.on('close', (code) => {
+      const stderr = Buffer.concat(stderrChunks).toString('utf8')
+      output.end(() => {
+        if (code !== 0) {
+          const error = new Error(stderr.trim() || `Process exited with code ${code}`)
+          error.exitCode = code
+          reject(error)
+          return
+        }
+        resolve({ stderr })
+      })
+    })
+  })
+}
+
+function runCliFromFile(executable, args, inputPath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+    const stderrChunks = []
+    const input = fs.createReadStream(inputPath)
+
+    input.on('error', reject)
+    input.pipe(child.stdin)
+    child.stderr.on('data', (chunk) => stderrChunks.push(chunk))
+    child.stdout.on('data', () => {})
+    child.on('error', reject)
+    child.on('close', (code) => {
+      const stderr = Buffer.concat(stderrChunks).toString('utf8')
+      if (code !== 0) {
+        const error = new Error(stderr.trim() || `Process exited with code ${code}`)
+        error.exitCode = code
+        reject(error)
+        return
+      }
+      resolve({ stderr })
+    })
+  })
+}
+
 function formatBackupTimestamp() {
   const now = new Date()
   const pad = (value) => String(value).padStart(2, '0')
@@ -108,6 +165,8 @@ module.exports = {
   resolveCliTool,
   buildMysqlArgs,
   runCliProcess,
+  runCliToFile,
+  runCliFromFile,
   formatBackupTimestamp,
   getDatabaseName: () => env.db.database,
 }

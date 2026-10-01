@@ -1,5 +1,8 @@
 /**
  * Wipes all users and inserts one Admin account.
+ * DESTRUCTIVE — prefer `npm run admin:reset` to recover the existing Admin password
+ * without deleting Cashier/Staff accounts.
+ *
  * Password comes from SEED_ADMIN_PASSWORD. If that is unset, a random password
  * is written to backend/logs/initial-admin-password.txt and is never printed.
  *

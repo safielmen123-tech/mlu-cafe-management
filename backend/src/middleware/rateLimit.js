@@ -68,10 +68,23 @@ const sensitiveOperationLimiter = rateLimit({
   },
 })
 
+/** Session and idle-timeout changes. Counts every request, including rejected values. */
+const settingsWriteLimiter = rateLimit({
+  windowMs: FIFTEEN_MINUTES,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logSecurity('settings_rate_limited', { ip: req.ip, route: req.originalUrl })
+    res.status(429).json({ message: 'Too many settings changes. Please wait and try again.' })
+  },
+})
+
 module.exports = {
   loginLimiter,
   passwordResetLimiter,
   createPasswordResetLimiter,
   apiLimiter,
   sensitiveOperationLimiter,
+  settingsWriteLimiter,
 }

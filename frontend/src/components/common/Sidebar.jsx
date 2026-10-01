@@ -47,7 +47,7 @@ import {
 
 import { canSeeNavItem } from '../../utils/permissions'
 
-const WORK_ROLES = ['admin', 'staff', 'cashier']
+const WORK_ROLES = ['admin', 'cashier', 'staff']
 
 const sidebarNavigation = [
   { id: 'dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: WORK_ROLES },
@@ -276,7 +276,10 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen = false, on
       sidebarNavigation.flatMap((item) => {
         if (item.children) {
           const children = item.children.filter((child) => canSeeNavItem(user, child))
-          return children.length ? [{ ...item, children }] : []
+          if (children.length === 0) return []
+          // One child only: show it as a top-level item instead of a More group.
+          if (children.length === 1) return children
+          return [{ ...item, children }]
         }
         return canSeeNavItem(user, item) ? [item] : []
       }),

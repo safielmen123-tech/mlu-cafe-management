@@ -76,18 +76,12 @@ async function auditFromRequest(db, req, { action, module, description }) {
   })
 }
 
-async function listAuditLogs(db, { limit = 100 } = {}) {
-  await ensureAuditSchema(db)
-  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500)
-  const [rows] = await db.execute(
-    `
-    SELECT id, user_id, user_role, username, action, module, description, created_at
-    FROM audit_logs
-    ORDER BY created_at DESC, id DESC
-    LIMIT ${safeLimit}
-    `,
-  )
-  return rows.map((row) => ({
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))
+}
+
+function mapAuditRow(row) {
+  return {
     id: row.id,
     user_id: row.user_id,
     user_role: row.user_role,
@@ -96,7 +90,77 @@ async function listAuditLogs(db, { limit = 100 } = {}) {
     module: row.module,
     description: row.description || '',
     created_at: row.created_at,
-  }))
+  }
+}
+
+async function listAuditLogs(db, query = {}) {
+  await ensureAuditSchema(db)
+  const pageSize = 50
+  const page = Math.max(Number.parseInt(query.page, 10) || 1, 1)
+  const offset = (page - 1) * pageSize
+  const where = []
+  const params = []
+
+  if (isIsoDate(query.from)) {
+    where.push('created_at >= ?')
+    params.push(`${query.from} 00:00:00`)
+  }
+  if (isIsoDate(query.to)) {
+    where.push('created_at < DATE_ADD(?, INTERVAL 1 DAY)')
+    params.push(`${query.to} 00:00:00`)
+  }
+  const user = String(query.user || '').trim().slice(0, 80)
+  if (user) {
+    where.push('(username LIKE ? OR CAST(user_id AS CHAR) = ?)')
+    params.push(`%${user}%`, user)
+  }
+  const moduleName = String(query.module || '').trim().slice(0, 120)
+  if (moduleName) {
+    where.push('module = ?')
+    params.push(moduleName)
+  }
+  const action = String(query.action || '').trim().slice(0, 120)
+  if (action) {
+    where.push('action = ?')
+    params.push(action)
+  }
+  const search = String(query.q || query.search || '').trim().slice(0, 120)
+  if (search) {
+    where.push('(description LIKE ? OR username LIKE ? OR action LIKE ? OR module LIKE ?)')
+    const like = `%${search}%`
+    params.push(like, like, like, like)
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+  const [countRows] = await db.execute(
+    `SELECT COUNT(*) AS total FROM audit_logs ${whereSql}`,
+    params,
+  )
+  const [rows] = await db.execute(
+    `
+    SELECT id, user_id, user_role, username, action, module, description, created_at
+    FROM audit_logs
+    ${whereSql}
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${pageSize} OFFSET ${offset}
+    `,
+    params,
+  )
+  const [moduleRows] = await db.execute(
+    'SELECT DISTINCT module FROM audit_logs ORDER BY module ASC',
+  )
+  const [actionRows] = await db.execute(
+    'SELECT DISTINCT action FROM audit_logs ORDER BY action ASC',
+  )
+
+  return {
+    logs: rows.map(mapAuditRow),
+    page,
+    pageSize,
+    total: Number(countRows[0]?.total || 0),
+    modules: moduleRows.map((row) => row.module).filter(Boolean),
+    actions: actionRows.map((row) => row.action).filter(Boolean),
+  }
 }
 
 module.exports = {

@@ -11,6 +11,8 @@
     "images:thumbs": "node scripts/optimize-menu-thumbs.mjs"
   },
   "dependencies": {
+    "@fontsource/noto-sans": "^5.3.0",
+    "@fontsource/noto-sans-khmer": "^5.3.0",
     "i18next": "^26.3.6",
     "lucide-react": "^1.18.0",
     "react": "^19.2.6",

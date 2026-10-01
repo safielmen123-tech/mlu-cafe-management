@@ -42,7 +42,12 @@ async function verifyPassword(plainPassword, storedHash) {
     return false
   }
 
-  return bcrypt.compare(plainPassword, storedHash)
+  const hash = Buffer.isBuffer(storedHash)
+    ? storedHash.toString('utf8')
+    : String(storedHash).trim()
+  if (!hash) return false
+
+  return bcrypt.compare(String(plainPassword), hash)
 }
 
 function buildTokenPayload(user) {

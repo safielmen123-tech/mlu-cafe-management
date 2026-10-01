@@ -2,9 +2,20 @@ const crypto = require('crypto')
 const jwt = require('jsonwebtoken')
 const { env } = require('../config/env')
 const { buildTokenPayload, assertJwtSecret } = require('./loginAuth')
+const {
+  ensureUserSessionsSchema,
+  revokeUserSession,
+  revokeAllUserSessions,
+  cleanupOldUserSessions,
+} = require('./userSessions')
 
-const MAX_TOKEN_EXPIRES_IN = '2h'
+/** Absolute JWT lifetime. Raising this makes sessions effectively permanent for active users. */
+const SESSION_DAYS = 30
+/** Re-issue a fresh JWT (same jti) when the presented token's iat is older than this. */
+const RENEW_AFTER_MS = 24 * 60 * 60 * 1000
+const RENEWED_TOKEN_HEADER = 'X-Renewed-Token'
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000
+const REVOKED_ROW_FALLBACK_MS = SESSION_DAYS * 24 * 60 * 60 * 1000
 
 let schemaReady = null
 
@@ -54,6 +65,8 @@ async function ensureSessionSecuritySchema(db) {
         }
       }
 
+      await ensureUserSessionsSchema(db)
+
       await db.execute(`
         UPDATE admin_notifications
         SET meta = JSON_REMOVE(meta, '$.temporaryPassword', '$.password', '$.temporary_password')
@@ -75,13 +88,33 @@ async function ensureSessionSecuritySchema(db) {
   return schemaReady
 }
 
-function signSessionToken(user) {
+function signTokenForUser(user, jti) {
   const secret = assertJwtSecret(env.jwtSecret)
   return jwt.sign(
-    { ...buildTokenPayload(user), jti: crypto.randomUUID() },
+    { ...buildTokenPayload(user), jti: String(jti).slice(0, 64) },
     secret,
-    { expiresIn: MAX_TOKEN_EXPIRES_IN, algorithm: 'HS256' },
+    { expiresIn: `${SESSION_DAYS}d`, algorithm: 'HS256' },
   )
+}
+
+async function signSessionToken(db, user, { jti } = {}) {
+  await ensureSessionSecuritySchema(db)
+  const tokenId = jti || crypto.randomUUID()
+  return {
+    token: signTokenForUser(user, tokenId),
+    jti: String(tokenId).slice(0, 64),
+  }
+}
+
+function shouldRenewToken(iat, nowMs = Date.now()) {
+  if (iat == null) return false
+  const issuedAtMs = Number(iat) * 1000
+  if (!Number.isFinite(issuedAtMs)) return false
+  return nowMs - issuedAtMs >= RENEW_AFTER_MS
+}
+
+function renewSessionToken(user, jti) {
+  return signTokenForUser(user, jti)
 }
 
 function tokenIssuedBeforeCutoff(iat, validAfter) {
@@ -99,30 +132,34 @@ async function isJtiRevoked(db, jti) {
   return rows.length > 0
 }
 
-async function revokePresentedToken(db, claims, userId) {
+async function revokePresentedToken(db, claims, userId, revokedBy = null) {
   if (!claims?.jti || !userId) return
+  await ensureSessionSecuritySchema(db)
   const expiresAt = claims.exp
     ? new Date(Number(claims.exp) * 1000)
-    : new Date(Date.now() + 2 * 60 * 60 * 1000)
+    : new Date(Date.now() + REVOKED_ROW_FALLBACK_MS)
   await db.execute(
     `INSERT INTO revoked_tokens (jti, user_id, expires_at)
      VALUES (?, ?, ?)
      ON DUPLICATE KEY UPDATE expires_at = VALUES(expires_at)`,
     [String(claims.jti).slice(0, 64), userId, expiresAt],
   )
+  await revokeUserSession(db, claims.jti, revokedBy ?? userId)
 }
 
-async function invalidateUserTokens(db, userId) {
+async function invalidateUserTokens(db, userId, revokedBy = null) {
   await ensureSessionSecuritySchema(db)
   await db.execute('UPDATE users SET tokens_valid_after = UNIX_TIMESTAMP() WHERE id = ?', [userId])
+  await revokeAllUserSessions(db, userId, revokedBy ?? userId)
 }
 
 function startRevokedTokenCleanup(db) {
   const run = async () => {
     try {
       await db.execute('DELETE FROM revoked_tokens WHERE expires_at < NOW()')
+      await cleanupOldUserSessions(db)
     } catch (error) {
-      console.error('Revoked token cleanup failed:', error.message)
+      console.error('Session cleanup failed:', error.message)
     }
   }
 
@@ -133,9 +170,13 @@ function startRevokedTokenCleanup(db) {
 }
 
 module.exports = {
-  MAX_TOKEN_EXPIRES_IN,
+  SESSION_DAYS,
+  RENEW_AFTER_MS,
+  RENEWED_TOKEN_HEADER,
   ensureSessionSecuritySchema,
   signSessionToken,
+  shouldRenewToken,
+  renewSessionToken,
   tokenIssuedBeforeCutoff,
   isJtiRevoked,
   revokePresentedToken,

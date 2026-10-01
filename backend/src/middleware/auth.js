@@ -1,12 +1,23 @@
 const jwt = require('jsonwebtoken')
 const db = require('../../db')
 const { env } = require('../config/env')
-const { normalizePermissions, isAdminRole, userHasPermission } = require('../constants/permissions')
+const {
+  isAdminRole,
+  userHasPermission,
+  normalizePermissions,
+} = require('../constants/permissions')
 const {
   ensureSessionSecuritySchema,
   isJtiRevoked,
   tokenIssuedBeforeCutoff,
+  shouldRenewToken,
+  renewSessionToken,
+  RENEWED_TOKEN_HEADER,
 } = require('../utils/sessionSecurity')
+const {
+  getSessionByJti,
+  touchUserSession,
+} = require('../utils/userSessions')
 
 const JWT_SECRET = env.jwtSecret
 
@@ -56,7 +67,22 @@ async function authenticateToken(req, res, next) {
       return res.status(401).json({ message: 'Invalid or expired session token' })
     }
 
-    if (!decoded.jti || (await isJtiRevoked(db, decoded.jti))) {
+    if (!decoded.jti) {
+      return res.status(401).json({ message: 'Invalid or expired session token' })
+    }
+
+    const sessionRow = await getSessionByJti(db, decoded.jti)
+    if (!sessionRow) {
+      return res.status(401).json({ message: 'Invalid or expired session token' })
+    }
+    if (sessionRow.revoked_at) {
+      return res.status(401).json({
+        message: 'Your session was ended by an administrator.',
+        code: 'SESSION_TERMINATED',
+      })
+    }
+
+    if (await isJtiRevoked(db, decoded.jti)) {
       return res.status(401).json({ message: 'Invalid or expired session token' })
     }
 
@@ -74,6 +100,14 @@ async function authenticateToken(req, res, next) {
     }
     req.tokenClaims = { jti: decoded.jti, exp: decoded.exp, iat: decoded.iat }
     req.auth = { id: user.id, username: user.username, role: user.role }
+
+    touchUserSession(db, decoded.jti).catch(() => {})
+
+    if (shouldRenewToken(decoded.iat)) {
+      const renewed = renewSessionToken(user, decoded.jti)
+      res.setHeader(RENEWED_TOKEN_HEADER, renewed)
+    }
+
     return next()
   } catch (error) {
     return res.status(401).json({ message: 'Invalid or expired session token' })

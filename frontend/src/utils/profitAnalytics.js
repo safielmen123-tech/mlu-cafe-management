@@ -8,6 +8,12 @@ function roundMoney(value) {
   return Math.round((Number(value) || 0) * 100) / 100
 }
 
+const PAYROLL_CATEGORIES = new Set(['payroll', 'staff / payroll'])
+
+function isPayrollCategory(category) {
+  return PAYROLL_CATEGORIES.has(String(category || '').trim().toLowerCase())
+}
+
 export function getExpenseMonthKey(expense) {
   return String(expense?.expense_date || '').slice(0, 7)
 }
@@ -50,6 +56,7 @@ export function buildDailyProfitForMonth(orders, expenses, monthKey) {
   const spendByDay = {}
 
   for (const expense of expenses) {
+    if (isPayrollCategory(expense.category)) continue
     const dateKey = String(expense.expense_date || '').slice(0, 10)
     if (!dateKey.startsWith(monthKey)) continue
     spendByDay[dateKey] = (spendByDay[dateKey] || 0) + Number.parseFloat(expense.amount || 0)

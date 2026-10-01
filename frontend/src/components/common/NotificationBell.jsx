@@ -17,11 +17,17 @@ export default function NotificationBell({ onNavigate }) {
     refresh,
     markNotificationRead,
     lowStockAlertsEnabled,
+    loginAlertsEnabled,
   } = useAlerts()
   const hasSecurityAlerts = alerts.some((alert) => alert.category === 'password_reset')
   const hasLoginLockAlerts = alerts.some((alert) => alert.category === 'security_alert')
   const hasReservationAlerts = alerts.some((alert) => alert.category === 'reservation')
-  const showNotifications = isAdmin || hasSecurityAlerts || hasReservationAlerts || lowStockAlertsEnabled
+  const showNotifications =
+    isAdmin ||
+    hasSecurityAlerts ||
+    hasReservationAlerts ||
+    lowStockAlertsEnabled ||
+    (loginAlertsEnabled && hasLoginLockAlerts)
   const [isOpen, setIsOpen] = useState(false)
   const panelRef = useRef(null)
   const buttonRef = useRef(null)
@@ -86,7 +92,7 @@ export default function NotificationBell({ onNavigate }) {
       {isOpen && showNotifications && (
         <div
           ref={panelRef}
-          className="absolute right-0 top-full z-50 mt-2 w-[22rem] overflow-hidden rounded-2xl border border-border/50 bg-card shadow-xl dark:bg-[#121816]/95 dark:shadow-black/40 dark:backdrop-blur-md sm:w-[26rem]"
+          className="absolute right-0 top-full z-50 mt-2 w-[22rem] overflow-hidden rounded-2xl border border-border bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 sm:w-[26rem]"
         >
           <AlertCenter
             alerts={alerts}

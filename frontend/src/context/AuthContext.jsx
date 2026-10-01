@@ -3,29 +3,41 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import {
   clearSession,
   consumeConnectionLost,
-  markConnectionLost,
   readSession,
   writeSession,
 } from '../services/sessionStorage'
 import { writeActiveView, resetActiveViewForLogin } from '../utils/activeViewStorage'
-import { apiFetch, CONNECTION_LOST_EVENT } from '../services/apiClient'
+import { apiFetch, SESSION_EXPIRED_EVENT } from '../services/apiClient'
 import {
   canAccessView,
   isAdminRole,
   normalizePermissions,
+  VALID_PERMISSIONS,
 } from '../utils/permissions'
 
 const AuthContext = createContext(null)
 
+function notifySessionChanged() {
+  window.dispatchEvent(new CustomEvent('mlu:session-changed'))
+}
+
+function normalizeSessionUser(user) {
+  if (!user) return null
+  return {
+    ...user,
+    permissions: isAdminRole(user.role)
+      ? [...VALID_PERMISSIONS]
+      : normalizePermissions(user.permissions),
+  }
+}
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(() => readSession())
 
-  const endLocalSession = useCallback((reason) => {
-    if (reason === 'connection-lost' && readSession()?.token) {
-      markConnectionLost()
-    }
+  const endLocalSession = useCallback(() => {
     clearSession()
     setSession(null)
+    notifySessionChanged()
   }, [])
 
   const refreshUser = useCallback(async () => {
@@ -36,17 +48,9 @@ export function AuthProvider({ children }) {
       const res = await apiFetch('/auth/me', { token: currentSession.token })
       const data = await res.json().catch(() => ({}))
 
-      if (!res.ok) {
-        if (res.status === 401) {
-          endLocalSession()
-        }
-        return null
-      }
+      if (!res.ok) return null
 
-      const nextUser = {
-        ...data.user,
-        permissions: normalizePermissions(data.user?.permissions),
-      }
+      const nextUser = normalizeSessionUser(data.user)
 
       const nextSession = {
         ...currentSession,
@@ -54,12 +58,12 @@ export function AuthProvider({ children }) {
       }
       writeSession(nextSession)
       setSession(nextSession)
+      notifySessionChanged()
       return nextUser
     } catch {
-      endLocalSession('connection-lost')
       return null
     }
-  }, [endLocalSession])
+  }, [])
 
   const login = useCallback(async ({ username, password }) => {
     const res = await apiFetch('/auth/login', {
@@ -88,10 +92,7 @@ export function AuthProvider({ children }) {
 
     consumeConnectionLost()
 
-    const nextUser = {
-      ...data.user,
-      permissions: normalizePermissions(data.user?.permissions),
-    }
+    const nextUser = normalizeSessionUser(data.user)
 
     const activePage = 'dashboard'
     resetActiveViewForLogin()
@@ -104,12 +105,13 @@ export function AuthProvider({ children }) {
 
     writeSession(nextSession)
     setSession(nextSession)
+    notifySessionChanged()
   }, [])
 
   const logout = useCallback(() => {
     const token = readSession()?.token
     if (token) {
-      apiFetch('/auth/logout', { method: 'POST' }).catch(() => {})
+      apiFetch('/auth/logout', { method: 'POST', activity: false }).catch(() => {})
     }
     endLocalSession()
   }, [endLocalSession])
@@ -127,8 +129,7 @@ export function AuthProvider({ children }) {
   const adoptSession = useCallback((token, user) => {
     const current = readSession()
     const nextUser = {
-      ...user,
-      permissions: normalizePermissions(user?.permissions),
+      ...normalizeSessionUser(user),
       must_change_password: Boolean(user?.must_change_password),
     }
     const nextSession = {
@@ -138,18 +139,24 @@ export function AuthProvider({ children }) {
     }
     writeSession(nextSession)
     setSession(nextSession)
+    notifySessionChanged()
   }, [])
 
-  const completePasswordChange = useCallback(async ({ password, confirmPassword }) => {
+  const completePasswordChange = useCallback(async ({ currentPassword, password, confirmPassword }) => {
     const res = await apiFetch('/auth/change-password', {
       method: 'POST',
-      body: JSON.stringify({ password, confirmPassword }),
+      body: JSON.stringify({ currentPassword, password, confirmPassword }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
       throw new Error(data.message || 'Could not update the password.')
     }
+    if (!data.token || !data.user) {
+      throw new Error(data.message || 'Could not update the password.')
+    }
+    // Persist the new session before anything else so a follow-up refresh cannot use the old token.
     adoptSession(data.token, data.user)
+    return data
   }, [adoptSession])
 
   useEffect(() => {
@@ -175,34 +182,12 @@ export function AuthProvider({ children }) {
   }, [session?.token, refreshUser])
 
   useEffect(() => {
-    const requireLogin = () => {
-      if (!readSession()?.token) {
-        setSession((prev) => (prev ? null : prev))
-        return
-      }
-      endLocalSession('connection-lost')
+    const onSessionExpired = () => {
+      if (!readSession()?.token) return
+      endLocalSession()
     }
-
-    if (typeof navigator !== 'undefined' && navigator.onLine === false && readSession()?.token) {
-      requireLogin()
-    }
-
-    const handlePageShow = (event) => {
-      if (!event.persisted) return
-      if (navigator.onLine === false || !readSession()?.token) {
-        requireLogin()
-      }
-    }
-
-    window.addEventListener('offline', requireLogin)
-    window.addEventListener(CONNECTION_LOST_EVENT, requireLogin)
-    window.addEventListener('pageshow', handlePageShow)
-
-    return () => {
-      window.removeEventListener('offline', requireLogin)
-      window.removeEventListener(CONNECTION_LOST_EVENT, requireLogin)
-      window.removeEventListener('pageshow', handlePageShow)
-    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired)
   }, [endLocalSession])
 
   const user = session?.user ?? null

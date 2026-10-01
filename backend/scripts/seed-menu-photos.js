@@ -33,12 +33,12 @@ const DRINKS = [
   { name: 'Passion W/ Milk', category: 'Coffee', hot: null, iced: 2.0, file: 'passion-with-milk.jpg' },
   { name: 'Passion Soda', category: 'Coffee', hot: null, iced: 2.0, file: 'passion-soda.jpg' },
   { name: 'Sero Milk', category: 'Coffee', hot: 1.5, iced: 1.5, file: 'sero-milk.jpg' },
-  { name: 'Red Milk Tea', category: 'Tea', hot: 1.25, iced: 1.5, file: 'red-milk-tea.jpg' },
-  { name: 'Green Milk Tea', category: 'Tea', hot: 1.25, iced: 1.5, file: 'green-milk-tea.jpg' },
-  { name: 'Butterfly Milk Tea', category: 'Tea', hot: 1.25, iced: 1.5, file: 'butterfly-milk-tea.jpg' },
+  { name: 'Red Milk Tea', category: 'Tea', hot: null, iced: 1.5, file: 'red-milk-tea.jpg' },
+  { name: 'Green Milk Tea', category: 'Tea', hot: null, iced: 1.5, file: 'green-milk-tea.jpg' },
+  { name: 'Butterfly Milk Tea', category: 'Tea', hot: null, iced: 1.5, file: 'butterfly-milk-tea.jpg' },
   { name: 'Green Lemon Tea', category: 'Tea', hot: 1.5, iced: 2.0, file: 'green-lemon-tea.jpg' },
   { name: 'Tea W/ Honey & Lemon', category: 'Tea', hot: 1.75, iced: 2.25, file: 'tea-honey-lemon.jpg' },
-  { name: 'Lemon Tea W/ Syrup', category: 'Tea', hot: 1.5, iced: 2.0, file: 'lemon-tea-syrup.jpg' },
+  { name: 'Lemon Tea W/ Syrup', category: 'Tea', hot: null, iced: 2.0, file: 'lemon-tea-syrup.jpg' },
   { name: 'Tea Selection', category: 'Tea', hot: 1.0, iced: 1.5, file: 'tea-selection.jpg' },
 ]
 
@@ -81,7 +81,8 @@ const FOOD = [
   { name: 'Garlic and Egg Fried Rice', category: 'Mains', price: 2.5, file: 'garlic-egg-fried-rice.jpg' },
   { name: 'Sweet and Sour Boneless Fish', category: 'Mains', price: 4.0, file: 'sweet-and-sour-boneless-fish.jpg' },
 
-  { name: 'Fish or Chicken Sour Soup', category: 'Soup', price: 3.5, file: 'fish-or-chicken-sour-soup.jpg' },
+  { name: 'Fish Sour Soup', category: 'Soup', price: 3.5, file: 'fish-or-chicken-sour-soup.jpg' },
+  { name: 'Chicken Sour Soup', category: 'Soup', price: 3.5, file: 'fish-or-chicken-sour-soup.jpg' },
   { name: 'Beef Sour Soup with Morning Glory', category: 'Soup', price: 4.0, file: 'beef-sour-soup-morning-glory.jpg' },
   { name: 'Wintermelon Soup with Pork Ribs', category: 'Soup', price: 4.0, file: 'wintermelon-soup-pork-ribs.jpg' },
 

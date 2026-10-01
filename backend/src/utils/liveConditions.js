@@ -1,11 +1,12 @@
 /**
  * Live weather and USD→KHR rate for the dashboard.
- * Both calls use fixed public URLs (no API keys, no user-controlled hosts)
- * and are cached so a busy till cannot hammer the upstream APIs.
+ * Weather refreshes often; exchange is daily (rates don't move like weather).
+ * Fixed public URLs only (no API keys, no user-controlled hosts).
  */
 const { env } = require('../config/env')
 
-const CACHE_TTL_MS = 15 * 60 * 1000
+const WEATHER_CACHE_TTL_MS = 2 * 60 * 1000
+const EXCHANGE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 8000
 
 const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast'
@@ -46,10 +47,8 @@ const WMO_CONDITIONS = {
   99: 'thunderstorm',
 }
 
-let cache = {
-  expiresAt: 0,
-  payload: null,
-}
+let weatherCache = { expiresAt: 0, value: null }
+let exchangeCache = { expiresAt: 0, value: null }
 
 function parseCoord(value, fallback) {
   const parsed = Number.parseFloat(value)
@@ -146,26 +145,43 @@ async function loadExchange() {
   }
 }
 
-async function getLiveConditions({ force = false } = {}) {
+function keepBest(previous, next) {
+  if (next?.ok) return next
+  if (previous?.ok) return previous
+  return next || previous || unavailable('unavailable')
+}
+
+async function refreshSlot(cache, ttlMs, loader, force) {
   const now = Date.now()
-  if (!force && cache.payload && cache.expiresAt > now) {
-    return cache.payload
+  if (!force && cache.value && cache.expiresAt > now) {
+    return cache.value
   }
 
-  const [weather, exchange] = await Promise.all([loadWeather(), loadExchange()])
-  const payload = {
+  const next = await loader()
+  const value = keepBest(cache.value, next)
+  // On failure, retry sooner than the full TTL while still serving last good value.
+  const ttl = next?.ok ? ttlMs : Math.min(ttlMs, 60 * 1000)
+  cache.expiresAt = now + ttl
+  cache.value = value
+  return value
+}
+
+async function getLiveConditions({ force = false } = {}) {
+  const [weather, exchange] = await Promise.all([
+    refreshSlot(weatherCache, WEATHER_CACHE_TTL_MS, loadWeather, force),
+    refreshSlot(exchangeCache, EXCHANGE_CACHE_TTL_MS, loadExchange, force),
+  ])
+
+  return {
     weather,
     exchange,
     fetchedAt: new Date().toISOString(),
   }
-  cache = {
-    expiresAt: now + CACHE_TTL_MS,
-    payload,
-  }
-  return payload
 }
 
 module.exports = {
   getLiveConditions,
   conditionFromCode,
+  WEATHER_CACHE_TTL_MS,
+  EXCHANGE_CACHE_TTL_MS,
 }

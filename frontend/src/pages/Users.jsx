@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KeyRound, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { apiFetch } from '../services/apiClient'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal'
 import { useAuth } from '../context/AuthContext'
-import { isAdminRole, normalizePermissions, PERMISSION_OPTIONS, VALID_PERMISSIONS } from '../utils/permissions'
+import {
+  STAFF_DEFAULT_PERMISSIONS,
+  defaultPermissionsForRole,
+  isAdminRole,
+  normalizePermissions,
+  permissionOptionsForRole,
+} from '../utils/permissions'
 
 const roleColors = {
   Admin: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/50',
-  Cashier: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-800/50',
+  Cashier: 'bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800/50',
   Staff: 'bg-stone-100 text-stone-700 ring-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:ring-stone-700',
 }
 
@@ -32,7 +38,8 @@ const PERMISSION_LABEL_KEYS = {
   reports: 'nav.reports',
 }
 
-const ALLOWED_ROLES = ['Admin', 'Staff']
+const ALLOWED_ROLES = ['Cashier', 'Staff']
+const ASSIGNABLE_ROLES = ['Cashier', 'Staff']
 
 function passwordMeetsPolicy(password) {
   return password.length >= 8 && /[A-Za-z]/.test(password) && /[0-9]/.test(password)
@@ -48,6 +55,12 @@ function permissionLabel(t, permissionId) {
   return key ? t(key) : permissionId
 }
 
+function roleBlurbKey(role) {
+  if (isAdminRole(role)) return 'users.roleBlurbAdmin'
+  if (String(role).toLowerCase() === 'cashier') return 'users.roleBlurbCashier'
+  return 'users.roleBlurbStaff'
+}
+
 function sortUsersWithAdminsFirst(userList) {
   return [...userList].sort((a, b) => {
     const aIsAdmin = isAdminRole(a.role)
@@ -60,14 +73,33 @@ function sortUsersWithAdminsFirst(userList) {
 function UserFormModal({ mode, user, onClose, onSave }) {
   const { t } = useTranslation()
   const isEdit = mode === 'edit'
+  const editingExistingAdmin = isEdit && isAdminRole(user?.role)
   const [displayName, setDisplayName] = useState(user?.display_name || '')
   const [username, setUsername] = useState(user?.username || '')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [role, setRole] = useState(ALLOWED_ROLES.includes(user?.role) ? user.role : 'Staff')
-  const [permissions, setPermissions] = useState(() => normalizePermissions(user?.permissions || []))
+  const [role, setRole] = useState(() => {
+    if (editingExistingAdmin) return 'Admin'
+    const normalized = String(user?.role || '').toLowerCase()
+    if (normalized === 'cashier' || normalized === 'supervisor') return 'Cashier'
+    if (normalized === 'staff') return 'Staff'
+    return 'Staff'
+  })
+  const [permissions, setPermissions] = useState(() => {
+    if (isAdminRole(user?.role)) return []
+    if (user?.permissions) return normalizePermissions(user.permissions)
+    return [...STAFF_DEFAULT_PERMISSIONS]
+  })
   const [error, setError] = useState('')
-  const isAdminUser = isAdminRole(role)
+  const isAdminUser = editingExistingAdmin || isAdminRole(role)
+  const availablePermissions = useMemo(() => permissionOptionsForRole(), [])
+
+  const handleRoleChange = (nextRole) => {
+    if (editingExistingAdmin) return
+    if (!ASSIGNABLE_ROLES.includes(nextRole)) return
+    setRole(nextRole)
+    setPermissions(defaultPermissionsForRole(nextRole))
+  }
 
   const handlePermissionToggle = (sectionId) => {
     setPermissions((prev) =>
@@ -112,7 +144,9 @@ function UserFormModal({ mode, user, onClose, onSave }) {
       display_name: displayName.trim(),
       username: username.toLowerCase().replace(/\s+/g, ''),
       role,
-      permissions: isAdminUser ? [...VALID_PERMISSIONS] : normalizePermissions(permissions),
+      permissions: isAdminUser
+        ? defaultPermissionsForRole('Admin')
+        : normalizePermissions(permissions),
     }
 
     if (password) {
@@ -130,7 +164,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="modal-backdrop" onClick={onClose} />
 
-      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-md p-6">
+      <div className="modal-panel relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto p-6">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-olive-100 text-forest-600 dark:bg-olive-900/40 dark:text-forest-400">
@@ -188,7 +222,7 @@ function UserFormModal({ mode, user, onClose, onSave }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={isEdit ? t('users.keepCurrentPassword') : '••••••'}
-                autoComplete={isEdit ? 'new-password' : 'new-password'}
+                autoComplete="new-password"
                 className="input-field px-3 py-2 text-sm"
               />
               {isEdit && (
@@ -210,32 +244,45 @@ function UserFormModal({ mode, user, onClose, onSave }) {
 
           <div>
             <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.assignmentRole')}</label>
-            <select value={role} onChange={(e) => setRole(e.target.value)} className="input-field bg-white px-3 py-2 text-sm dark:bg-obsidian-900">
-              <option value="Staff">{t('users.roles.staff')}</option>
-              <option value="Admin">{t('users.roles.admin')}</option>
-            </select>
+            {editingExistingAdmin ? (
+              <p className="input-field px-3 py-2 text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                {roleLabel(t, 'Admin')}
+              </p>
+            ) : (
+              <select
+                value={role}
+                onChange={(e) => handleRoleChange(e.target.value)}
+                className="input-field bg-white px-3 py-2 text-sm dark:bg-obsidian-900"
+              >
+                <option value="Staff">{t('users.roles.staff')}</option>
+                <option value="Cashier">{t('users.roles.cashier')}</option>
+              </select>
+            )}
+            <p className="text-muted mt-1.5 text-[11px] leading-snug">
+              {editingExistingAdmin ? t('users.roleBlurbAdminFixed') : t(roleBlurbKey(role))}
+            </p>
           </div>
 
           {!isAdminUser ? (
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.featurePermissions')}</label>
-            <div className="grid grid-cols-2 gap-2">
-              {PERMISSION_OPTIONS.map((section) => (
-                <label
-                  key={section.id}
-                  className="flex cursor-pointer items-center gap-2 rounded-xl border border-stone-200 p-2.5 text-xs font-medium transition-all hover:bg-stone-50 dark:border-obsidian-800 dark:hover:bg-obsidian-900/50"
-                >
-                  <input
-                    type="checkbox"
-                    checked={permissions.includes(section.id)}
-                    onChange={() => handlePermissionToggle(section.id)}
-                    className="h-4 w-4 rounded border-stone-300 text-forest-600 focus:ring-forest-500"
-                  />
-                  <span>{permissionLabel(t, section.id)}</span>
-                </label>
-              ))}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-stone-600 dark:text-stone-300">{t('users.featurePermissions')}</label>
+              <div className="grid grid-cols-2 gap-2">
+                {availablePermissions.map((section) => (
+                  <label
+                    key={section.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-xl border border-stone-200 p-2.5 text-xs font-medium transition-all hover:bg-stone-50 dark:border-obsidian-800 dark:hover:bg-obsidian-900/50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={permissions.includes(section.id)}
+                      onChange={() => handlePermissionToggle(section.id)}
+                      className="h-4 w-4 rounded border-stone-300 text-forest-600 focus:ring-forest-500"
+                    />
+                    <span>{permissionLabel(t, section.id)}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
           ) : (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:text-emerald-200">
               {t('users.adminFullAccessDescription')}

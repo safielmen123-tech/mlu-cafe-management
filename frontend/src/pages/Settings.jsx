@@ -1,15 +1,12 @@
-import { Bell, Clock, Droplets, Palette, Shield } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Bell, Clock, Palette, ShieldAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import ThemeToggle from '../components/ui/ThemeToggle'
 import SettingToggle from '../components/ui/SettingToggle'
-import AuditLogPanel from '../components/security/AuditLogPanel'
 import { useTheme } from '../context/ThemeContext'
 import { useSettings } from '../context/SettingsContext'
 import { useAuth } from '../context/AuthContext'
-import { isAdminRole } from '../utils/permissions'
+import { isAdminRole, userHasPermission } from '../utils/permissions'
 import { getSeasonForDate } from '../config/siteData'
-import { apiFetch } from '../services/apiClient'
 
 function SettingRow({ icon: Icon, label, description, children }) {
   return (
@@ -33,52 +30,15 @@ export default function Settings() {
   const { isDark } = useTheme()
   const { user } = useAuth()
   const {
-    isLiquidGlass,
     lowStockAlertsEnabled,
-    setIsLiquidGlass,
     setLowStockAlertsEnabled,
+    loginAlertsEnabled,
+    setLoginAlertsEnabled,
   } = useSettings()
 
   const isAdmin = isAdminRole(user?.role)
+  const canManageSettings = isAdmin || userHasPermission(user, 'settings')
   const currentSeason = getSeasonForDate(new Date())
-  const [sessionHours, setSessionHours] = useState(2)
-  const [savingSession, setSavingSession] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    apiFetch('/settings')
-      .then(async (res) => {
-        if (!res.ok) return
-        const data = await res.json().catch(() => ({}))
-        const hours = Number.parseInt(data.sessionHours, 10)
-        if (!cancelled && hours === 2) {
-          setSessionHours(hours)
-        }
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const handleSessionHoursChange = async (hours) => {
-    if (!isAdmin || hours === sessionHours || savingSession) return
-    setSavingSession(true)
-    try {
-      const res = await apiFetch('/settings/session-hours', {
-        method: 'PUT',
-        body: JSON.stringify({ hours }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.message)
-      const next = Number.parseInt(data.sessionHours, 10)
-      setSessionHours(next === 2 ? 2 : sessionHours)
-    } catch (error) {
-      console.error('Failed to update session hours:', error)
-    } finally {
-      setSavingSession(false)
-    }
-  }
 
   return (
     <div className="space-y-8 page-enter">
@@ -86,25 +46,27 @@ export default function Settings() {
         <h3 className="page-title">{t('nav.settings')}</h3>
       </div>
 
-      <div className="space-y-4">
-        <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
-          {t('settings.storeHours')}
-        </h4>
-        <SettingRow
-          icon={Clock}
-          label={t('settings.operatingHours')}
-          description={t('settings.operatingHoursDescription', {
-            season:
-              currentSeason.id === 'high' ? t('settings.highSeason') : t('settings.lowSeason'),
-            hours: currentSeason.hoursLabel,
-            offDay: t('settings.monday'),
-          })}
-        >
-          <span className="text-muted max-w-xs text-right text-sm font-medium">
-            {currentSeason.id === 'high' ? t('settings.highSeason') : t('settings.lowSeason')}
-          </span>
-        </SettingRow>
-      </div>
+      {canManageSettings ? (
+        <div className="space-y-4">
+          <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
+            {t('settings.storeHours')}
+          </h4>
+          <SettingRow
+            icon={Clock}
+            label={t('settings.operatingHours')}
+            description={t('settings.operatingHoursDescription', {
+              season:
+                currentSeason.id === 'high' ? t('settings.highSeason') : t('settings.lowSeason'),
+              hours: currentSeason.hoursLabel,
+              offDay: t('settings.monday'),
+            })}
+          >
+            <span className="text-muted max-w-xs text-right text-sm font-medium">
+              {currentSeason.id === 'high' ? t('settings.highSeason') : t('settings.lowSeason')}
+            </span>
+          </SettingRow>
+        </div>
+      ) : null}
 
       <div className="space-y-4">
         <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
@@ -127,101 +89,59 @@ export default function Settings() {
             <ThemeToggle variant="switch" />
           </div>
         </SettingRow>
-
-        <SettingRow
-          icon={Droplets}
-          label={t('settings.liquidGlass', { defaultValue: 'Liquid Glass' })}
-          description={t('settings.liquidGlassDesc', {
-            defaultValue:
-              'Frosted translucent panels with soft blur and subtle depth across the dashboard. Works with light and dark theme.',
-          })}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-muted text-sm">
-              {isLiquidGlass
-                ? t('settings.active', { defaultValue: 'Active' })
-                : t('settings.inactive', { defaultValue: 'Inactive' })}
-            </span>
-            <SettingToggle
-              enabled={isLiquidGlass}
-              onChange={setIsLiquidGlass}
-              ariaLabel={t('a11y.toggleLiquidGlass')}
-            />
-          </div>
-        </SettingRow>
       </div>
 
-      <div className="space-y-4">
-        <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
-          {t('settings.notifications', { defaultValue: 'Notifications' })}
-        </h4>
-
-        <SettingRow
-          icon={Bell}
-          label={t('settings.lowStockAlerts', { defaultValue: 'Low Stock Alerts' })}
-          description={t('settings.lowStockAlertsDesc', {
-            defaultValue: 'Receive alerts when inventory items fall below safe thresholds.',
-          })}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-muted text-sm">
-              {lowStockAlertsEnabled
-                ? t('settings.enabled', { defaultValue: 'Enabled' })
-                : t('settings.disabled', { defaultValue: 'Disabled' })}
-            </span>
-            <SettingToggle
-              enabled={lowStockAlertsEnabled}
-              onChange={setLowStockAlertsEnabled}
-              ariaLabel={t('a11y.toggleLowStockAlerts')}
-            />
-          </div>
-        </SettingRow>
-      </div>
-
-      <div className="space-y-4">
-        <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
-          {t('settings.security', { defaultValue: 'Security' })}
-        </h4>
-
-        <SettingRow
-          icon={Shield}
-          label={t('settings.sessionEndsAfter', { hours: sessionHours })}
-        >
-          {isAdmin ? (
-            <div className="flex gap-2">
-              {[2].map((hours) => {
-                const selected = sessionHours === hours
-                return (
-                  <button
-                    key={hours}
-                    type="button"
-                    disabled={savingSession}
-                    onClick={() => handleSessionHoursChange(hours)}
-                    className={
-                      selected
-                        ? 'rounded-full bg-forest-500 px-4 py-1.5 text-sm font-medium text-white shadow-sm disabled:opacity-70'
-                        : 'rounded-full bg-cocoa-50 px-4 py-1.5 text-sm text-cocoa-800 hover:bg-cocoa-100 disabled:opacity-70 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
-                    }
-                  >
-                    {t('settings.sessionHoursOption', { hours })}
-                  </button>
-                )
-              })}
-            </div>
-          ) : null}
-        </SettingRow>
-      </div>
-
-      {isAdmin && (
+      {canManageSettings ? (
         <div className="space-y-4">
           <h4 className="text-muted text-xs font-semibold uppercase tracking-wider">
-            {t('settings.auditSection', { defaultValue: 'Security History' })}
+            {t('settings.notifications', { defaultValue: 'Notifications' })}
           </h4>
-          <div className="surface-card p-5">
-            <AuditLogPanel />
-          </div>
+
+          <SettingRow
+            icon={Bell}
+            label={t('settings.lowStockAlerts', { defaultValue: 'Low stock' })}
+            description={t('settings.lowStockAlertsDesc', {
+              defaultValue: 'Alert when stock is low.',
+            })}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-muted text-sm">
+                {lowStockAlertsEnabled
+                  ? t('settings.enabled', { defaultValue: 'On' })
+                  : t('settings.disabled', { defaultValue: 'Off' })}
+              </span>
+              <SettingToggle
+                enabled={lowStockAlertsEnabled}
+                onChange={setLowStockAlertsEnabled}
+                ariaLabel={t('a11y.toggleLowStockAlerts')}
+              />
+            </div>
+          </SettingRow>
+
+          {isAdmin ? (
+            <SettingRow
+              icon={ShieldAlert}
+              label={t('settings.loginAlerts', { defaultValue: 'Login alert' })}
+              description={t('settings.loginAlertsDesc', {
+                defaultValue: 'Alert on login lockouts.',
+              })}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-muted text-sm">
+                  {loginAlertsEnabled
+                    ? t('settings.enabled', { defaultValue: 'On' })
+                    : t('settings.disabled', { defaultValue: 'Off' })}
+                </span>
+                <SettingToggle
+                  enabled={loginAlertsEnabled}
+                  onChange={setLoginAlertsEnabled}
+                  ariaLabel={t('a11y.toggleLoginAlerts')}
+                />
+              </div>
+            </SettingRow>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

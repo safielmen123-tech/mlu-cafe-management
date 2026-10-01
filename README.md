@@ -17,7 +17,7 @@ The sidebar tabs map one-to-one onto the files in `frontend/src/pages/`:
 | Sidebar tab                | Page component            | What it does                                               |
 | -------------------------- | ------------------------- | ---------------------------------------------------------- |
 | Dashboard                  | `Dashboard.jsx`           | Live KPIs, alerts, and daily sales overview                 |
-| Users                      | `Users.jsx`               | Staff accounts, roles, and per-view permissions (admin)     |
+| Users                      | `Users.jsx`               | Cashier/Staff accounts, roles, and per-view permissions (admin) |
 | Order                      | `Order.jsx`               | POS order entry for dine-in and takeaway                    |
 | Table                      | `Table.jsx`               | Floor plan and per-table bill status                        |
 | Payment                    | `Payment.jsx`             | Checkout, split/settle bills, and receipt printing          |
@@ -25,8 +25,36 @@ The sidebar tabs map one-to-one onto the files in `frontend/src/pages/`:
 | Inventory & Stock          | `InventoryStock.jsx`      | Ingredient stock levels and low-stock alerts                |
 | Menu Management            | `MenuManagement.jsx`      | Menu items, pricing, and photos                             |
 | Reports → Analysis         | `ReportsAnalysis.jsx`     | Sales charts and breakdowns over a chosen period            |
-| Others → Settings          | `Settings.jsx`            | Preferences, theme/language, and the audit log panel        |
-| Others → Backup & Recovery | `BackupRecovery.jsx`      | Database export and restore                                 |
+| Others → Settings          | `Settings.jsx`            | Theme for everyone; store hours / low-stock alerts need Settings tick |
+| Others → Data Management   | `BackupRecovery.jsx`      | Excel/PDF/SQL downloads (permission); Restore is Admin-only |
+
+## Roles and permissions
+
+| Role | Assignable | Defaults | Notes |
+|------|------------|----------|--------|
+| **Admin** | No (exactly one) | All ticks (bypass) | Sole access to Users, Security Alerts (login alerts + Audit log + Active sessions), and Restore |
+| **Cashier** | Yes | Order, Table, Payment, Reservations, Sales | Any allowlisted tick may be granted |
+| **Staff** | Yes | Order, Table, Reservations | Any allowlisted tick may be granted |
+
+**Permission ticks** (stored keys → pages/actions):
+
+| Key | UI label | Opens |
+|-----|----------|--------|
+| `dashboard` | Dashboard | Dashboard page |
+| `order` | Order | Order page / POS write |
+| `table` | Table | Table / floor |
+| `reservations` | Reservations | Reservations (also allowed via `table`) |
+| `payment` | Payment | Payment page |
+| `menu` | Menu Management | Menu CRUD |
+| `settings` | Settings | Non-theme Settings sections (theme is always available) |
+| `backup_recovery` | Data Management | Excel / PDF / SQL **download** |
+| `sales_history` | Sales | Sales History |
+| `inventory_stock` | Stock | Full Stock page (add/adjust/stocktake/edit/link) |
+| `reports` | Reports | Reports page, expenses, Dashboard spending/profit |
+
+**Hard Admin-only** (ticks ignored): Users APIs/page; Security Alerts + Audit log + Active sessions; database Restore.
+
+There are no role ceilings. Unknown permission keys on save return **400**. Role `Admin` or `Supervisor` cannot be assigned on create. Logout happens only on **401**, never on **403**.
 
 The login screen is `Login.jsx`. Routing is state-based (`App.jsx` switches on a view id and
 mirrors it to the URL hash) rather than react-router, so the view ids in
@@ -156,6 +184,10 @@ cd backend
 npm run seed:admin
 ```
 
+`seed:admin` **deletes every user** and creates a single Admin. Use it only on a fresh
+database. To recover a forgotten Admin password later without wiping Staff accounts, use
+`npm run admin:reset` (see **Emergency Admin recovery** below).
+
 Optionally load sample transactions so the dashboard and reports have data to show:
 
 ```bash
@@ -216,15 +248,40 @@ inlining it.
 **Login and sessions.** Passwords are stored as bcrypt hashes and only ever checked with
 `bcrypt.compare()`. Failed logins return one message — `"Invalid username or password"` —
 for every cause, and a bcrypt comparison runs even when the account does not exist so
-response timing cannot be used to discover valid usernames. Tokens are HS256 JWTs that
-expire after `JWT_EXPIRES_IN` (default `8h`); the verifier pins the algorithm and reloads
-the user from the database on every request, so deleting or changing an account takes
-effect immediately instead of at token expiry.
+response timing cannot be used to discover valid usernames. Tokens are HS256 JWTs with a
+`SESSION_DAYS` lifetime (default **30 days**). When a presented token’s `iat` is older than
+**24 hours**, the API returns a fresh JWT in the `X-Renewed-Token` header (same `jti`); the
+client stores it so active staff stay signed in without logging in again. Raising
+`SESSION_DAYS` makes sessions effectively permanent for anyone who uses the till at least
+monthly. There is **no idle auto-logout**. The verifier pins the algorithm, reloads the
+user from the database on every request, checks `revoked_tokens` and the `user_sessions`
+row, and honors `tokens_valid_after` after password changes. An administrator can
+terminate any session from **Security Alerts → Active sessions**; the next request from
+that device returns 401 with `Your session was ended by an administrator.` Logout still
+happens only on **401**, never on 403 or network loss.
 
 **Accounts.** There is no public sign-up. `/api/auth/register`, `/api/auth/signup`,
-`/api/register`, and `/api/signup` all return 403. New staff are created only by an
-administrator in User Management. The Admin recovery inbox is `ADMIN_EMAIL`
+`/api/register`, and `/api/signup` all return 403. The system has **exactly one Admin**
+account: User Management can only create Cashier or Staff, and the API rejects any
+attempt to create or promote an Admin (even with an Admin token). The existing Admin’s
+role cannot be changed through the API. The Admin recovery inbox is `ADMIN_EMAIL`
 (default `antagonistslayer9000@gmail.com`).
+
+**Emergency Admin recovery (server PC only).** If the Admin password is lost or the
+account is locked out, someone with access to the server machine can reset it from the
+backend folder — never through the web app or API:
+
+```bash
+cd backend
+npm run admin:reset
+```
+
+The command prompts for a new password (hidden input; nothing is printed or passed on the
+command line), enforces the normal password policy, resets the Admin hash, clears login
+lockouts and related device blocks for that account, revokes existing sessions, and sets
+`must_change_password`. It writes an audit log entry: `Admin password reset from server
+console`. If no Admin row exists, it offers to recreate one. Prefer this over
+`npm run seed:admin`, which wipes all users.
 
 **Password reset.** `POST /api/auth/forgot-password` takes a username. If the account is
 the administrator, a temporary password is emailed to `ADMIN_EMAIL` (or written to
@@ -258,7 +315,7 @@ past the login rate limiter.
 
 ## Known limitations
 
-Completed receipts are not reversed. There is no refund flow yet, so a paid order does not put stock back. Stock counts can also drift from what is actually on the shelf. Use **Adjust stock** on the Stock page (Admin only, a reason is required) to set the exact count. **Add stock** only adds a received quantity.
+Completed receipts are not reversed. There is no refund flow yet, so a paid order does not put stock back. Stock counts can also drift from what is actually on the shelf. Use **Adjust stock** on the Stock page (requires the Stock permission; a reason is required) to set the exact count. **Add stock** only adds a received quantity.
 
 ## Menu item photos
 

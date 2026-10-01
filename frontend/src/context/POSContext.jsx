@@ -122,7 +122,15 @@ export function POSProvider({ children }) {
       const query = buildSalesHistoryQuery(options)
       const response = await apiFetch(`/orders/history?${query}`, { token })
       if (response.status === 401) return null
-      if (!response.ok) throw new Error(`Server status returned ${response.status}`)
+      // Staff without Sales, or any permission ceiling miss: keep Order/Payment working.
+      if (response.status === 403 || response.status === 400) {
+        setSalesHistory([])
+        return []
+      }
+      if (!response.ok) {
+        setSalesHistory([])
+        return []
+      }
       const historyRows = await response.json()
 
       if (historyRows && Array.isArray(historyRows)) {
@@ -252,7 +260,7 @@ export function POSProvider({ children }) {
     }
   }
 
-  const assignOrder = (destinationId, cartItems) => {
+  const assignOrder = async (destinationId, cartItems) => {
     if (!cartItems.length) return false
 
     const safeCartItems = cartItems.map((item) =>
@@ -274,6 +282,13 @@ export function POSProvider({ children }) {
       return applyItemsToBill(bill, finalizedItems, status)
     }
 
+    try {
+      await postOrderToServer(destinationId, safeCartItems)
+    } catch (err) {
+      console.error('Failed to log order to MySQL:', err.message)
+      return false
+    }
+
     if (destinationId === 'takeout') {
       setTakeOut((prev) => updateBill(prev))
     } else {
@@ -281,10 +296,6 @@ export function POSProvider({ children }) {
         prev.map((table) => (table.id === destinationId ? updateBill(table) : table)),
       )
     }
-
-    postOrderToServer(destinationId, safeCartItems).catch((err) => {
-      console.error('Failed to log order to MySQL (local state retained):', err.message)
-    })
 
     return true
   }
@@ -338,24 +349,6 @@ export function POSProvider({ children }) {
 
     const { subtotal, tax, total } = calculateTotals(bill.items)
     const { date, time } = formatNow()
-    const invoiceId = formatInvoiceId(invoiceCounter)
-
-    const transaction = {
-      id: invoiceId,
-      date,
-      time,
-      monthKey: date.slice(0, 7),
-      payment: paymentMethod,
-      subtotal,
-      tax,
-      total,
-      status: 'Completed',
-      source: bill.name,
-      summary: bill.orderSummary,
-      items: bill.items.map((item) => ({ ...item })),
-    }
-
-    let persistedToServer = false
 
     try {
       await persistBillItems(destinationId, bill.items)
@@ -365,7 +358,6 @@ export function POSProvider({ children }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...buildOrderTargetPayload(destinationId),
-          invoice_id: invoiceId,
           payment_method: paymentMethod,
           subtotal,
           tax,
@@ -373,32 +365,47 @@ export function POSProvider({ children }) {
         }),
       })
 
+      const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
         throw new Error(data.detail || data.message || `Server status returned ${response.status}`)
       }
-      persistedToServer = true
-    } catch (err) {
-      console.error('Failed logging transaction payment:', err.message)
-    }
 
-    setSalesHistory((prev) => [transaction, ...prev])
-    if (persistedToServer) {
+      const invoiceId = data.invoice_id || formatInvoiceId(invoiceCounter)
+
+      const transaction = {
+        id: invoiceId,
+        date,
+        time,
+        monthKey: date.slice(0, 7),
+        payment: paymentMethod,
+        subtotal,
+        tax,
+        total,
+        status: 'Completed',
+        source: bill.name,
+        summary: bill.orderSummary,
+        items: bill.items.map((item) => ({ ...item })),
+      }
+
+      setSalesHistory((prev) => [transaction, ...prev])
       loadSalesHistory().catch((err) => {
         console.error('Failed to refresh sales history after checkout:', err.message)
       })
+      setInvoiceCounter((prev) => prev + 1)
+
+      const cleared = applyItemsToBill(bill, [])
+
+      if (destinationId === 'takeout') {
+        setTakeOut(cleared)
+      } else {
+        setTables((prev) => prev.map((table) => (table.id === destinationId ? cleared : table)))
+      }
+
+      return transaction
+    } catch (err) {
+      console.error('Failed logging transaction payment:', err.message)
+      return null
     }
-    setInvoiceCounter((prev) => prev + 1)
-
-    const cleared = applyItemsToBill(bill, [])
-
-    if (destinationId === 'takeout') {
-      setTakeOut(cleared)
-    } else {
-      setTables((prev) => prev.map((table) => (table.id === destinationId ? cleared : table)))
-    }
-
-    return transaction
   }
 
   return (

@@ -225,10 +225,12 @@ async function createSalesPdf(db, query, user) {
     ? { monthData: await loadMonthSales(db, period), summary: null }
     : { monthData: null, summary: await loadAllTimeSummary(db) }
   const buffer = await buildSalesPdfBuffer({ period, generatedBy, ...payload })
+  const totals = period.scope === 'month' ? payload.monthData.totals : payload.summary.totals
   return {
     buffer,
     filename: salesPdfFilename(period),
     periodLabel: period.label,
+    totals,
   }
 }
 

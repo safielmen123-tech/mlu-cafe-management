@@ -71,14 +71,15 @@ async function ensureKulenWater(db) {
   return ensureDirectLink(db, KULEN_NAME)
 }
 
-const DECIMAL_12_3 = [
-  ['inventory', 'stock_quantity', 'DECIMAL(12,3) NOT NULL DEFAULT 0'],
-  ['stock_movements', 'change_amount', 'DECIMAL(12,3) NOT NULL'],
-  ['stock_movements', 'quantity_after', 'DECIMAL(12,3) NOT NULL'],
-  ['menu_item_stock_links', 'quantity_per_unit', 'DECIMAL(12,3) NOT NULL'],
+// Fractional cans (e.g. Condensed Milk) need ≥6 decimal places so grams/300 stays exact.
+const STOCK_DECIMALS = [
+  ['inventory', 'stock_quantity', 'DECIMAL(14,6) NOT NULL DEFAULT 0', 'decimal(14,6)'],
+  ['stock_movements', 'change_amount', 'DECIMAL(14,6) NOT NULL', 'decimal(14,6)'],
+  ['stock_movements', 'quantity_after', 'DECIMAL(14,6) NOT NULL', 'decimal(14,6)'],
+  ['menu_item_stock_links', 'quantity_per_unit', 'DECIMAL(18,6) NOT NULL', 'decimal(18,6)'],
 ]
 
-async function ensureDecimalScale(db, table, column, definition) {
+async function ensureDecimalScale(db, table, column, definition, expectedType) {
   const [rows] = await db.execute(
     `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
@@ -86,11 +87,11 @@ async function ensureDecimalScale(db, table, column, definition) {
   )
   const from = String(rows[0]?.COLUMN_TYPE || '')
   if (!from) return { table, column, changed: false, missing: true }
-  if (from.toLowerCase() === 'decimal(12,3)') {
+  if (from.toLowerCase() === expectedType) {
     return { table, column, changed: false, type: from }
   }
   await db.execute(`ALTER TABLE \`${table}\` MODIFY \`${column}\` ${definition}`)
-  return { table, column, changed: true, from, to: 'decimal(12,3)' }
+  return { table, column, changed: true, from, to: expectedType }
 }
 
 async function ensureStockSchema(db) {
@@ -113,7 +114,7 @@ async function ensureStockSchema(db) {
           option_key VARCHAR(32) NOT NULL DEFAULT '',
           option_value VARCHAR(64) NOT NULL DEFAULT '',
           inventory_id INT NOT NULL,
-          quantity_per_unit DECIMAL(12,3) NOT NULL,
+          quantity_per_unit DECIMAL(18,6) NOT NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
@@ -129,8 +130,8 @@ async function ensureStockSchema(db) {
         CREATE TABLE IF NOT EXISTS stock_movements (
           id INT NOT NULL AUTO_INCREMENT,
           inventory_id INT NOT NULL,
-          change_amount DECIMAL(12,3) NOT NULL,
-          quantity_after DECIMAL(12,3) NOT NULL,
+          change_amount DECIMAL(14,6) NOT NULL,
+          quantity_after DECIMAL(14,6) NOT NULL,
           reason ENUM('sale','restock','cancel','adjustment','waste') NOT NULL,
           order_id INT NULL,
           note VARCHAR(255) NULL,
@@ -146,8 +147,8 @@ async function ensureStockSchema(db) {
       `)
 
       const decimals = []
-      for (const [table, column, definition] of DECIMAL_12_3) {
-        decimals.push(await ensureDecimalScale(db, table, column, definition))
+      for (const [table, column, definition, expectedType] of STOCK_DECIMALS) {
+        decimals.push(await ensureDecimalScale(db, table, column, definition, expectedType))
       }
 
       const beers = []

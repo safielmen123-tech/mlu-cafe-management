@@ -5,7 +5,12 @@ const DEFAULT_API_BASE = 'http://localhost:5500/api'
 
 export const API_BASE = (import.meta.env.VITE_API_URL || DEFAULT_API_BASE).replace(/\/$/, '')
 
-export const CONNECTION_LOST_EVENT = 'mlu:connection-lost'
+export const SESSION_EXPIRED_EVENT = 'mlu:session-expired'
+export const BACKEND_STATUS_EVENT = 'mlu:backend-status'
+const RENEWED_TOKEN_HEADER = 'X-Renewed-Token'
+
+const GET_ATTEMPTS = 3
+const GET_RETRY_DELAYS_MS = [300, 800]
 
 const PUBLIC_API_PATHS = new Set(['/auth/login', '/auth/forgot-password'])
 const SILENT_NETWORK_PATHS = new Set(['/auth/login', '/auth/forgot-password', '/auth/logout'])
@@ -33,11 +38,34 @@ function unauthenticatedResponse() {
   })
 }
 
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function noteBackend(reachable) {
+  window.dispatchEvent(new CustomEvent(BACKEND_STATUS_EVENT, { detail: { reachable } }))
+}
+
+function noteSessionExpired() {
+  window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
+}
+
+function storeRenewedToken(response) {
+  const renewed = response.headers.get(RENEWED_TOKEN_HEADER)
+  if (!renewed) return
+  const session = readSession()
+  if (!session?.token) return
+  writeSession({ ...session, token: renewed })
+}
+
 export async function apiFetch(path, options = {}) {
   const token = options.token ?? getAuthToken()
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   const fetchOptions = { ...options }
   delete fetchOptions.token
+  delete fetchOptions.activity
   const headers = {
     ...(fetchOptions.body ? { 'Content-Type': 'application/json' } : {}),
     ...(await deviceHeaders()),
@@ -52,17 +80,33 @@ export async function apiFetch(path, options = {}) {
     headers.Authorization = `Bearer ${token}`
   }
 
-  try {
-    return await fetch(`${API_BASE}${normalizedPath}`, {
-      ...fetchOptions,
-      headers,
-    })
-  } catch (error) {
-    if (!SILENT_NETWORK_PATHS.has(normalizeApiPath(normalizedPath))) {
-      window.dispatchEvent(new CustomEvent(CONNECTION_LOST_EVENT))
+  const method = String(fetchOptions.method || 'GET').toUpperCase()
+  const attempts = method === 'GET' ? GET_ATTEMPTS : 1
+  let lastError = null
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(`${API_BASE}${normalizedPath}`, {
+        ...fetchOptions,
+        headers,
+      })
+      noteBackend(true)
+      storeRenewedToken(response)
+      if (token && !isPublicApiPath(normalizedPath) && response.status === 401) {
+        noteSessionExpired()
+      }
+      if (response.status < 500 || attempt === attempts - 1) return response
+    } catch (error) {
+      lastError = error
+      if (attempt === attempts - 1) break
     }
-    throw error
+    await delay(GET_RETRY_DELAYS_MS[attempt] ?? 800)
   }
+
+  if (!SILENT_NETWORK_PATHS.has(normalizeApiPath(normalizedPath))) {
+    noteBackend(false)
+  }
+  throw lastError || new Error('Backend unreachable')
 }
 
 function parseFilenameFromDisposition(headerValue) {
@@ -134,13 +178,23 @@ export async function apiUpload(path, fieldName, file) {
   const formData = new FormData()
   formData.append(fieldName, file)
 
-  const response = await fetch(`${API_BASE}${normalizedPath}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, ...(await deviceHeaders()) },
-    body: formData,
-  })
+  let response
+  try {
+    response = await fetch(`${API_BASE}${normalizedPath}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, ...(await deviceHeaders()) },
+      body: formData,
+    })
+  } catch (error) {
+    noteBackend(false)
+    throw error
+  }
 
+  noteBackend(true)
   const payload = await response.json().catch(() => ({}))
+  if (response.status === 401) {
+    noteSessionExpired()
+  }
 
   if (!response.ok) {
     throw new Error(payload.message || payload.detail || 'Upload failed')

@@ -7,7 +7,7 @@ const AlertsContext = createContext(null)
 const POLL_INTERVAL_MS = 30_000
 
 export function AlertsProvider({ children }) {
-  const { lowStockAlertsEnabled } = useSettings()
+  const { lowStockAlertsEnabled, loginAlertsEnabled } = useSettings()
   const [alerts, setAlerts] = useState([])
   const [rawCounts, setRawCounts] = useState({
     total: 0,
@@ -36,7 +36,7 @@ export function AlertsProvider({ children }) {
         return null
       }
       if (!response.ok) {
-        setError('Alerts temporarily unavailable')
+        setError('unavailable')
         setAlerts([])
         setRawCounts({ total: 0, critical: 0, warning: 0, info: 0 })
         return null
@@ -47,8 +47,8 @@ export function AlertsProvider({ children }) {
       setGeneratedAt(data.generatedAt || null)
       setError(null)
       return data
-    } catch (err) {
-      setError(err.message || 'Failed to load alerts')
+    } catch {
+      setError('unavailable')
       setAlerts([])
       setRawCounts({ total: 0, critical: 0, warning: 0, info: 0 })
       return null
@@ -85,8 +85,8 @@ export function AlertsProvider({ children }) {
   }, [fetchAlerts])
 
   const settingsSnapshot = useMemo(
-    () => ({ lowStockAlertsEnabled }),
-    [lowStockAlertsEnabled],
+    () => ({ lowStockAlertsEnabled, loginAlertsEnabled }),
+    [lowStockAlertsEnabled, loginAlertsEnabled],
   )
 
   const visibleAlerts = useMemo(
@@ -112,6 +112,7 @@ export function AlertsProvider({ children }) {
       refetch: fetchAlerts,
       markNotificationRead,
       lowStockAlertsEnabled,
+      loginAlertsEnabled,
     }),
     [
       visibleAlerts,
@@ -125,6 +126,7 @@ export function AlertsProvider({ children }) {
       fetchAlerts,
       markNotificationRead,
       lowStockAlertsEnabled,
+      loginAlertsEnabled,
     ],
   )
 

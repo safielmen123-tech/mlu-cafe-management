@@ -1,5 +1,6 @@
 /**
- * Idempotent recipe loader for desserts, vegetables, soups, mains, starters, cold drinks, and teas.
+ * Idempotent recipe loader for desserts, vegetables, soups, mains, starters,
+ * cold drinks, teas, and coffee drinks.
  * Does not touch the sales seed. Gram amounts are estimates per one menu
  * item. Kg stock uses quantity_per_unit = grams / 1000. Counted units
  * use units per serving directly.
@@ -35,7 +36,7 @@ const INGREDIENTS = [
   { id: 'yellow-bean-paste', name: 'Fermented Yellow Bean Paste', category: 'Sauces', onHand: 1, max: 2 },
   { id: 'cooking-oil', name: 'Cooking Oil', category: 'Oils', onHand: 8, max: 15 },
   { id: 'salad-dressing', name: 'House Salad Dressing', category: 'Sauces', onHand: 1, max: 2 },
-  { id: 'fish-chicken', name: 'Fish or Chicken (soup protein)', category: 'Meat', onHand: 4, max: 8 },
+  { id: 'fish-chicken', name: 'Fish (soup)', category: 'Meat', onHand: 4, max: 8 },
   { id: 'beef', name: 'Beef (Fresh)', existing: true },
   { id: 'pork-ribs', name: 'Pork Spare Ribs', category: 'Meat', onHand: 5, max: 10 },
   { id: 'winter-melon', name: 'Fresh Winter Melon', category: 'Produce', onHand: 4, max: 8 },
@@ -84,17 +85,24 @@ const INGREDIENTS = [
   { id: 'tonic', name: 'Tonic Water (can)', category: 'Drinks', onHand: 24, max: 48, section: 'countable', unit: 'cans' },
   { id: 'cambodia-water', name: 'Cambodia Water 500ml', category: 'Drinks', onHand: 24, max: 48, section: 'countable', unit: 'bottles', ignoreNear: ['Cambodia'] },
   { id: 'kulen-water', name: 'Kulen Water (1.5L)', category: 'Drinks', onHand: 12, max: 24, section: 'countable', unit: 'bottles' },
-  { id: 'whole-milk', name: 'Whole Milk', existing: true },
+  { id: 'whole-milk', name: 'Whole Milk', existing: true, packSizeG: 1000 },
   { id: 'red-tea', name: 'Thai Red Tea Leaves', category: 'Bar Supplies', onHand: 2, max: 4 },
-  { id: 'green-tea', name: 'Green Tea Leaves', category: 'Bar Supplies', onHand: 2, max: 4 },
-  { id: 'black-tea', name: 'Black Tea Leaves', category: 'Bar Supplies', onHand: 2, max: 4 },
-  { id: 'butterfly-pea', name: 'Dried Butterfly Pea Flowers', category: 'Bar Supplies', onHand: 0.5, max: 1 },
+  { id: 'green-tea', name: 'Green Tea Leaves', category: 'Bar Supplies', onHand: 2, max: 6 },
+  { id: 'black-tea', name: 'Black Tea Leaves', category: 'Bar Supplies', onHand: 2, max: 5 },
+  { id: 'butterfly-pea', name: 'Dried Butterfly Pea Flowers', category: 'Bar Supplies', onHand: 0.5, max: 2 },
   { id: 'boba', name: 'Tapioca Pearls (Boba, dry)', category: 'Bar Supplies', onHand: 3, max: 6, ignoreNear: ['Small Tapioca Pearls (Sago)'] },
-  { id: 'condensed-milk', name: 'Condensed Milk', category: 'Dairy', onHand: 4, max: 8 },
+  { id: 'condensed-milk', name: 'Condensed Milk', category: 'Dairy', onHand: 13.333333, max: 48, section: 'countable', unit: 'cans', packSizeG: 300 },
   { id: 'evaporated-milk', name: 'Evaporated Milk', category: 'Dairy', onHand: 4, max: 8 },
-  { id: 'honey', name: 'Pure Honey', category: 'Bar Supplies', onHand: 2, max: 4 },
+  { id: 'honey', name: 'Pure Honey', category: 'Bar Supplies', onHand: 2, max: 5 },
   { id: 'lemons', name: 'Fresh Lemons', category: 'Produce', onHand: 3, max: 6 },
   { id: 'tea-bags', name: 'Tea Bags (assorted)', category: 'Bar Supplies', onHand: 100, max: 200, section: 'countable', unit: 'tea bags' },
+  { id: 'coffee-beans', name: 'Coffee Beans', existing: true, packSizeG: 1000 },
+  { id: 'khmer-beans', name: 'Khmer Dark Roast Coffee (Robusta)', category: 'Coffee', onHand: 3, max: 6, ignoreNear: ['Coffee Beans'] },
+  { id: 'chocolate', name: 'Chocolate Powder', category: 'Bar Supplies', onHand: 3, max: 12 },
+  { id: 'whipped-cream', name: 'Whipped Cream', category: 'Dairy', onHand: 2, max: 4 },
+  { id: 'matcha', name: 'Matcha Powder', category: 'Bar Supplies', onHand: 1, max: 12, ignoreNear: ['Green Tea Leaves', 'Black Tea Leaves', 'Thai Red Tea Leaves'] },
+  { id: 'passion', name: 'Fresh Passion Fruit Pulp', category: 'Produce', onHand: 4, max: 8 },
+  { id: 'soda-water', name: 'Soda Water (can)', category: 'Drinks', onHand: 24, max: 48, section: 'countable', unit: 'cans' },
 ]
 
 const MENU_NAMES = {
@@ -105,8 +113,10 @@ const MENU_NAMES = {
   'Wok Fried Morning Glory': 'Wok Fried Morning Glory',
   'Mixed Vegetables': 'Mixed Vegetables',
   'Pok Choy with Oyster Sauce': 'Pok Choy with Oyster Sauce',
-  'Fish or Chicken Sour Soup (Samlor Machu)': 'Fish or Chicken Sour Soup (Samlor Machu)',
-  'Beef Sour Soup with Morning Glory (Samlor Machu Trei/Sach Ko)': 'Beef Sour Soup with Morning Glory (Samlor Machu Trei/Sach Ko)',
+  'Fish Sour Soup (Samlor Machu Trei)': 'Fish Sour Soup',
+  'Chicken Sour Soup (Samlor Machu Sach Moan)': 'Chicken Sour Soup',
+  'Fish or Chicken Sour Soup (Samlor Machu)': 'Fish Sour Soup',
+  'Beef Sour Soup with Morning Glory (Samlor Machu Trei/Sach Ko)': 'Beef Sour Soup with Morning Glory',
   'Wintermelon Soup with Pork Ribs': 'Wintermelon Soup with Pork Ribs',
   'Fried Local Fish with Tamarind': 'Fried Local Fish with Tamarind',
   'Hot Basil Chicken': 'Hot Basil Chicken',
@@ -138,6 +148,18 @@ const MENU_NAMES = {
   'Tea W/ Honey & Lemon': 'Tea W/ Honey & Lemon',
   'Lemon Tea W/ Syrup': 'Lemon Tea W/ Syrup',
   'Tea Selection': 'Tea Selection',
+  Espresso: 'Espresso',
+  Americano: 'Americano',
+  Mocha: 'Mocha',
+  Cappuccino: 'Cappuccino',
+  Latte: 'Latte',
+  Chocolate: 'Chocolate',
+  Matcha: 'Matcha',
+  'Matcha Espresso': 'Matcha Espresso',
+  'Khmer Coffee': 'Khmer Coffee',
+  'Passion W/ Milk': 'Passion W/ Milk',
+  'Passion Soda': 'Passion Soda',
+  'Sero Milk': 'Sero Milk',
 }
 
 const RECIPES = [
@@ -204,9 +226,22 @@ const RECIPES = [
     ],
   },
   {
-    recipe: 'Fish or Chicken Sour Soup (Samlor Machu)',
+    recipe: 'Fish Sour Soup (Samlor Machu Trei)',
     lines: [
       { ingredient: 'fish-chicken', grams: 200 },
+      { ingredient: 'tamarind', grams: 25 },
+      { ingredient: 'pineapple', grams: 60 },
+      { ingredient: 'tomato', grams: 50 },
+      { ingredient: 'garlic', grams: 10 },
+      { ingredient: 'fish-sauce', grams: 20 },
+      { ingredient: 'white-sugar', grams: 10 },
+      { ingredient: 'stock-powder', grams: 5 },
+    ],
+  },
+  {
+    recipe: 'Chicken Sour Soup (Samlor Machu Sach Moan)',
+    lines: [
+      { ingredient: 'chicken-breast', grams: 200 },
       { ingredient: 'tamarind', grams: 25 },
       { ingredient: 'pineapple', grams: 60 },
       { ingredient: 'tomato', grams: 50 },
@@ -523,6 +558,86 @@ const RECIPES = [
     recipe: 'Tea Selection',
     lines: [{ ingredient: 'tea-bags', units: 1 }],
   },
+  { recipe: 'Espresso', lines: [{ ingredient: 'coffee-beans', grams: 18 }] },
+  { recipe: 'Americano', lines: [{ ingredient: 'coffee-beans', grams: 18 }] },
+  {
+    recipe: 'Mocha',
+    lines: [
+      { ingredient: 'coffee-beans', grams: 18 },
+      { ingredient: 'chocolate', grams: 25 },
+      { ingredient: 'whole-milk', grams: 150 },
+    ],
+  },
+  {
+    recipe: 'Cappuccino',
+    lines: [
+      { ingredient: 'coffee-beans', grams: 18 },
+      { ingredient: 'whole-milk', grams: 140 },
+    ],
+  },
+  {
+    recipe: 'Latte',
+    lines: [
+      { ingredient: 'coffee-beans', grams: 18 },
+      { ingredient: 'whole-milk', grams: 180 },
+    ],
+  },
+  {
+    recipe: 'Chocolate',
+    lines: [
+      { ingredient: 'chocolate', grams: 25 },
+      { ingredient: 'whole-milk', grams: 180 },
+      { ingredient: 'syrup', grams: 15 },
+      { ingredient: 'whipped-cream', grams: 20 },
+    ],
+  },
+  {
+    recipe: 'Matcha',
+    lines: [
+      { ingredient: 'matcha', grams: 8 },
+      { ingredient: 'whole-milk', grams: 180 },
+      { ingredient: 'syrup', grams: 20 },
+    ],
+  },
+  {
+    recipe: 'Matcha Espresso',
+    lines: [
+      { ingredient: 'matcha', grams: 6 },
+      { ingredient: 'coffee-beans', grams: 18 },
+      { ingredient: 'whole-milk', grams: 150 },
+      { ingredient: 'syrup', grams: 15 },
+    ],
+  },
+  {
+    recipe: 'Khmer Coffee',
+    lines: [
+      { ingredient: 'khmer-beans', grams: 22 },
+      { ingredient: 'condensed-milk', grams: 35 },
+    ],
+  },
+  {
+    recipe: 'Passion W/ Milk',
+    lines: [
+      { ingredient: 'passion', grams: 60 },
+      { ingredient: 'whole-milk', grams: 100 },
+      { ingredient: 'syrup', grams: 25 },
+    ],
+  },
+  {
+    recipe: 'Passion Soda',
+    lines: [
+      { ingredient: 'passion', grams: 60 },
+      { ingredient: 'soda-water', units: 0.55 },
+      { ingredient: 'syrup', grams: 30 },
+    ],
+  },
+  {
+    recipe: 'Sero Milk',
+    lines: [
+      { ingredient: 'whole-milk', grams: 180 },
+      { ingredient: 'condensed-milk', grams: 25 },
+    ],
+  },
 ]
 
 function thresholds(max) {
@@ -540,6 +655,13 @@ function relevantNear(names, ingredient) {
 
 function kgPerServing(grams) {
   return (grams / 1000).toFixed(3)
+}
+
+function quantityFor(line, ingredient) {
+  if (line.units != null) return Number(line.units).toFixed(6)
+  // Pack size (e.g. Condensed Milk can = 300 g): keep ≥6 dp so grams/pack stays exact.
+  if (ingredient?.packSizeG) return (line.grams / ingredient.packSizeG).toFixed(6)
+  return kgPerServing(line.grams)
 }
 
 async function sugarSnapshot() {
@@ -684,12 +806,14 @@ async function main() {
         links.push({ ingredient: line.ingredient, action: 'skipped', reason: 'ingredient row missing' })
         continue
       }
-      const quantity = line.units != null ? Number(line.units).toFixed(3) : kgPerServing(line.grams)
+      const ingredient = INGREDIENTS.find((row) => row.id === line.ingredient)
+      const quantity = quantityFor(line, ingredient)
       const saved = await ensureLink(menu[0].id, inventoryId, quantity)
       links.push({
         ingredient: line.ingredient,
         grams: line.grams,
         units: line.units,
+        pack_size_g: ingredient?.packSizeG || null,
         ...saved,
       })
     }

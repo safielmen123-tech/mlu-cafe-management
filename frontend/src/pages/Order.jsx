@@ -11,6 +11,7 @@ import {
   UtensilsCrossed,
 } from 'lucide-react'
 import { usePOS } from '../context/POSContext'
+import { useConnection } from '../context/ConnectionContext'
 import { useNotifications } from '../context/NotificationContext'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { cacheMenuItems, getMenuFallback } from '../utils/offlineFallbacks'
@@ -74,6 +75,7 @@ function statusSuffix(status, t) {
 export default function Order() {
   const { t, i18n } = useTranslation()
   const { assignmentTargets, assignOrder, orderTargetId, clearOrderTarget } = usePOS()
+  const { backendReachable } = useConnection()
   const { pushBanner } = useNotifications()
   const [menuItems, setMenuItems] = useState([])
   const [menuReady, setMenuReady] = useState(false)
@@ -81,6 +83,7 @@ export default function Order() {
   const [cart, setCart] = useState([])
   const [selectedDestination, setSelectedDestination] = useState('')
   const [sentConfirmation, setSentConfirmation] = useState(null)
+  const [sendPaused, setSendPaused] = useState(false)
   const [activeCategory, setActiveCategory] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
   const [sugarItem, setSugarItem] = useState(null)
@@ -162,6 +165,8 @@ export default function Order() {
   const filteredMenuItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     return menuItems.filter((item) => {
+      const available = !(item.is_available === false || item.is_available === 0)
+      if (!available) return false
       const matchesCategory =
         activeCategory === 'All' ||
         String(item.category || '').toLowerCase() === activeCategory.toLowerCase()
@@ -313,22 +318,30 @@ export default function Order() {
     setSentConfirmation(null)
   }
 
-  const handleSendOrder = () => {
+  const handleSendOrder = async () => {
     if (!selectedDestination || cart.length === 0) return
+    if (!backendReachable) {
+      setSendPaused(true)
+      return
+    }
 
     const target = assignmentTargets.find((entry) => String(entry.id) === selectedDestination)
-    const success = assignOrder(
+    const success = await assignOrder(
       target?.isTakeOut ? 'takeout' : Number(selectedDestination),
       cart,
     )
 
-    if (success) {
-      setSentConfirmation(target?.name ?? t('order.fallbackDestination'))
-      setCart([])
-      setSelectedDestination('')
-      loadStockLevels()
-      setTimeout(() => setSentConfirmation(null), 2500)
+    if (!success) {
+      setSendPaused(true)
+      return
     }
+
+    setSendPaused(false)
+    setSentConfirmation(target?.name ?? t('order.fallbackDestination'))
+    setCart([])
+    setSelectedDestination('')
+    loadStockLevels()
+    setTimeout(() => setSentConfirmation(null), 2500)
   }
 
   const subtotal = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0)
@@ -599,10 +612,15 @@ export default function Order() {
                 </select>
               </div>
 
+              {!backendReachable || sendPaused ? (
+                <p className="mt-4 text-sm text-amber-800 dark:text-amber-200" role="status">
+                  {t('connection.orderPaused')}
+                </p>
+              ) : null}
               <button
                 type="button"
                 onClick={handleSendOrder}
-                disabled={cart.length === 0 || !selectedDestination}
+                disabled={cart.length === 0 || !selectedDestination || !backendReachable}
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10b981] py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send className="h-4 w-4" />

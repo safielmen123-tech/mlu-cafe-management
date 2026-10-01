@@ -9,13 +9,14 @@ import {
   servingPrice,
   TEA_SELECTION_FLAVORS,
 } from '../../utils/drinkOptions'
-import { DEFAULT_SUGAR_LEVEL, SUGAR_LEVELS } from '../../utils/sugarLevel'
+import { DEFAULT_SUGAR_LEVEL, SUGAR_LEVELS, needsSugarLevel } from '../../utils/sugarLevel'
 import { translateMenuName } from '../../utils/menuNameTranslations'
 
 export default function SugarLevelModal({ item, onConfirm, onClose }) {
   const { t, i18n } = useTranslation()
   const servings = availableServings(item)
   const [serving, setServing] = useState(defaultServing(item))
+  const showSugar = needsSugarLevel(item, serving)
   const [sugarLevel, setSugarLevel] = useState(DEFAULT_SUGAR_LEVEL)
   const [teaFlavor, setTeaFlavor] = useState('')
   const [notes, setNotes] = useState('')
@@ -40,7 +41,7 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
     const flavorName = TEA_SELECTION_FLAVORS.find((entry) => entry.id === teaFlavor)?.name || ''
     onConfirm({
       serving: serving || null,
-      sugarLevel,
+      sugarLevel: showSugar ? sugarLevel : null,
       teaFlavor: flavorName,
       extraNotes: notes.trim(),
       price: selectedPrice,
@@ -65,7 +66,13 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
             <p className="text-heading mt-1 truncate text-sm font-medium">
               {translateMenuName(item.name, i18n.language, t)}
             </p>
-            <p className="text-muted mt-1 text-xs">{t('order.sugar.description')}</p>
+            <p className="text-muted mt-1 text-xs">
+              {showSugar
+                ? servings.length > 1
+                  ? t('order.sugar.description')
+                  : t('order.sugar.descriptionIcedOnly')
+                : t('order.sugar.descriptionServingOnly')}
+            </p>
           </div>
         </div>
       )}
@@ -86,7 +93,7 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
       )}
     >
       <form id="sugar-level-form" onSubmit={handleSubmit}>
-        {servings.length > 0 ? (
+        {servings.length > 1 ? (
           <div>
             <p className="mb-2 text-sm font-medium text-slate-700 dark:text-zinc-300">
               {t('order.serving.title')}
@@ -149,28 +156,30 @@ export default function SugarLevelModal({ item, onConfirm, onClose }) {
           </div>
         ) : null}
 
-        <div className="mt-5 grid grid-cols-3 gap-2">
-          {SUGAR_LEVELS.map((option) => {
-            const selected = sugarLevel === option.value
-            const label =
-              option.value === '120%' ? t('order.sugar.extraSweet') : option.label
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setSugarLevel(option.value)}
-                className={
-                  selected
-                    ? 'min-h-11 rounded-xl bg-[#10b981] px-2 py-2 text-center text-sm font-semibold text-white shadow-sm'
-                    : 'min-h-11 rounded-xl border border-slate-200 bg-white px-2 py-2 text-center text-sm font-medium text-slate-700 transition hover:border-emerald-400 hover:bg-emerald-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30'
-                }
-                aria-pressed={selected}
-              >
-                {label}
-              </button>
-            )
-          })}
-        </div>
+        {showSugar ? (
+          <div className="mt-5 grid grid-cols-3 gap-2">
+            {SUGAR_LEVELS.map((option) => {
+              const selected = sugarLevel === option.value
+              const label =
+                option.value === '120%' ? t('order.sugar.extraSweet') : option.label
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setSugarLevel(option.value)}
+                  className={
+                    selected
+                      ? 'min-h-11 rounded-xl bg-[#10b981] px-2 py-2 text-center text-sm font-semibold text-white shadow-sm'
+                      : 'min-h-11 rounded-xl border border-slate-200 bg-white px-2 py-2 text-center text-sm font-medium text-slate-700 transition hover:border-emerald-400 hover:bg-emerald-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30'
+                  }
+                  aria-pressed={selected}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
 
         <label htmlFor="drink-item-notes" className="mt-5 block">
           <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">

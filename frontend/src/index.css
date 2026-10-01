@@ -5,29 +5,43 @@
 
 @layer base {
   :root {
-    --background: #f4efe8;
+    --background: #eef2ea;
     --foreground: #1c1916;
-    --card: #fffcf8;
-    --border: #e6ddd2;
+    --card: rgba(255, 255, 255, 0.72);
+    --border: rgba(90, 110, 70, 0.14);
     --primary: #10b981;
     --primary-hover: #059669;
     --primary-foreground: #ffffff;
     --accent: #8b5e34;
     --muted-foreground: #7a7168;
     --accent-tint: #ecfdf5;
+    --glass-surface: rgba(255, 255, 255, 0.72);
+    --glass-surface-strong: rgba(255, 255, 255, 0.82);
+    --glass-border: rgba(255, 255, 255, 0.55);
+    --glass-border-outer: rgba(90, 110, 70, 0.14);
+    --glass-inset: rgba(255, 255, 255, 0.75);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset, 0 10px 28px rgba(40, 55, 35, 0.07);
+    --glass-blur: blur(12px) saturate(1.2);
   }
 
   .dark {
-    --background: #0f0e0c;
+    --background: #0c0f0c;
     --foreground: #f7f3ee;
-    --card: #1a1815;
-    --border: #322e29;
+    --card: rgba(24, 28, 24, 0.58);
+    --border: rgba(255, 255, 255, 0.1);
     --primary: #10b981;
     --primary-hover: #34d399;
     --primary-foreground: #ffffff;
     --accent: #c9a882;
     --muted-foreground: #b4aaa0;
     --accent-tint: #064e3b;
+    --glass-surface: rgba(24, 28, 24, 0.58);
+    --glass-surface-strong: rgba(28, 32, 28, 0.72);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-border-outer: rgba(160, 185, 140, 0.12);
+    --glass-inset: rgba(255, 255, 255, 0.06);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.07) inset, 0 12px 36px rgba(0, 0, 0, 0.4);
+    --glass-blur: blur(14px) saturate(1.15);
   }
 
   html {
@@ -56,6 +70,19 @@
   body {
     @apply overflow-x-hidden bg-background text-foreground transition-colors duration-200;
     cursor: default;
+    background:
+      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(120, 150, 90, 0.14), transparent 55%),
+      radial-gradient(ellipse 70% 45% at 95% 5%, rgba(180, 160, 100, 0.1), transparent 50%),
+      radial-gradient(ellipse 60% 40% at 50% 100%, rgba(100, 130, 90, 0.08), transparent 55%),
+      var(--background);
+  }
+
+  html.dark body {
+    background:
+      radial-gradient(ellipse 70% 45% at 15% -5%, rgba(80, 110, 70, 0.22), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 90% 0%, rgba(60, 80, 50, 0.18), transparent 50%),
+      radial-gradient(ellipse 50% 35% at 50% 110%, rgba(40, 55, 40, 0.25), transparent 55%),
+      var(--background);
   }
 
   input,
@@ -155,61 +182,8 @@
   }
 
   .surface-card {
-    @apply rounded-2xl border border-cocoa-100 bg-white text-slate-900 shadow-sm
-           dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-none;
-  }
-
-  /* Liquid Glass — optional frosted UI (light + dark) */
-  html[data-liquid-glass='on'] {
-    --glass-surface: rgba(255, 255, 255, 0.72);
-    --glass-surface-strong: rgba(255, 255, 255, 0.82);
-    --glass-border: rgba(255, 255, 255, 0.55);
-    --glass-border-outer: rgba(90, 110, 70, 0.14);
-    --glass-inset: rgba(255, 255, 255, 0.75);
-    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset, 0 10px 28px rgba(40, 55, 35, 0.07);
-    --glass-blur: blur(12px) saturate(1.2);
-    --background: #eef2ea;
-    --card: rgba(255, 255, 255, 0.72);
-    --border: rgba(90, 110, 70, 0.14);
-  }
-
-  html.dark[data-liquid-glass='on'] {
-    --glass-surface: rgba(24, 28, 24, 0.58);
-    --glass-surface-strong: rgba(28, 32, 28, 0.72);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --glass-border-outer: rgba(160, 185, 140, 0.12);
-    --glass-inset: rgba(255, 255, 255, 0.06);
-    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.07) inset, 0 12px 36px rgba(0, 0, 0, 0.4);
-    --glass-blur: blur(14px) saturate(1.15);
-    --background: #0c0f0c;
-    --card: rgba(24, 28, 24, 0.58);
-    --border: rgba(255, 255, 255, 0.1);
-  }
-
-  html[data-liquid-glass='on'] body {
-    background:
-      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(120, 150, 90, 0.14), transparent 55%),
-      radial-gradient(ellipse 70% 45% at 95% 5%, rgba(180, 160, 100, 0.1), transparent 50%),
-      radial-gradient(ellipse 60% 40% at 50% 100%, rgba(100, 130, 90, 0.08), transparent 55%),
-      var(--background);
-  }
-
-  html.dark[data-liquid-glass='on'] body {
-    background:
-      radial-gradient(ellipse 70% 45% at 15% -5%, rgba(80, 110, 70, 0.22), transparent 55%),
-      radial-gradient(ellipse 60% 40% at 90% 0%, rgba(60, 80, 50, 0.18), transparent 50%),
-      radial-gradient(ellipse 50% 35% at 50% 110%, rgba(40, 55, 40, 0.25), transparent 55%),
-      var(--background);
-  }
-
-  html[data-liquid-glass='on'] .liquid-glass {
-    background: transparent;
-  }
-
-  html[data-liquid-glass='on'] .surface-card,
-  html[data-liquid-glass='on'] .surface-panel,
-  html[data-liquid-glass='on'] .surface-inset,
-  html[data-liquid-glass='on'] .table-shell {
+    @apply rounded-2xl border text-slate-900
+           dark:text-zinc-100;
     background: var(--glass-surface);
     border-color: var(--glass-border-outer);
     box-shadow: var(--glass-shadow);
@@ -217,46 +191,41 @@
     -webkit-backdrop-filter: var(--glass-blur);
   }
 
-  html[data-liquid-glass='on'] .modal-panel {
-    background: rgba(255, 252, 248, 0.94);
-    border-color: rgba(255, 255, 255, 0.62);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.72) inset,
-      0 24px 64px rgba(20, 30, 20, 0.22);
-    backdrop-filter: blur(40px) saturate(1.85);
-    -webkit-backdrop-filter: blur(40px) saturate(1.85);
+  .liquid-glass {
+    background: transparent;
   }
 
-  html.dark[data-liquid-glass='on'] .modal-panel {
-    background: rgba(22, 26, 22, 0.94);
-    border-color: rgba(255, 255, 255, 0.12);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.08) inset,
-      0 28px 72px rgba(0, 0, 0, 0.5);
+  .surface-panel,
+  .surface-inset {
+    @apply rounded-2xl border text-slate-900
+           dark:text-zinc-100;
+    background: var(--glass-surface);
+    border-color: var(--glass-border-outer);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
   }
 
-  html[data-liquid-glass='on'] .modal-panel .input-field,
-  html[data-liquid-glass='on'] .modal-panel .btn-secondary {
-    background: rgba(255, 255, 255, 0.92);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+  /* Tables: translucent fill only — no stacked blur (perf). */
+  .table-shell {
+    @apply overflow-hidden rounded-2xl border text-slate-900
+           dark:text-zinc-100;
+    background: var(--glass-surface);
+    border-color: var(--glass-border-outer);
+    box-shadow: var(--glass-shadow);
   }
 
-  html.dark[data-liquid-glass='on'] .modal-panel .input-field,
-  html.dark[data-liquid-glass='on'] .modal-panel .btn-secondary {
-    background: rgba(18, 22, 18, 0.92);
-  }
-
-  html[data-liquid-glass='on'] .surface-subtle {
+  .surface-subtle {
+    @apply rounded-2xl;
     background: color-mix(in srgb, var(--glass-surface) 85%, transparent);
     backdrop-filter: blur(12px) saturate(1.2);
     -webkit-backdrop-filter: blur(12px) saturate(1.2);
     box-shadow: 0 1px 0 var(--glass-inset) inset;
   }
 
-  html[data-liquid-glass='on'] .surface-header,
-  html[data-liquid-glass='on'] header,
-  html[data-liquid-glass='on'] aside {
+  .surface-header,
+  header,
+  aside {
     background: var(--glass-surface-strong) !important;
     border-color: var(--glass-border-outer) !important;
     backdrop-filter: blur(24px) saturate(1.4) !important;
@@ -264,52 +233,45 @@
     box-shadow: 0 1px 0 var(--glass-inset) inset;
   }
 
-  html[data-liquid-glass='on'] .modal-panel-footer {
-    background: var(--glass-surface-strong);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+  .table-head {
+    background: color-mix(in srgb, var(--glass-surface) 88%, transparent);
   }
 
-  html[data-liquid-glass='on'] .table-head {
-    background: color-mix(in srgb, var(--glass-surface) 70%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .surface-card,
+    .surface-panel,
+    .surface-inset,
+    .modal-panel,
+    .surface-subtle,
+    .surface-header,
+    header,
+    aside,
+    .modal-panel-footer,
+    .input-field,
+    .btn-secondary,
+    .tab-pill-inactive {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      background: color-mix(in srgb, var(--glass-surface-strong) 92%, var(--background));
+    }
+
+    .dark .surface-card,
+    .dark .surface-panel,
+    .dark .surface-inset,
+    .dark .modal-panel,
+    .dark .surface-subtle,
+    .dark .surface-header,
+    .dark header,
+    .dark aside,
+    .dark .modal-panel-footer,
+    .dark .input-field,
+    .dark .btn-secondary,
+    .dark .tab-pill-inactive {
+      background: color-mix(in srgb, var(--glass-surface-strong) 94%, #000);
+    }
   }
 
-  html[data-liquid-glass='on'] .input-field {
-    background: color-mix(in srgb, var(--glass-surface-strong) 88%, transparent);
-    border-color: var(--glass-border-outer);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-
-  html[data-liquid-glass='on'] .btn-secondary {
-    background: var(--glass-surface);
-    border-color: var(--glass-border-outer);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-
-  html[data-liquid-glass='on'] .tab-pill-inactive {
-    background: var(--glass-surface);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-  }
-
-  .surface-panel {
-    @apply rounded-2xl border border-cocoa-100 bg-white text-slate-900 shadow-sm
-           dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-none;
-  }
-
-  .surface-inset {
-    @apply rounded-2xl border border-cocoa-100 bg-white text-slate-900 shadow-sm
-           dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-none;
-  }
-
-  .surface-subtle {
-    @apply rounded-2xl bg-slate-100 ring-1 ring-slate-200
-           dark:bg-zinc-800/80 dark:ring-zinc-700;
-  }
+  /* Glass styles are permanent defaults (Liquid Glass always on). */
 
   .surface-emerald {
     @apply border border-emerald-500/30 bg-emerald-500/10
@@ -434,22 +396,22 @@
     filter: blur(28px);
   }
 
-  html[data-liquid-glass='on'] .brand-logo-glow::before {
+  .brand-logo-glow::before {
     opacity: 0.95;
     filter: blur(34px);
   }
 
-  html.dark[data-liquid-glass='on'] .brand-logo-glow::before {
+  .dark .brand-logo-glow::before {
     opacity: 0.9;
     filter: blur(30px);
   }
 
-  html[data-liquid-glass='on'] .login-page .brand-logo-glow::before {
+  .login-page .brand-logo-glow::before {
     opacity: 1;
     filter: blur(40px);
   }
 
-  html.dark[data-liquid-glass='on'] .login-page .brand-logo-glow::before {
+  .dark .login-page .brand-logo-glow::before {
     opacity: 0.95;
     filter: blur(34px);
   }
@@ -472,12 +434,16 @@
   }
 
   .input-field {
-    @apply min-h-11 w-full cursor-text select-text rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900
+    @apply min-h-11 w-full cursor-text select-text rounded-2xl border px-4 py-2.5 text-sm text-slate-900
            outline-none transition-colors duration-200
            placeholder:text-slate-500
            focus:border-forest-500 focus:ring-2 focus:ring-forest-500/20
-           dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500
+           dark:text-zinc-100 dark:placeholder:text-zinc-500
            dark:focus:border-forest-500 dark:focus:ring-forest-500/25;
+    background: color-mix(in srgb, var(--glass-surface-strong) 88%, transparent);
+    border-color: var(--glass-border-outer);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   .btn-primary {
@@ -491,11 +457,14 @@
   }
 
   .btn-secondary {
-    @apply min-h-11 cursor-pointer select-none rounded-full border border-border bg-card px-5 font-medium text-foreground
+    @apply min-h-11 cursor-pointer select-none rounded-full border px-5 font-medium text-foreground
            transition-colors duration-200 ease-out
            hover:border-olive-300 hover:bg-apple-bg
-           active:bg-olive-100
-           dark:border-border dark:bg-card dark:hover:bg-obsidian-850;
+           active:bg-olive-100;
+    background: var(--glass-surface);
+    border-color: var(--glass-border-outer);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   .badge-olive {
@@ -514,7 +483,34 @@
   }
 
   .modal-panel {
-    @apply flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl outline-none;
+    @apply flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-2xl border outline-none;
+    background: rgba(255, 252, 248, 0.94);
+    border-color: rgba(255, 255, 255, 0.62);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.72) inset,
+      0 24px 64px rgba(20, 30, 20, 0.22);
+    backdrop-filter: blur(40px) saturate(1.85);
+    -webkit-backdrop-filter: blur(40px) saturate(1.85);
+  }
+
+  .dark .modal-panel {
+    background: rgba(22, 26, 22, 0.94);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.08) inset,
+      0 28px 72px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-panel .input-field,
+  .modal-panel .btn-secondary {
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .dark .modal-panel .input-field,
+  .dark .modal-panel .btn-secondary {
+    background: rgba(18, 22, 18, 0.92);
   }
 
   .modal-panel-body {
@@ -522,27 +518,20 @@
   }
 
   .modal-panel-footer {
-    @apply sticky bottom-0 shrink-0 border-t border-border bg-card pt-4;
+    @apply sticky bottom-0 shrink-0 border-t border-border pt-4;
+    background: var(--glass-surface-strong);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
   }
 
   .modal-backdrop {
     @apply absolute inset-0;
-    background: rgba(12, 16, 14, 0.42);
-    backdrop-filter: blur(18px) saturate(1.55);
-    -webkit-backdrop-filter: blur(18px) saturate(1.55);
-  }
-
-  html[data-liquid-glass='on'] .modal-backdrop {
     background: rgba(16, 24, 18, 0.34);
     backdrop-filter: blur(32px) saturate(1.85);
     -webkit-backdrop-filter: blur(32px) saturate(1.85);
   }
 
-  html.dark .modal-backdrop {
-    background: rgba(0, 0, 0, 0.52);
-  }
-
-  html.dark[data-liquid-glass='on'] .modal-backdrop {
+  .dark .modal-backdrop {
     background: rgba(0, 0, 0, 0.44);
     backdrop-filter: blur(36px) saturate(1.75);
     -webkit-backdrop-filter: blur(36px) saturate(1.75);
@@ -553,13 +542,11 @@
   }
 
   .tab-pill-inactive {
-    @apply bg-white text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50
-           dark:bg-zinc-900 dark:text-zinc-400 dark:ring-zinc-700 dark:hover:bg-zinc-800;
-  }
-
-  .table-shell {
-    @apply overflow-hidden rounded-2xl border border-cocoa-100 bg-white shadow-sm
-           dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none;
+    @apply text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50
+           dark:text-zinc-400 dark:ring-zinc-700 dark:hover:bg-zinc-800;
+    background: var(--glass-surface);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 
   .table-head {

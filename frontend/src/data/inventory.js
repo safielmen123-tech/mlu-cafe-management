@@ -224,7 +224,7 @@ export const inventoryItems = [
     category: 'Bakery Prep',
     section: 'uncountable',
     stock: 3,
-    maxStock: 8,
+    maxStock: 12,
     unitLabel: 'kg',
     unitSingular: 'kg',
     isWeight: true,

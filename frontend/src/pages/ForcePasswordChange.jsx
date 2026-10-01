@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 
@@ -9,14 +9,23 @@ function passwordMeetsPolicy(password) {
 export default function ForcePasswordChange() {
   const { t } = useTranslation()
   const { completePasswordChange, logout } = useAuth()
+  const [currentPassword, setCurrentPassword] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
   const [saving, setSaving] = useState(false)
+  const submittingRef = useRef(false)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    if (submittingRef.current || saving || success) return
+
     setError('')
+    if (!currentPassword) {
+      setError(t('auth.currentPasswordRequired'))
+      return
+    }
     if (password !== confirmPassword) {
       setError(t('users.errors.passwordMismatch'))
       return
@@ -25,13 +34,23 @@ export default function ForcePasswordChange() {
       setError(t('users.errors.passwordLength'))
       return
     }
+    if (currentPassword === password) {
+      setError(t('auth.passwordMustDiffer', {
+        defaultValue: 'Choose a new password that is different from your current password.',
+      }))
+      return
+    }
 
+    submittingRef.current = true
     setSaving(true)
     try {
-      await completePasswordChange({ password, confirmPassword })
+      await completePasswordChange({ currentPassword, password, confirmPassword })
+      setSuccess(true)
+      setError('')
     } catch (err) {
       setError(err.message || t('users.errors.save'))
     } finally {
+      submittingRef.current = false
       setSaving(false)
     }
   }
@@ -41,7 +60,19 @@ export default function ForcePasswordChange() {
       <form onSubmit={handleSubmit} className="surface-card w-full max-w-md p-6">
         <h1 className="text-heading text-xl font-semibold">{t('auth.mustChangeTitle')}</h1>
         <p className="text-muted mt-2 text-sm">{t('auth.mustChangeBody')}</p>
-        <label className="mt-5 block text-xs font-medium text-slate-600 dark:text-zinc-400" htmlFor="new-password">
+        <label className="mt-5 block text-xs font-medium text-slate-600 dark:text-zinc-400" htmlFor="current-password">
+          {t('auth.currentPassword')}
+        </label>
+        <input
+          id="current-password"
+          type="password"
+          autoComplete="current-password"
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          className="input-field mt-1 w-full px-3 py-2 text-sm"
+          disabled={saving || success}
+        />
+        <label className="mt-4 block text-xs font-medium text-slate-600 dark:text-zinc-400" htmlFor="new-password">
           {t('auth.newPassword')}
         </label>
         <input
@@ -51,6 +82,7 @@ export default function ForcePasswordChange() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           className="input-field mt-1 w-full px-3 py-2 text-sm"
+          disabled={saving || success}
         />
         <label className="mt-4 block text-xs font-medium text-slate-600 dark:text-zinc-400" htmlFor="confirm-password">
           {t('auth.confirmPassword')}
@@ -62,14 +94,18 @@ export default function ForcePasswordChange() {
           value={confirmPassword}
           onChange={(event) => setConfirmPassword(event.target.value)}
           className="input-field mt-1 w-full px-3 py-2 text-sm"
+          disabled={saving || success}
         />
         <p className="text-muted mt-2 text-xs">{t('users.errors.passwordLength')}</p>
         {error ? <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+        {success ? (
+          <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">{t('auth.passwordUpdated')}</p>
+        ) : null}
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="btn-secondary px-4 py-2 text-sm" onClick={logout}>
+          <button type="button" className="btn-secondary px-4 py-2 text-sm" onClick={logout} disabled={saving}>
             {t('nav.signOut')}
           </button>
-          <button type="submit" className="btn-primary px-4 py-2 text-sm" disabled={saving}>
+          <button type="submit" className="btn-primary px-4 py-2 text-sm" disabled={saving || success}>
             {saving ? t('auth.updatingPassword') : t('auth.updatePassword')}
           </button>
         </div>

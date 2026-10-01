@@ -246,7 +246,7 @@ export default function AlertCenter({
             {isLoading
               ? t('alerts.scanning')
               : error
-                ? error
+                ? t('alerts.unavailable')
                 : total === 0
                   ? t('alerts.noneActive')
                   : t('alerts.summary', {

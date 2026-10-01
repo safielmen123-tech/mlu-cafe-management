@@ -66,7 +66,6 @@ const env = {
     database: process.env.DB_NAME,
   },
   jwtSecret: String(process.env.JWT_SECRET || '').trim(),
-  jwtExpiresIn: '2h',
   adminEmail: String(process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
   smtp: {
     host: String(process.env.SMTP_HOST || '').trim(),
@@ -83,7 +82,15 @@ const env = {
     weatherLocation: process.env.WEATHER_LOCATION,
   },
   security: {
-    allowedOrigins: parseOrigins(process.env.CORS_ALLOWED_ORIGINS, [frontendUrl]),
+    // Accept both localhost and 127.0.0.1 when FRONTEND_URL uses either form.
+    allowedOrigins: parseOrigins(
+      process.env.CORS_ALLOWED_ORIGINS,
+      [
+        frontendUrl,
+        frontendUrl.replace('://localhost', '://127.0.0.1'),
+        frontendUrl.replace('://127.0.0.1', '://localhost'),
+      ].filter((origin, index, list) => list.indexOf(origin) === index),
+    ),
     // Only enable behind a real reverse proxy. If it is on without one, a client can
     // spoof X-Forwarded-For and walk straight past the rate limiter.
     trustProxy: String(process.env.TRUST_PROXY || '').toLowerCase() === 'true',

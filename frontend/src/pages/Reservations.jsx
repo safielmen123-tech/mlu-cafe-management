@@ -861,30 +861,19 @@ export default function Reservations() {
               })}
             </div>
 
-            <div className="hidden min-w-0 lg:block">
-              <table className="w-full table-fixed text-left text-sm">
-                <colgroup>
-                  <col />
-                  <col />
-                  <col />
-                  <col />
-                  <col className="w-16" />
-                  <col />
-                  <col />
-                  <col />
-                  <col className="w-[18rem]" />
-                </colgroup>
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full min-w-[72rem] border-collapse text-left text-sm">
                 <thead className="bg-olive-50/70 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-900/60">
                   <tr>
-                    <th className="px-3 py-3 font-semibold">{t('reservations.date')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('reservations.timeSlot')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('reservations.customerName')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('reservations.guestCount')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('tables.table')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('common.status')}</th>
-                    <th className="px-3 py-3 font-semibold">{t('common.notes')}</th>
-                    <th className="w-[18rem] whitespace-nowrap px-3 py-3 font-semibold">{t('common.actions')}</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.date')}</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.timeSlot')}</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.customerName')}</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.phoneNumber')}</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('reservations.guestCount')}</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('tables.table')}</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('common.status')}</th>
+                    <th className="min-w-[14rem] px-3 py-3 font-semibold">{t('common.notes')}</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -892,32 +881,34 @@ export default function Reservations() {
                     const meta = RESERVATION_STATUS_META[reservation.status] || RESERVATION_STATUS_META.Pending
                     return (
                       <tr key={reservation.id} className="align-top hover:bg-olive-50/40 dark:hover:bg-zinc-900/40">
-                        <td className="px-3 py-3 tabular-nums">{reservation.reservation_date}</td>
-                        <td className="break-words px-3 py-3">
+                        <td className="whitespace-nowrap px-3 py-3 tabular-nums">{reservation.reservation_date}</td>
+                        <td className="whitespace-nowrap px-3 py-3">
                           {slotLabel(
                             reservation.time_slot,
                             reservation.time_slot_label,
                             reservation.duration_minutes,
                           )}
                         </td>
-                        <td className="min-w-0 break-words px-3 py-3 font-medium">{reservation.customer_name}</td>
-                        <td className="break-words px-3 py-3">{reservation.phone}</td>
-                        <td className="px-3 py-3 tabular-nums">{reservation.guest_count}</td>
-                        <td className="break-words px-3 py-3">{reservationTableLabel(reservation, t)}</td>
-                        <td className="px-3 py-3">
+                        <td className="whitespace-nowrap px-3 py-3 font-medium">{reservation.customer_name}</td>
+                        <td className="whitespace-nowrap px-3 py-3">{reservation.phone}</td>
+                        <td className="whitespace-nowrap px-3 py-3 tabular-nums">{reservation.guest_count}</td>
+                        <td className="whitespace-nowrap px-3 py-3">{reservationTableLabel(reservation, t)}</td>
+                        <td className="whitespace-nowrap px-3 py-3">
                           <StatusBadge className={`ring-1 ${meta.badge}`}>
                             {t(meta.labelKey)}
                           </StatusBadge>
                           {reservation.status === 'Seated' && reservation.checked_in_at ? (
-                            <span className="text-muted mt-1 block break-words text-[11px]">
+                            <span className="text-muted mt-1 block text-[11px]">
                               {t('reservations.checkedInAt', { time: formatTime12Hour(reservation.checked_in_at) })}
                             </span>
                           ) : null}
                         </td>
-                        <td className="min-w-0 break-words px-3 py-3 text-xs text-muted-foreground">
-                          {reservation.notes || '—'}
+                        <td className="min-w-[14rem] max-w-[22rem] px-3 py-3 text-xs leading-relaxed text-muted-foreground">
+                          <p className="whitespace-pre-wrap break-words">
+                            {reservation.notes || '—'}
+                          </p>
                         </td>
-                        <td className="w-[18rem] whitespace-nowrap px-3 py-3">
+                        <td className="whitespace-nowrap px-3 py-3">
                           <ReservationActions
                             reservation={reservation}
                             checkingInId={checkingInId}

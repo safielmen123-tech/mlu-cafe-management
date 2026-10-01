@@ -2,7 +2,14 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const db = require('../db')
 const { ensureStockSchema } = require('../src/utils/stockSchema')
-const { applyStockChange } = require('../src/utils/stockLedger')
+const { applyStockChange, roundStock } = require('../src/utils/stockLedger')
+
+const EXPECTED_TYPES = {
+  'inventory.stock_quantity': 'decimal(14,6)',
+  'stock_movements.change_amount': 'decimal(14,6)',
+  'stock_movements.quantity_after': 'decimal(14,6)',
+  'menu_item_stock_links.quantity_per_unit': 'decimal(18,6)',
+}
 
 test('a 9 g deduction is stored as 0.009 kg', async () => {
   await ensureStockSchema(db)
@@ -20,7 +27,8 @@ test('a 9 g deduction is stored as 0.009 kg', async () => {
          )`,
     )
     for (const column of columns) {
-      assert.equal(String(column.COLUMN_TYPE).toLowerCase(), 'decimal(12,3)', `${column.TABLE_NAME}.${column.COLUMN_NAME}`)
+      const key = `${column.TABLE_NAME}.${column.COLUMN_NAME}`
+      assert.equal(String(column.COLUMN_TYPE).toLowerCase(), EXPECTED_TYPES[key], key)
     }
 
     const [items] = await conn.execute(
@@ -46,11 +54,10 @@ test('a 9 g deduction is stored as 0.009 kg', async () => {
       [items[0].id],
     )
 
-    assert.equal(String(moves[0].change_amount), '-0.009')
-    assert.equal(Number(stock[0].stock_quantity), Math.round((before - 0.009) * 1000) / 1000)
-    assert.equal(String(stock[0].stock_quantity), String(moves[0].quantity_after))
-    assert.notEqual(String(moves[0].change_amount), '-0.010')
-    assert.notEqual(String(moves[0].change_amount), '-0.01')
+    assert.equal(Number(moves[0].change_amount), -0.009)
+    assert.equal(Number(stock[0].stock_quantity), roundStock(before - 0.009))
+    assert.equal(Number(stock[0].stock_quantity), Number(moves[0].quantity_after))
+    assert.notEqual(Number(moves[0].change_amount), -0.01)
 
     await conn.rollback()
   } catch (error) {
