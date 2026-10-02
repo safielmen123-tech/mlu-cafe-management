@@ -1,11 +1,13 @@
-import { formatDateTimeDisplay, sortOrdersByDateTime } from './dateTimeFormat'
+import { formatDateTimeDisplay, formatOrderDate, sortOrdersByDateTime } from './dateTimeFormat'
 
-export function buildWeeklySalesData(orders) {  const days = []
+export function buildWeeklySalesData(orders) {
+  const days = []
   for (let i = 6; i >= 0; i -= 1) {
     const date = new Date()
     date.setHours(0, 0, 0, 0)
     date.setDate(date.getDate() - i)
-    const key = date.toISOString().slice(0, 10)
+    // Local calendar day — matches order.date from the API (not UTC).
+    const key = formatOrderDate(date)
     days.push({
       key,
       label: date.toLocaleDateString('en-US', { weekday: 'short' }),
@@ -29,12 +31,18 @@ export function buildWeeklySalesData(orders) {  const days = []
   }))
 }
 
-export function buildPaymentSplitData(orders) {
+export function buildPaymentSplitData(orders, options = {}) {
+  // Default: calendar month we are in now (local), e.g. 2026-10 for October.
+  const monthKey =
+    options.monthKey ||
+    formatOrderDate(options.now || new Date()).slice(0, 7)
+
   let cash = 0
   let bankScan = 0
 
   for (const order of orders) {
     if (order.status && order.status !== 'Completed') continue
+    if (!String(order.date || '').startsWith(monthKey)) continue
     const total = Number.parseFloat(order.total || 0)
     const method = order.payment_method || order.payment || 'Cash'
     if (method === 'Bank Scan') {
@@ -45,14 +53,15 @@ export function buildPaymentSplitData(orders) {
   }
 
   return [
-    { name: 'Cash', value: Math.round(cash * 100) / 100 },
-    { name: 'Bank Scan', value: Math.round(bankScan * 100) / 100 },
+    { name: 'Cash', value: Math.round(cash * 100) / 100, monthKey },
+    { name: 'Bank Scan', value: Math.round(bankScan * 100) / 100, monthKey },
   ]
 }
 
 export function buildDashboardStats(orders, user, todaySpending = 0) {
   const completed = orders.filter((order) => !order.status || order.status === 'Completed')
-  const todayKey = new Date().toISOString().slice(0, 10)
+  // Must use local date — toISOString() is UTC and breaks after midnight in Cambodia (UTC+7).
+  const todayKey = formatOrderDate(new Date())
   const todayOrders = completed.filter((order) => order.date === todayKey)
   const todayRevenue = todayOrders.reduce(
     (sum, order) => sum + Number.parseFloat(order.total || 0),

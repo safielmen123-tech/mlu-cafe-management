@@ -1,10 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, getAuthToken } from '../services/apiClient'
 import { filterAlertsBySettings, countAlerts } from '../utils/alertSettings'
 import { useSettings } from './SettingsContext'
 
 const AlertsContext = createContext(null)
-const POLL_INTERVAL_MS = 30_000
+/** Visible-tab poll — keep stock / expense / reservation notices fresh online. */
+const POLL_INTERVAL_MS = 20_000
+/** Background tabs are throttled by browsers; use a slower cadence when hidden. */
+const HIDDEN_POLL_INTERVAL_MS = 60_000
 
 export function AlertsProvider({ children }) {
   const { lowStockAlertsEnabled, loginAlertsEnabled } = useSettings()
@@ -18,13 +21,19 @@ export function AlertsProvider({ children }) {
   const [generatedAt, setGeneratedAt] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
+  const inFlightRef = useRef(false)
 
   const fetchAlerts = useCallback(async ({ refresh = false } = {}) => {
     const token = getAuthToken()
     if (!token) {
       setIsLoading(false)
+      setAlerts([])
+      setRawCounts({ total: 0, critical: 0, warning: 0, info: 0 })
       return null
     }
+
+    if (inFlightRef.current && !refresh) return null
+    inFlightRef.current = true
 
     try {
       const path = refresh ? '/alerts?refresh=1' : '/alerts'
@@ -53,6 +62,7 @@ export function AlertsProvider({ children }) {
       setRawCounts({ total: 0, critical: 0, warning: 0, info: 0 })
       return null
     } finally {
+      inFlightRef.current = false
       setIsLoading(false)
     }
   }, [])
@@ -76,12 +86,53 @@ export function AlertsProvider({ children }) {
       return undefined
     }
 
-    fetchAlerts()
-    const interval = setInterval(() => {
-      if (!getAuthToken()) return
-      fetchAlerts()
-    }, POLL_INTERVAL_MS)
-    return () => clearInterval(interval)
+    let cancelled = false
+    let timerId = null
+
+    const run = (refresh = false) => {
+      if (cancelled || !getAuthToken()) return
+      fetchAlerts({ refresh })
+    }
+
+    const schedule = () => {
+      if (timerId != null) window.clearInterval(timerId)
+      const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+      const ms = hidden ? HIDDEN_POLL_INTERVAL_MS : POLL_INTERVAL_MS
+      timerId = window.setInterval(() => {
+        if (!getAuthToken()) return
+        // Skip background work when offline — resume on `online`.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+        run(false)
+      }, ms)
+    }
+
+    run(true)
+    schedule()
+
+    const onVisibleOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        schedule()
+        return
+      }
+      schedule()
+      run(true)
+    }
+
+    const onOnline = () => run(true)
+
+    document.addEventListener('visibilitychange', onVisibleOrFocus)
+    window.addEventListener('focus', onVisibleOrFocus)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('pageshow', onVisibleOrFocus)
+
+    return () => {
+      cancelled = true
+      if (timerId != null) window.clearInterval(timerId)
+      document.removeEventListener('visibilitychange', onVisibleOrFocus)
+      window.removeEventListener('focus', onVisibleOrFocus)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('pageshow', onVisibleOrFocus)
+    }
   }, [fetchAlerts])
 
   const settingsSnapshot = useMemo(

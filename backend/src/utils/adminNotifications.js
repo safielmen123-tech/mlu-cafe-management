@@ -89,6 +89,34 @@ function toAlert(row) {
     }
   }
 
+  if (type === 'expense_logged') {
+    return {
+      id: `expense-${row.id}`,
+      notificationId: row.id,
+      category: 'expense',
+      severity: 'warning',
+      title: row.title,
+      message: row.message,
+      timestamp: row.created_at,
+      action: {
+        label: 'Open Expenses',
+        navigateTo: 'reports',
+      },
+      meta: {
+        expenseId: meta.expenseId ?? null,
+        amount: meta.amount ?? null,
+        category: meta.category || '',
+        description: meta.description || '',
+        expenseDate: meta.expenseDate || null,
+        actorName: meta.actorName || '',
+        actorUsername: meta.actorUsername || '',
+        actorRole: meta.actorRole || '',
+        actorUserId: meta.actorUserId ?? null,
+        isRead: Boolean(row.is_read),
+      },
+    }
+  }
+
   const username = meta.username || 'staff'
   const displayName = meta.displayName || username
   const role = meta.role || 'Staff'
@@ -115,6 +143,60 @@ function toAlert(row) {
       isRead: Boolean(row.is_read),
     },
   }
+}
+
+async function listActiveAdminRecipients(db) {
+  const [rows] = await db.execute(
+    `SELECT id FROM users WHERE LOWER(role) = 'admin' AND COALESCE(is_active, 1) = 1`,
+  )
+  return rows
+}
+
+/**
+ * Notify every active admin when staff/cashier takes money from the till.
+ * Caller should skip when the actor is already an admin.
+ */
+async function notifyAdminsOfExpense(db, { expense, actor }) {
+  if (!expense) return []
+  const recipients = await listActiveAdminRecipients(db)
+  if (!recipients.length) return []
+
+  const amount = Number(expense.amount) || 0
+  const amountLabel = `$${amount.toFixed(2)}`
+  const actorName = actor?.display_name || actor?.username || 'Staff'
+  const actorRole = actor?.role || 'Staff'
+  const category = expense.category || 'Others'
+  const description = String(expense.description || '').trim()
+  const purpose = description || category
+  const title = 'Money taken from till'
+  const message = `${actorName} (${actorRole}) took ${amountLabel} — ${purpose}.`
+
+  const meta = {
+    expenseId: expense.id ?? null,
+    amount,
+    category,
+    description,
+    expenseDate: expense.expense_date || null,
+    actorName,
+    actorUsername: actor?.username || '',
+    actorRole,
+    actorUserId: actor?.id ?? null,
+  }
+
+  const ids = []
+  for (const recipient of recipients) {
+    // Don't notify the same person who logged it (edge case: admin role mis-check).
+    if (actor?.id && Number(recipient.id) === Number(actor.id)) continue
+    const id = await createAdminNotification(db, {
+      recipientUserId: recipient.id,
+      type: 'expense_logged',
+      title,
+      message,
+      meta,
+    })
+    ids.push(id)
+  }
+  return ids
 }
 
 async function listUnreadUserAlerts(db, recipientUserId) {
@@ -187,4 +269,6 @@ module.exports = {
   listUnreadPasswordResetAlerts,
   markNotificationRead,
   dismissReservationAlerts,
+  notifyAdminsOfExpense,
+  listActiveAdminRecipients,
 }

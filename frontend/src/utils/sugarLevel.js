@@ -31,8 +31,8 @@ const NON_DRINK_CATEGORIES = new Set([
 
 /**
  * Sugar % for iced / cold drinks, shakes, mixed drinks, and iced tea.
- * Coffee uses sugar packets — no sugar level prompt.
- * Hot tea (honey/lemon/selection) skips sugar; iced tea asks for it.
+ * Hot coffee uses sugar packets — no sugar level prompt.
+ * Iced coffee asks for sugar %. Hot tea (honey/lemon/selection) skips sugar; iced tea asks for it.
  */
 export function needsSugarLevel(item, serving = null) {
   const category = String(item?.category || '').trim().toLowerCase()
@@ -41,8 +41,10 @@ export function needsSugarLevel(item, serving = null) {
   if (NON_DRINK_CATEGORIES.has(category)) return false
   if (category.includes('cocktail')) return false
 
-  // Coffee: sugar bags on the side — never ask for a level.
-  if (category === 'coffee') return false
+  // Coffee: hot uses sugar packets on the side; iced asks for a sugar %.
+  if (category === 'coffee') {
+    return serving === 'iced'
+  }
 
   if (/\b(shake|smoothie|frappe)\b/i.test(name) || /\b(shake|shakes|smoothie|smoothies)\b/i.test(category)) {
     return true
@@ -52,6 +54,12 @@ export function needsSugarLevel(item, serving = null) {
 
   if (category === 'cold drinks' || category === 'cold drink') {
     if (/water|tonic|ginger\s*ale/i.test(name)) return false
+    // Fresh fruit juices are 100% fruit — no sugar level.
+    if (/fresh\s+(lime|pineapple|watermelon|mango|coconut)/i.test(name)) return false
+    const hot = parseOptionalPrice(item?.hot_price)
+    const iced = parseOptionalPrice(item?.iced_price)
+    // Dual Hot/Ice juice drinks (e.g. Matcha): sugar only for Ice, like coffee.
+    if (hot != null && iced != null) return serving === 'iced'
     return true
   }
 

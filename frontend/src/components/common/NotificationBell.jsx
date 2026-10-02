@@ -22,12 +22,18 @@ export default function NotificationBell({ onNavigate }) {
   const hasSecurityAlerts = alerts.some((alert) => alert.category === 'password_reset')
   const hasLoginLockAlerts = alerts.some((alert) => alert.category === 'security_alert')
   const hasReservationAlerts = alerts.some((alert) => alert.category === 'reservation')
-  const showNotifications =
-    isAdmin ||
-    hasSecurityAlerts ||
-    hasReservationAlerts ||
-    lowStockAlertsEnabled ||
-    (loginAlertsEnabled && hasLoginLockAlerts)
+  const hasExpenseAlerts = alerts.some((alert) => alert.category === 'expense')
+  const hasStockAlerts = alerts.some((alert) => alert.category === 'stock')
+  // Badge for actionable notices; bell itself always opens so hosting stays usable.
+  const showBadge =
+    badgeCount > 0 &&
+    (isAdmin ||
+      hasSecurityAlerts ||
+      hasReservationAlerts ||
+      hasExpenseAlerts ||
+      hasStockAlerts ||
+      lowStockAlertsEnabled ||
+      (loginAlertsEnabled && hasLoginLockAlerts))
   const [isOpen, setIsOpen] = useState(false)
   const panelRef = useRef(null)
   const buttonRef = useRef(null)
@@ -58,7 +64,17 @@ export default function NotificationBell({ onNavigate }) {
   }, [isOpen])
 
   const handleAction = (alert) => {
-    const target = alert?.action?.navigateTo || (alert?.category === 'security_alert' ? 'security_alerts' : alert?.category === 'password_reset' ? 'users' : alert?.category === 'reservation' ? 'reservations' : 'inventory')
+    const target =
+      alert?.action?.navigateTo ||
+      (alert?.category === 'security_alert'
+        ? 'security_alerts'
+        : alert?.category === 'password_reset'
+          ? 'users'
+          : alert?.category === 'reservation'
+            ? 'reservations'
+            : alert?.category === 'expense'
+              ? 'reports'
+              : 'inventory')
     onNavigate?.(target)
     setIsOpen(false)
   }
@@ -82,14 +98,14 @@ export default function NotificationBell({ onNavigate }) {
         className="relative flex min-h-11 min-w-11 items-center justify-center rounded-full border border-border/50 bg-card/50 text-foreground backdrop-blur-sm transition-all hover:border-border hover:bg-card active:scale-95 dark:bg-card/40"
       >
         <Bell className="h-5 w-5 text-foreground/90" />
-        {showNotifications && badgeCount > 0 && (
+        {showBadge && (
           <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white shadow-lg shadow-red-900/40 ring-2 ring-background">
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         )}
       </button>
 
-      {isOpen && showNotifications && (
+      {isOpen && (
         <div
           ref={panelRef}
           className="absolute right-0 top-full z-50 mt-2 w-[22rem] overflow-hidden rounded-2xl border border-border bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 sm:w-[26rem]"
@@ -102,7 +118,17 @@ export default function NotificationBell({ onNavigate }) {
             onAction={handleAction}
             onDismiss={markNotificationRead}
             onViewAll={() => {
-              onNavigate?.(hasLoginLockAlerts ? 'security_alerts' : hasSecurityAlerts ? 'users' : hasReservationAlerts ? 'reservations' : 'inventory')
+              onNavigate?.(
+                hasExpenseAlerts
+                  ? 'reports'
+                  : hasLoginLockAlerts
+                    ? 'security_alerts'
+                    : hasSecurityAlerts
+                      ? 'users'
+                      : hasReservationAlerts
+                        ? 'reservations'
+                        : 'inventory',
+              )
               setIsOpen(false)
             }}
             variant="panel"

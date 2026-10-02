@@ -6,7 +6,9 @@ export function filterAlertsBySettings(alerts, settings) {
   const loginAlerts = settings?.loginAlertsEnabled !== false
 
   return list.filter((alert) => {
-    if (alert.category === 'password_reset' || alert.category === 'reservation') return true
+    if (alert.category === 'password_reset' || alert.category === 'reservation' || alert.category === 'expense') {
+      return true
+    }
     if (alert.category === 'security_alert') return loginAlerts
     if (!lowStock && alert.category === 'stock') return false
     return true

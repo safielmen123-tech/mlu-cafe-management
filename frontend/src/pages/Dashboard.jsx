@@ -33,8 +33,9 @@ import {
   buildWeeklySalesData,
 } from '../utils/dashboardAnalytics'
 import { translateMenuName, translateMenuSummary } from '../utils/menuNameTranslations'
+import { formatOrderDate } from '../utils/dateTimeFormat'
 
-const API_PATH = '/orders/history?days=30'
+const API_PATH = '/orders/history?days=60'
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
 function useChartTheme() {
@@ -188,6 +189,15 @@ export default function Dashboard({ onNavigate }) {
     [weeklySales, t],
   )
   const paymentSplit = useMemo(() => buildPaymentSplitData(orders), [orders])
+  const paymentMonthLabel = useMemo(() => {
+    const key = paymentSplit[0]?.monthKey || formatOrderDate(new Date()).slice(0, 7)
+    const [year, month] = key.split('-').map(Number)
+    if (!year || !month) return ''
+    return new Date(year, month - 1, 1).toLocaleDateString(i18n.language === 'km' ? 'km-KH' : 'en-US', {
+      month: 'long',
+      year: 'numeric',
+    })
+  }, [paymentSplit, i18n.language])
   const dashboardStats = useMemo(
     () => buildDashboardStats(orders, user, todaySpending),
     [orders, user, todaySpending],
@@ -237,17 +247,21 @@ export default function Dashboard({ onNavigate }) {
             ? 'users'
             : alert?.category === 'reservation'
               ? 'reservations'
-              : 'inventory'),
+              : alert?.category === 'expense'
+                ? 'reports'
+                : 'inventory'),
     )
   }
 
   const hasSecurityAlerts = alerts.some((alert) => alert.category === 'password_reset')
   const hasLoginLockAlerts = alerts.some((alert) => alert.category === 'security_alert')
   const hasReservationAlerts = alerts.some((alert) => alert.category === 'reservation')
+  const hasExpenseAlerts = alerts.some((alert) => alert.category === 'expense')
   const showAlertCenter =
     lowStockAlertsEnabled ||
-    (isAdmin && (hasSecurityAlerts || (loginAlertsEnabled && hasLoginLockAlerts))) ||
-    hasReservationAlerts
+    (isAdmin && (hasSecurityAlerts || hasExpenseAlerts || (loginAlertsEnabled && hasLoginLockAlerts))) ||
+    hasReservationAlerts ||
+    hasExpenseAlerts
 
   const stats = [
     {
@@ -378,6 +392,7 @@ export default function Dashboard({ onNavigate }) {
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="surface-card p-6">
           <h3 className="text-heading text-lg">{t('dashboard.weeklySales')}</h3>
+          <p className="text-muted mt-1 text-sm">{t('dashboard.weeklySalesDescription')}</p>
           <div className="mt-6 h-72 w-full">
             {isLoading ? (
               <div className="flex h-full items-center justify-center">
@@ -397,6 +412,9 @@ export default function Dashboard({ onNavigate }) {
 
         <div className="surface-card p-6">
           <h3 className="text-heading text-lg">{t('dashboard.paymentSplit')}</h3>
+          <p className="text-muted mt-1 text-sm">
+            {t('dashboard.paymentSplitMonth', { month: paymentMonthLabel })}
+          </p>
           <div className="mt-4 flex flex-col items-center">
             <div className="h-52 w-full">
               {isLoading ? (

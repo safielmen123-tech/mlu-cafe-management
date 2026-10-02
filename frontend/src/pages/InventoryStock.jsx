@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ClipboardList, Package, PackagePlus, Scale, Search, X } from 'lucide-react'
+import { ClipboardList, Package, PackagePlus, Scale, Search, Wallet, X } from 'lucide-react'
 import Modal from '../components/common/Modal'
 import StocktakeModal from '../components/inventory/StocktakeModal'
+import ExpenseLogModal from '../components/finance/ExpenseLogModal'
 import StatusBadge from '../components/common/StatusBadge'
 import { useAuth } from '../context/AuthContext'
 import { userHasPermission } from '../utils/permissions'
@@ -901,6 +902,7 @@ export default function InventoryStock() {
   const [linkPick, setLinkPick] = useState(null)
   const [itemForm, setItemForm] = useState(null)
   const [stocktakeOpen, setStocktakeOpen] = useState(false)
+  const [expenseOpen, setExpenseOpen] = useState(false)
 
   const fetchInventory = useCallback(async () => {
     try {
@@ -973,6 +975,10 @@ export default function InventoryStock() {
                 <ClipboardList className="mr-1.5 inline h-3.5 w-3.5" />
                 {t('inventory.stocktake')}
               </button>
+              <button type="button" onClick={() => setExpenseOpen(true)} className="btn-secondary px-3 py-2 text-xs font-semibold">
+                <Wallet className="mr-1.5 inline h-3.5 w-3.5" />
+                {t('inventory.expense')}
+              </button>
             </>
           ) : null}
         </div>
@@ -1040,6 +1046,9 @@ export default function InventoryStock() {
           onClose={() => setStocktakeOpen(false)}
           onApplied={fetchInventory}
         />
+      ) : null}
+      {expenseOpen && canManageItems ? (
+        <ExpenseLogModal onClose={() => setExpenseOpen(false)} />
       ) : null}
       {restockItem && (
         <RestockModal

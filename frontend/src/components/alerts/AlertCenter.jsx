@@ -7,6 +7,7 @@ import {
   KeyRound,
   Package,
   ShieldAlert,
+  Wallet,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -33,6 +34,13 @@ const SEVERITY_STYLES = {
     iconBg: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
     Icon: KeyRound,
   },
+  expense: {
+    labelKey: 'alerts.category.expense',
+    badge: 'bg-orange-100 text-orange-900 ring-orange-200 dark:bg-orange-950/40 dark:text-orange-200 dark:ring-orange-800/50',
+    border: 'border-l-orange-500',
+    iconBg: 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
+    Icon: Wallet,
+  },
   info: {
     labelKey: 'statuses.reminder',
     badge:
@@ -56,13 +64,22 @@ const CATEGORY_ICONS = {
   password_reset: KeyRound,
   reservation: CalendarClock,
   security_alert: ShieldAlert,
+  expense: Wallet,
 }
 
 function categoryLabel(t, category) {
   if (category === 'password_reset') return t('alerts.category.security')
   if (category === 'security_alert') return t('alerts.category.loginSecurity')
   if (category === 'reservation') return t('alerts.category.reservation')
+  if (category === 'expense') return t('alerts.category.expense')
   return category
+}
+
+function alertBadgeSeverity(alert) {
+  if (alert.category === 'password_reset') return 'password_reset'
+  if (alert.category === 'reservation') return 'reservation'
+  if (alert.category === 'expense') return 'expense'
+  return alert.severity
 }
 
 function formatAlertTime(timestamp, language) {
@@ -126,7 +143,7 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <AlertSeverityBadge severity={alert.category === 'password_reset' ? 'password_reset' : alert.category === 'reservation' ? 'reservation' : alert.severity} />
+            <AlertSeverityBadge severity={alertBadgeSeverity(alert)} />
             <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <CategoryIcon className="h-3 w-3" />
               {categoryLabel(t, alert.category)}
@@ -134,6 +151,38 @@ export function AlertCard({ alert, onAction, onDismiss, compact = false }) {
           </div>
           <h4 className="mt-1.5 text-sm font-semibold leading-snug text-foreground">{alert.title}</h4>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{alert.message}</p>
+          {alert.category === 'expense' && (alert.meta?.actorName || alert.meta?.amount != null) ? (
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              {alert.meta.actorName ? (
+                <div>
+                  <dt className="text-muted-foreground">{t('alerts.staff')}</dt>
+                  <dd className="font-medium text-foreground">{alert.meta.actorName}</dd>
+                </div>
+              ) : null}
+              {alert.meta.actorRole ? (
+                <div>
+                  <dt className="text-muted-foreground">{t('alerts.role')}</dt>
+                  <dd className="font-medium text-foreground">{alert.meta.actorRole}</dd>
+                </div>
+              ) : null}
+              {alert.meta.amount != null ? (
+                <div>
+                  <dt className="text-muted-foreground">{t('alerts.amount')}</dt>
+                  <dd className="font-medium text-foreground">
+                    ${Number(alert.meta.amount).toFixed(2)}
+                  </dd>
+                </div>
+              ) : null}
+              {alert.meta.description || alert.meta.category ? (
+                <div>
+                  <dt className="text-muted-foreground">{t('alerts.purpose')}</dt>
+                  <dd className="font-medium text-foreground">
+                    {alert.meta.description || alert.meta.category}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
           {alert.category === 'password_reset' && (alert.meta?.displayName || alert.meta?.username) ? (
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
               <div>

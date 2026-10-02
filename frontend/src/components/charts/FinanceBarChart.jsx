@@ -116,6 +116,7 @@ export default function FinanceBarChart({
     [data, showSpending],
   )
 
+  const pointCount = Array.isArray(data) ? data.length : 0
   const hasValues = (Array.isArray(data) ? data : []).some(
     (point) => Number(point.revenue) > 0 || (showSpending && Number(point.expenses) > 0),
   )
@@ -128,7 +129,9 @@ export default function FinanceBarChart({
     )
   }
 
-  const thinDailyTicks = tickMode === 'daily' && chartWidth <= 640
+  // Week charts (≤7 days): always show every day label. Longer ranges may thin ticks on small screens.
+  const showEveryDayTick = pointCount > 0 && pointCount <= 7
+  const thinDailyTicks = tickMode === 'daily' && chartWidth <= 640 && !showEveryDayTick
   const xAngle = tickMode === 'monthly' ? -35 : 0
   const xHeight = tickMode === 'monthly' ? 56 : 32
 
@@ -139,14 +142,14 @@ export default function FinanceBarChart({
           <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fill: theme.axis, fontSize: 11 }}
+            tick={{ fill: theme.axis, fontSize: showEveryDayTick ? 10 : 11 }}
             axisLine={{ stroke: theme.grid }}
             tickLine={false}
             interval={thinDailyTicks ? 4 : 0}
             angle={xAngle}
             textAnchor={tickMode === 'monthly' ? 'end' : 'middle'}
             height={xHeight}
-            minTickGap={thinDailyTicks ? 8 : 2}
+            minTickGap={thinDailyTicks ? 8 : 0}
           />
           <YAxis
             domain={[0, 'auto']}

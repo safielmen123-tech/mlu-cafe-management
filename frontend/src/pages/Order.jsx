@@ -20,8 +20,11 @@ import { TABLE_STATUS_META } from '../data/tables'
 import MenuItemImage from '../components/menu/MenuItemImage'
 import SugarLevelModal from '../components/pos/SugarLevelModal'
 import {
+  availableServings,
   formatMenuPrice,
   hasServingOptions,
+  needsTeaFlavor,
+  servingPrice,
 } from '../utils/drinkOptions'
 import {
   formatDrinkNotes,
@@ -87,6 +90,7 @@ export default function Order() {
   const [activeCategory, setActiveCategory] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
   const [sugarItem, setSugarItem] = useState(null)
+  const [sugarPresetServing, setSugarPresetServing] = useState(null)
   const [highlightedId, setHighlightedId] = useState(null)
   const [stockByMenu, setStockByMenu] = useState({})
   const announceDeepLinkRef = useRef(false)
@@ -227,8 +231,49 @@ export default function Order() {
   }
 
   const handleMenuItemClick = (item, announce = false) => {
-    if (needsSugarLevel(item) || hasServingOptions(item)) {
+    const servings = availableServings(item)
+    const hotServing = servings.find((entry) => entry.id === 'hot')
+    const icedServing = servings.find((entry) => entry.id === 'iced')
+    const drinkWithChoice = Boolean(hotServing) && Boolean(icedServing)
+
+    // Dual Hot/Ice cards use the buttons — ignore plain card taps (deep-link still opens options).
+    if (!announce && drinkWithChoice) {
+      return
+    }
+
+    // Hot-only drinks: add directly (Tea Selection still needs flavor).
+    if (
+      servings.length === 1 &&
+      servings[0].id === 'hot' &&
+      !needsTeaFlavor(item)
+    ) {
+      addToCart(item, {
+        serving: 'hot',
+        price: servings[0].price,
+        notes: formatDrinkNotes({ serving: 'hot' }),
+      })
+      if (announce) announceAdded(item)
+      return
+    }
+
+    // Ice-only drinks: open sugar picker.
+    if (
+      servings.length === 1 &&
+      servings[0].id === 'iced' &&
+      !needsTeaFlavor(item)
+    ) {
       announceDeepLinkRef.current = announce
+      setSugarPresetServing('iced')
+      setSugarItem(item)
+      return
+    }
+
+    if (needsSugarLevel(item) || hasServingOptions(item) || needsTeaFlavor(item)) {
+      announceDeepLinkRef.current = announce
+      // Juice / milk drinks: open sugar picker in one-tap mode (same as Ice coffee).
+      const oneTapSugar =
+        needsSugarLevel(item) && !needsTeaFlavor(item) && !drinkWithChoice
+      setSugarPresetServing(oneTapSugar ? 'iced' : null)
       setSugarItem(item)
       return
     }
@@ -236,7 +281,27 @@ export default function Order() {
     if (announce) announceAdded(item)
   }
 
-  const handleSugarConfirm = ({ serving, sugarLevel, extraNotes, teaFlavor, price }) => {
+  const handleHotServing = (item) => {
+    if (needsTeaFlavor(item)) {
+      setSugarPresetServing('hot')
+      setSugarItem(item)
+      return
+    }
+    const price = servingPrice(item, 'hot')
+    addToCart(item, {
+      serving: 'hot',
+      price,
+      notes: formatDrinkNotes({ serving: 'hot' }),
+    })
+  }
+
+  const handleColdServing = (item) => {
+    // Cold → sugar picker (and tea flavor if needed); sugar tap adds immediately when possible.
+    setSugarPresetServing('iced')
+    setSugarItem(item)
+  }
+
+  const handleSugarConfirm = ({ serving, sugarLevel, teaFlavor, price }) => {
     if (!sugarItem) return
     const shouldAnnounce = announceDeepLinkRef.current
     announceDeepLinkRef.current = false
@@ -244,10 +309,11 @@ export default function Order() {
       serving,
       sugarLevel,
       price,
-      notes: formatDrinkNotes({ serving, sugarLevel, extraNotes, teaFlavor }),
+      notes: formatDrinkNotes({ serving, sugarLevel, teaFlavor }),
     })
     if (shouldAnnounce) announceAdded(sugarItem)
     setSugarItem(null)
+    setSugarPresetServing(null)
   }
 
   const applyMenuItemRef = useRef(handleMenuItemClick)
@@ -397,42 +463,97 @@ export default function Order() {
           </div>
 
           <div className="order-menu-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-6">
-            <div className="grid grid-cols-2 content-start items-start gap-4 lg:grid-cols-3">
-              {filteredMenuItems.map((item, index) => (
-                <button
-                  key={item.id}
-                  id={`menu-item-${item.id}`}
-                  type="button"
-                  onClick={() => handleMenuItemClick(item)}
-                  className={`group flex w-full cursor-pointer flex-col self-start rounded-2xl border bg-white p-4 text-left transition-colors hover:border-forest-400 hover:shadow-sm dark:bg-zinc-900 ${
-                    Number(highlightedId) === Number(item.id)
-                      ? 'border-forest-500 ring-2 ring-forest-400'
-                      : 'border-cocoa-100 dark:border-zinc-800/80'
-                  }`}
-                >
-                  <div className="flex justify-center">
-                    <MenuItemImage
-                      imageUrl={item.image_url}
-                      alt={translateMenuName(item.name, i18n.language, t)}
-                      eager={index < 9}
-                      className="h-16 w-16 rounded-xl border border-slate-100 object-cover dark:border-zinc-800"
-                    />
-                  </div>
+            <div className="grid grid-cols-2 content-start items-stretch gap-3 sm:gap-4 lg:grid-cols-3">
+              {filteredMenuItems.map((item, index) => {
+                const servings = availableServings(item)
+                const hotServing = servings.find((entry) => entry.id === 'hot')
+                const icedServing = servings.find((entry) => entry.id === 'iced')
+                // Hot/Ice whenever the item has both prices (Coffee, Tea, Matcha, etc.).
+                const showServingButtons = Boolean(hotServing) && Boolean(icedServing)
+                const isHighlighted = Number(highlightedId) === Number(item.id)
 
-                  <div className="mt-3 min-w-0 text-center">
-                    <p className="text-sm font-semibold leading-snug text-slate-900 dark:text-zinc-100">
-                      {translateMenuName(item.name, i18n.language, t)}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-400 dark:text-zinc-500">
-                      {categoryLabel(item.category, t)}
-                    </p>
-                  </div>
+                return (
+                  <div
+                    key={item.id}
+                    id={`menu-item-${item.id}`}
+                    className={`group relative flex h-full min-w-0 w-full flex-col overflow-hidden rounded-3xl border bg-gradient-to-b from-white to-cocoa-50/40 p-3.5 text-left shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition duration-200 dark:from-zinc-900 dark:to-zinc-950 sm:p-4 ${
+                      isHighlighted
+                        ? 'border-forest-500 ring-2 ring-forest-400/70'
+                        : 'border-cocoa-100/90 hover:-translate-y-0.5 hover:border-forest-300/80 hover:shadow-[0_12px_28px_-18px_rgba(16,185,129,0.45)] dark:border-zinc-800'
+                    } ${showServingButtons ? '' : 'cursor-pointer'}`}
+                    onClick={
+                      showServingButtons ? undefined : () => handleMenuItemClick(item)
+                    }
+                    onKeyDown={
+                      showServingButtons
+                        ? undefined
+                        : (event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              handleMenuItemClick(item)
+                            }
+                          }
+                    }
+                    role={showServingButtons ? undefined : 'button'}
+                    tabIndex={showServingButtons ? undefined : 0}
+                  >
+                    <div className="relative mx-auto flex h-20 w-20 items-center justify-center sm:h-24 sm:w-24">
+                      <div
+                        className="absolute inset-0 rounded-full bg-gradient-to-br from-forest-100/80 via-cocoa-50 to-transparent opacity-90 dark:from-forest-950/50 dark:via-zinc-800/40"
+                        aria-hidden
+                      />
+                      <MenuItemImage
+                        imageUrl={item.image_url}
+                        alt={translateMenuName(item.name, i18n.language, t)}
+                        eager={index < 9}
+                        className="relative h-16 w-16 rounded-2xl object-cover shadow-md ring-1 ring-white/80 dark:ring-zinc-700/80 sm:h-20 sm:w-20"
+                      />
+                    </div>
 
-                  <p className="mt-2 text-center text-base font-bold text-forest-600">
-                    {formatMenuPrice(item)}
-                  </p>
-                </button>
-              ))}
+                    <div className="mt-3 min-w-0 flex-1 text-center">
+                      <p className="text-[0.95rem] font-semibold leading-snug tracking-tight text-slate-900 dark:text-zinc-50">
+                        {translateMenuName(item.name, i18n.language, t)}
+                      </p>
+                      <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-cocoa-500/80 dark:text-zinc-500">
+                        {categoryLabel(item.category, t)}
+                      </p>
+                    </div>
+
+                    {showServingButtons ? (
+                      <div
+                        className={`mt-3 grid min-w-0 gap-1.5 ${
+                          hotServing && icedServing ? 'grid-cols-2' : 'grid-cols-1'
+                        }`}
+                        role="group"
+                        aria-label={t('order.serving.title')}
+                      >
+                        {hotServing ? (
+                          <button
+                            type="button"
+                            onClick={() => handleHotServing(item)}
+                            className="min-h-10 min-w-0 whitespace-nowrap rounded-xl bg-forest-500 px-1.5 py-2 text-center text-xs font-semibold text-white shadow-sm transition hover:bg-forest-600 active:scale-[0.98] dark:bg-forest-600 dark:hover:bg-forest-500 sm:px-2 sm:text-sm"
+                          >
+                            {t('order.serving.hot')}
+                          </button>
+                        ) : null}
+                        {icedServing ? (
+                          <button
+                            type="button"
+                            onClick={() => handleColdServing(item)}
+                            className="min-h-10 min-w-0 whitespace-nowrap rounded-xl border border-cocoa-200 bg-cocoa-50 px-1.5 py-2 text-center text-xs font-semibold text-cocoa-800 transition hover:bg-cocoa-100 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 sm:px-2 sm:text-sm"
+                          >
+                            {t('order.serving.ice')}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-center text-base font-bold tabular-nums text-forest-600 dark:text-forest-400">
+                        {formatMenuPrice(item)}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
 
               {usingFallbackMenu && menuItems.length > 0 && (
                 <div className="col-span-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
@@ -639,10 +760,12 @@ export default function Order() {
 
       <SugarLevelModal
         item={sugarItem}
+        presetServing={sugarPresetServing}
         onConfirm={handleSugarConfirm}
         onClose={() => {
           announceDeepLinkRef.current = false
           setSugarItem(null)
+          setSugarPresetServing(null)
         }}
       />
     </div>

@@ -35,6 +35,7 @@ const {
     normalizePermissions,
     assertPermissionsForSave,
     isAdminRole,
+    userHasPermission,
     VALID_PERMISSIONS,
 } = require('./src/constants/permissions');
 const {
@@ -92,7 +93,12 @@ const { apiLimiter, createPasswordResetLimiter, sensitiveOperationLimiter } = re
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
 const { logError, logSecurity } = require('./src/utils/logger');
 const { publicAuthRouter, privateAuthRouter, rejectPublicSignup } = require('./src/routes/auth');
-const { listUnreadUserAlerts, markNotificationRead, ensureAdminNotificationsSchema } = require('./src/utils/adminNotifications');
+const {
+    listUnreadUserAlerts,
+    markNotificationRead,
+    ensureAdminNotificationsSchema,
+    notifyAdminsOfExpense,
+} = require('./src/utils/adminNotifications');
 const { ensureUsersEmailColumn } = require('./src/utils/userAccounts');
 const {
     ensureReservationsSchema,
@@ -213,6 +219,7 @@ const requirePosFloorAccess = requireAnyPermission('order', 'payment', 'table');
 const requireOrderWriteAccess = requireAnyPermission('order', 'payment');
 const requireSalesHistoryAccess = requirePermission('sales_history');
 const requireExpenseAccess = requirePermission('reports');
+const requireExpenseWriteAccess = requireAnyPermission('reports', 'inventory_stock');
 const requireExpenseSummaryAccess = requirePermission('reports');
 const requireDashboardAccess = requirePermission('dashboard');
 const requireStockAccess = requirePermission('inventory_stock');
@@ -1266,17 +1273,29 @@ function summarizeAlertCounts(alerts) {
     };
 }
 
-app.get('/api/alerts', requirePermission('inventory_stock'), async (req, res) => {
+// Authenticated users get a permission-filtered feed (stock / expenses / reservations / security).
+// Do not gate the whole route on inventory_stock — admins and floor staff still need notices online.
+app.get('/api/alerts', async (req, res) => {
     try {
         await processReservationReminders(db).catch(() => null);
         const bypassCache = req.query.refresh === '1';
-        const payload = await buildActiveAlerts(db, { bypassCache });
-        const storedAlerts = req.user?.id ? await listUnreadUserAlerts(db, req.user.id) : [];
+        const canSeeStock = userHasPermission(req.user, 'inventory_stock');
+        const payload = canSeeStock
+            ? await buildActiveAlerts(db, { bypassCache })
+            : { generatedAt: new Date().toISOString(), alerts: [], counts: summarizeAlertCounts([]) };
+
+        const storedAlertsRaw = req.user?.id ? await listUnreadUserAlerts(db, req.user.id) : [];
+        // Expense till notices are admin-only even if a row were mis-addressed.
+        const storedAlerts = isAdminRole(req.user?.role)
+            ? storedAlertsRaw
+            : storedAlertsRaw.filter((alert) => alert.category !== 'expense');
         const securityAlerts = isAdminRole(req.user?.role)
             ? await listNewSecurityAlertFeed(db)
             : [];
-        const alerts = [...securityAlerts, ...storedAlerts, ...(payload.alerts || [])];
+        const stockAlerts = canSeeStock ? (payload.alerts || []) : [];
+        const alerts = [...securityAlerts, ...storedAlerts, ...stockAlerts];
         const counts = summarizeAlertCounts(alerts);
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
         return res.status(200).json({ ...payload, alerts, counts });
     } catch (error) {
         console.error('❌ ALERTS ENGINE ERROR:', error.message);
@@ -1811,7 +1830,7 @@ app.get('/api/dashboard/live', requireDashboardAccess, async (req, res) => {
     }
 });
 
-app.post('/api/expenses', requireExpenseAccess, async (req, res) => {
+app.post('/api/expenses', requireExpenseWriteAccess, async (req, res) => {
     try {
         const expense = await createExpense(db, req.body ?? {}, req.user);
         await auditFromRequest(db, req, {
@@ -1819,6 +1838,12 @@ app.post('/api/expenses', requireExpenseAccess, async (req, res) => {
             module: 'Expenses',
             description: `Logged $${Number(expense.amount).toFixed(2)} (${expense.category})`,
         });
+        // Staff/cashier till withdrawals notify admins only (not when admin logs it themselves).
+        if (!isAdminRole(req.user?.role)) {
+            await notifyAdminsOfExpense(db, { expense, actor: req.user }).catch((notifyError) => {
+                logError(notifyError, { route: 'expense-admin-notify' });
+            });
+        }
         res.status(201).json(expense);
     } catch (error) {
         const status = error.status || 500;

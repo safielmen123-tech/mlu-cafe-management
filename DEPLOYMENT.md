@@ -49,3 +49,17 @@ add_header X-Content-Type-Options "nosniff" always;
 add_header Referrer-Policy "no-referrer" always;
 add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 ```
+
+## Notifications (stock, expenses, reservations)
+
+The bell polls `/api/alerts` while someone is signed in. It refreshes when the tab is focused, when the browser comes back online, and about every 20 seconds while the tab is visible. Stock changes clear the server alert cache immediately so online admins see low/out-of-stock notices quickly. Expense till notices are stored for **Admin** accounts only.
+
+For the frontend to reach the API from your public domain, set:
+
+```
+FRONTEND_URL=https://your-cafe-site.example
+CORS_ALLOWED_ORIGINS=https://your-cafe-site.example
+TRUST_PROXY=true
+```
+
+And build the React app with `VITE_API_URL=https://api.your-cafe-site.example/api` (same origin path the CSP `connect-src` allows).
