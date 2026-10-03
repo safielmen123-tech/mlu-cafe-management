@@ -52,10 +52,15 @@ function resolveCliTool(toolName) {
 
 function buildMysqlArgs() {
   const host = resolveDbHost(env.db.host)
-  const args = ['-h', host, '-u', env.db.user]
+  const args = ['-h', host, '-P', String(env.db.port), '-u', env.db.user]
 
   if (env.db.password) {
     args.push(`-p${env.db.password}`)
+  }
+
+  if (env.db.ssl) {
+    // Aiven and similar require TLS; --ssl-mode=REQUIRED matches rejectUnauthorized:false pools.
+    args.push('--ssl-mode=REQUIRED')
   }
 
   return args

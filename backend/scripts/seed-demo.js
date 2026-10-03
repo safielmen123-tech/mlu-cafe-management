@@ -38,8 +38,10 @@ async function main() {
 
   const base = {
     host: env.db.host === 'localhost' ? '127.0.0.1' : env.db.host,
+    port: env.db.port,
     user: env.db.user,
     password: env.db.password,
+    ...(env.db.ssl ? { ssl: env.db.ssl } : {}),
     multipleStatements: false,
   }
 

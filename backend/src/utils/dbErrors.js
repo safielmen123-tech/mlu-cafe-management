@@ -1,7 +1,12 @@
 function isDatabaseConnectionError(error) {
   if (!error) return false
 
-  if (error.code === 'ECONNREFUSED' || error.code === 'PROTOCOL_CONNECTION_LOST') {
+  if (
+    error.code === 'ECONNREFUSED' ||
+    error.code === 'ETIMEDOUT' ||
+    error.code === 'ENOTFOUND' ||
+    error.code === 'PROTOCOL_CONNECTION_LOST'
+  ) {
     return true
   }
 
@@ -18,18 +23,22 @@ function isDatabaseConnectionError(error) {
 
 function getDatabaseErrorMessage(error) {
   if (!error) {
-    return 'Database is unavailable. Start MySQL in Laragon and try again.'
+    return 'Database is unavailable. Check DB_HOST / DB_PORT / DB_SSL and try again.'
   }
 
   if (error.code === 'ER_ACCESS_DENIED_ERROR') {
-    return 'Database rejected the connection. Check DB_USER and DB_PASSWORD in backend/.env.'
+    return 'Database rejected the connection. Check DB_USER and DB_PASSWORD.'
   }
 
   if (error.code === 'ER_BAD_DB_ERROR') {
     return `Database ${process.env.DB_NAME || 'mlu_kitchen_cafe_db'} was not found. Create/import the schema, then try again.`
   }
 
-  return 'Database is unavailable. Start MySQL in Laragon and try again.'
+  if (error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+    return 'Cannot reach the database. Verify DB_HOST, DB_PORT, and set DB_SSL=true for hosted MySQL (e.g. Aiven).'
+  }
+
+  return 'Database is unavailable. Check DB_HOST / DB_PORT / DB_SSL and try again.'
 }
 
 module.exports = {

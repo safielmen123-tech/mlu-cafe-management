@@ -11,9 +11,11 @@ function resolveDbHost(host) {
 
 const pool = mysql.createPool({
   host: resolveDbHost(env.db.host),
+  port: env.db.port,
   user: env.db.user,
   password: env.db.password,
   database: env.db.database,
+  ...(env.db.ssl ? { ssl: env.db.ssl } : {}),
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
