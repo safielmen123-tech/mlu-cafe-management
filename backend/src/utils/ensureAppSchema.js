@@ -1,3 +1,4 @@
+const { ensureBaseSchema } = require('./ensureBaseSchema')
 const { ensureOrderItemsSchema } = require('./orderTargets')
 const { ensureSessionSecuritySchema } = require('./sessionSecurity')
 const { ensureMenuItemsSchema } = require('./menuItemsSchema')
@@ -13,6 +14,8 @@ const { ensureAppSettingsSchema } = require('./appSettings')
 const { ensureLoginSecuritySchema } = require('./loginSecurity')
 
 async function ensureApplicationSchema(db) {
+  // Empty cloud DBs (Aiven defaultdb) have no tables until this runs.
+  await ensureBaseSchema(db)
   await ensureInventorySchema(db)
   await ensureStockSchema(db)
   const restoredSaleDates = await ensureOrdersSchema(db)

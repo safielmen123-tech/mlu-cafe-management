@@ -2151,6 +2151,7 @@ app.listen(PORT, async () => {
         await db.execute('SELECT 1');
         console.log(`   Database connection: OK (${resolveDbHost(env.db.host)}:${env.db.port}/${env.db.database}${env.db.ssl ? ', SSL' : ''})`);
         const restoredSaleDates = await ensureApplicationSchema(db);
+        console.log('   Database schema: OK (CREATE TABLE IF NOT EXISTS + migrations)');
         startReservationReminderJob(db);
         startLoginSecurityCleanup(db);
         startRevokedTokenCleanup(db);

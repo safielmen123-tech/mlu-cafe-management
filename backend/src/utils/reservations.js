@@ -52,6 +52,17 @@ async function ensureColumn(db, table, column, definition) {
 }
 
 async function ensureFloorTables(db) {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS \`tables\` (
+      id INT NOT NULL AUTO_INCREMENT,
+      table_name VARCHAR(20) NOT NULL,
+      section VARCHAR(20) NOT NULL DEFAULT 'standard',
+      capacity INT NOT NULL DEFAULT 4,
+      status ENUM('Empty', 'Occupied', 'Pending Bill') NOT NULL DEFAULT 'Empty',
+      PRIMARY KEY (id),
+      UNIQUE KEY table_name (table_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
   await ensureColumn(db, 'tables', 'section', "VARCHAR(20) NOT NULL DEFAULT 'standard' AFTER table_name")
   await ensureColumn(db, 'tables', 'capacity', 'INT NOT NULL DEFAULT 4 AFTER section')
 
